@@ -1,0 +1,3644 @@
+import { TireMarker } from './tire-marker.js';
+import { TruckDiagram, renderLayoutPreview } from './truck-diagram.js';
+import { renderPerfilSulco } from './perfil-sulco.js';
+
+const API = import.meta.env.VITE_API_URL || '/api';
+const AUTH_KEY = 'pneu_auth';
+
+let meta = { posicoes: {}, tipos: [], layouts: [], layout_padrao: 'truck_10' };
+let veiculoLayoutId = null;
+let veiculoAtual = null;
+let pneuSelecionado = null;
+let truckDiagram = null;
+let truckTireMarker = null;
+let autoSaveTimer = null;
+let voltarPara = 'dashboard';
+let currentUser = null;
+let authToken = null;
+let slotPosicaoSelecionada = null;
+let modoAcessoRapido = false;
+let tokenAcessoRapido = null;
+
+const LAYOUT_POR_TIPO = {
+  'Truck / Tração': 'truck_10',
+  'Toco / Mini': 'toco_6',
+};
+
+let veiculosCache = [];
+let filiaisCache = [];
+let tireMarker = null;
+let limitesAtuais = {
+  sulco_critico_mm: 3.0,
+  sulco_alerta_mm: 8.0,
+  sulco_recap_mm: 3.0,
+  sulco_novo_mm: 14.0,
+  max_recaps: 6,
+  prazo_recap_dias: 15,
+  diagnostico_tolerancia_mm: 1.0,
+  acoes: {
+    troca: { label: 'Trocar', instrucao: 'Crítico — retirar e trocar o pneu' },
+    recap: { label: 'Recapagem', instrucao: 'Iniciar processo de recap em até 15 dias' },
+    monitorar: { label: 'Monitorar', instrucao: 'Programar substituição — iniciar processo de recap em até 15 dias' },
+    rodizio: { label: 'Mudar posição', instrucao: 'Mudar de posição no caminhão (não faz balanceamento no eixo traseiro)' },
+    ok: { label: 'OK', instrucao: 'Manter em operação — sulco adequado' },
+  },
+  rodizio_desvio_mm: 3,
+  rodizio_similaridade_mm: 2.5,
+};
+
+const LIMITES_PADRAO = { ...limitesAtuais };
+
+function loadAuth() {
+  try {
+    const raw = localStorage.getItem(AUTH_KEY);
+    if (!raw) return null;
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
+
+function saveAuth(token, usuario) {
+  authToken = token;
+  currentUser = usuario;
+  localStorage.setItem(AUTH_KEY, JSON.stringify({ token, usuario }));
+}
+
+function clearAuth() {
+  authToken = null;
+  currentUser = null;
+  localStorage.removeItem(AUTH_KEY);
+}
+
+function isAdmin() {
+  return currentUser?.papel === 'admin';
+}
+
+function isGerente() {
+  return currentUser?.papel === 'gerente';
+}
+
+function isGestao() {
+  return isAdmin() || isGerente();
+}
+
+function escapeHtml(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
+async function fetchJSON(url, options = {}) {
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(options.headers || {}),
+  };
+  if (authToken) headers.Authorization = `Bearer ${authToken}`;
+  if (modoAcessoRapido && tokenAcessoRapido) {
+    headers['X-Acesso-Rapido-Token'] = tokenAcessoRapido;
+  }
+
+  const resp = await fetch(url, { ...options, headers });
+  let data;
+  try {
+    data = await resp.json();
+  } catch {
+    data = {};
+  }
+  if (resp.status === 401) {
+    const isLogin = url.includes('/auth/login');
+    const isAcessoRapido = url.includes('/acesso-rapido') || modoAcessoRapido;
+    // Erros do WuzAPI/WhatsApp nunca devem derrubar a sessão do app
+    const isWhatsappProxy = url.includes('/whatsapp/');
+    if (!isLogin && !isAcessoRapido && !isWhatsappProxy) {
+      clearAuth();
+      showLogin();
+    }
+    throw new Error(data.erro || (isLogin ? 'Login ou senha inválidos' : 'Sessão expirada — faça login novamente'));
+  }
+  if (!resp.ok) {
+    const msg = data.erro || (resp.status === 404
+      ? 'Recurso não encontrado — reinicie o backend (npm run dev)'
+      : 'Erro na requisição');
+    const err = new Error(msg);
+    err.data = data;
+    throw err;
+  }
+  return data;
+}
+
+async function fetchConfiguracoes() {
+  try {
+    return await fetchJSON(`${API}/configuracoes`);
+  } catch {
+    return { ...LIMITES_PADRAO };
+  }
+}
+
+function toast(msg, type = '') {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = `toast ${type}`;
+  setTimeout(() => el.classList.add('hidden'), 3500);
+}
+
+function badge(status) {
+  const labels = {
+    ok: 'OK',
+    alerta: 'Monitorar',
+    critico: 'Crítico',
+    sem_dado: 'Sem medição',
+  };
+  return `<span class="badge badge-${status}">${labels[status] || status}</span>`;
+}
+
+function badgeAcao(codigo, label) {
+  if (!codigo || codigo === 'ok') return '';
+  return `<span class="badge badge-acao badge-acao-${codigo}">${label || codigo}</span>`;
+}
+
+function formatDate(d) {
+  if (!d) return '-';
+  const [y, m, day] = d.split('-');
+  return `${day}/${m}/${y}`;
+}
+
+/** Corrige tipos com acento corrompido vindos do banco */
+function normalizarTipoLabel(tipo) {
+  if (!tipo) return tipo;
+  if (/^Truck\s*\/\s*Tra/i.test(tipo) && tipo !== 'Truck / Tração') return 'Truck / Tração';
+  if (tipo.includes('\uFFFD') || tipo.includes('�')) {
+    return tipo
+      .replace(/Truck\s*\/\s*Tra.+?o/i, 'Truck / Tração')
+      .replace(/Caminh.?o/gi, 'Caminhão')
+      .replace(/Utilit.?rio/gi, 'Utilitário')
+      .replace(/Ve.?culo/gi, 'Veículo');
+  }
+  return tipo;
+}
+
+function numOrNull(id) {
+  const v = parseFloat(document.getElementById(id)?.value);
+  return Number.isFinite(v) ? v : null;
+}
+
+function atualizarPreviewLimites() {
+  const critico = parseFloat(document.getElementById('cfg-critico')?.value) || limitesAtuais.sulco_critico_mm;
+  const monitorar = parseFloat(document.getElementById('cfg-alerta')?.value) || limitesAtuais.sulco_alerta_mm;
+  const prazo = parseInt(document.getElementById('cfg-prazo-recap')?.value, 10) || limitesAtuais.prazo_recap_dias || 15;
+
+  const elCritico = document.getElementById('preview-critico');
+  const elAlerta = document.getElementById('preview-alerta');
+  const elOk = document.getElementById('preview-ok');
+  if (elCritico) elCritico.textContent = `< ${critico} mm`;
+  if (elAlerta) elAlerta.textContent = `${critico} – ${monitorar} mm`;
+  if (elOk) elOk.textContent = `> ${monitorar} mm`;
+
+  const hintMon = document.getElementById('hint-faixa-monitorar');
+  const hintOk = document.getElementById('hint-faixa-ok');
+  if (hintMon) hintMon.textContent = `De ${critico} mm até ${monitorar} mm · recap em até ${prazo} dias`;
+  if (hintOk) hintOk.textContent = `Acima de ${monitorar} mm`;
+
+  // Mantém cfg-recap alinhado ao crítico (sem banda intermediária)
+  const cfgRecap = document.getElementById('cfg-recap');
+  if (cfgRecap) cfgRecap.value = String(critico);
+
+  const trocaL = document.getElementById('cfg-acao-troca-label')?.value?.trim() || 'Trocar';
+  const monL = document.getElementById('cfg-acao-monitorar-label')?.value?.trim() || 'Monitorar';
+  const okL = document.getElementById('cfg-acao-ok-label')?.value?.trim() || 'OK';
+  const trocaI = document.getElementById('cfg-acao-troca-instrucao')?.value?.trim() || '—';
+  const monI = document.getElementById('cfg-acao-monitorar-instrucao')?.value?.trim() || '—';
+  const okI = document.getElementById('cfg-acao-ok-instrucao')?.value?.trim() || '—';
+
+  const setTxt = (id, txt) => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = txt;
+  };
+  setTxt('preview-label-troca', trocaL);
+  setTxt('preview-label-monitorar', monL);
+  setTxt('preview-label-ok', okL);
+  setTxt('leg-troca-label', `${trocaL}:`);
+  setTxt('leg-monitorar-label', `${monL}:`);
+  setTxt('leg-ok-label', `${okL}:`);
+  setTxt('leg-troca-instrucao', trocaI);
+  setTxt('leg-monitorar-instrucao', monI);
+  setTxt('leg-ok-instrucao', okI);
+}
+
+function hintLimites() {
+  const { sulco_critico_mm: c, sulco_alerta_mm: a, prazo_recap_dias: p, acoes } = limitesAtuais;
+  const t = acoes?.troca?.label || 'Trocar';
+  const m = acoes?.monitorar?.label || 'Monitorar';
+  const o = acoes?.ok?.label || 'OK';
+  return `< ${c} mm → ${t} · ${c}–${a} mm → ${m} (recap ${p || 15}d) · > ${a} mm → ${o}`;
+}
+
+function mostrarAcaoInstrucao(pneuOuResult) {
+  const el = document.getElementById('truck-acao-instrucao');
+  if (!el) return;
+  const texto = pneuOuResult?.acao_motivo
+    || pneuOuResult?.acao_instrucao
+    || limitesAtuais.acoes?.[pneuOuResult?.acao_sugerida]?.instrucao
+    || '';
+  const codigo = pneuOuResult?.acao_sugerida || 'ok';
+  if (!texto) {
+    el.classList.add('hidden');
+    el.textContent = '';
+    return;
+  }
+  el.textContent = texto;
+  el.className = 'acao-instrucao';
+  if (codigo === 'troca') el.classList.add('critico');
+  else if (codigo === 'recap') el.classList.add('recap');
+  else if (codigo === 'monitorar') el.classList.add('alerta');
+  else if (codigo === 'rodizio') el.classList.add('rodizio');
+  el.classList.remove('hidden');
+}
+
+function mostrarRodizioSugestao(pneuOuResult) {
+  const el = document.getElementById('truck-rodizio-sugestao');
+  if (!el) return;
+  const sug = pneuOuResult?.rodizio_sugestao;
+  if (!sug || pneuOuResult?.acao_sugerida !== 'rodizio') {
+    el.classList.add('hidden');
+    el.innerHTML = '';
+    return;
+  }
+  el.innerHTML = `
+    <strong>Par sugerido para rodízio</strong>
+    ${sug.label || 'Outro pneu'}
+    ${sug.motivo ? `<br><span class="hint">${sug.motivo}</span>` : ''}
+  `;
+  el.classList.remove('hidden');
+}
+
+function showView(name) {
+  document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
+  const el = document.getElementById(`view-${name}`);
+  if (el) el.classList.add('active');
+  document.querySelectorAll('.tab').forEach((t) => {
+    t.classList.toggle('active', t.dataset.view === name);
+  });
+}
+
+function showLogin() {
+  document.getElementById('app-login').classList.remove('hidden');
+  document.getElementById('app-shell').classList.add('hidden');
+}
+
+function showAppShell() {
+  document.getElementById('app-login').classList.add('hidden');
+  document.getElementById('app-shell').classList.remove('hidden');
+
+  const navFilial = document.getElementById('nav-tabs-filial');
+  const navAdmin = document.getElementById('nav-tabs-admin');
+  const navGerente = document.getElementById('nav-tabs-gerente');
+  const label = document.getElementById('header-user-label');
+  const subtitle = document.getElementById('header-subtitle');
+
+  navFilial.classList.add('hidden');
+  navAdmin.classList.add('hidden');
+  navGerente?.classList.add('hidden');
+
+  if (isAdmin()) {
+    navAdmin.classList.remove('hidden');
+    label.textContent = `Admin total · ${currentUser.login}`;
+    subtitle.textContent = 'Relatórios, acessos e configuração global';
+    document.getElementById('btn-salvar-config')?.classList.remove('hidden');
+    document.getElementById('btn-nova-filial')?.classList.remove('hidden');
+    const tit = document.getElementById('filiais-titulo');
+    const hint = document.getElementById('filiais-hint');
+    if (tit) tit.textContent = 'Filiais';
+    if (hint) hint.textContent = 'Abra o perfil da filial para alertas, frota e chatbot WhatsApp.';
+  } else if (isGerente()) {
+    navGerente?.classList.remove('hidden');
+    const nome = currentUser.filial?.nome || 'Multiunidade';
+    label.textContent = `Gerente · ${nome} · ${currentUser.login}`;
+    subtitle.textContent = 'Alertas, compras e acessos da sua unidade';
+    document.getElementById('btn-salvar-config')?.classList.add('hidden');
+    document.getElementById('btn-nova-filial')?.classList.add('hidden');
+    const tit = document.getElementById('filiais-titulo');
+    const hint = document.getElementById('filiais-hint');
+    if (tit) tit.textContent = 'Minha unidade';
+    if (hint) hint.textContent = 'Abra o perfil da unidade para alertas, frota e configurar o chatbot WhatsApp.';
+  } else {
+    navFilial.classList.remove('hidden');
+    const nomeFilial = currentUser.filial?.nome || currentUser.filial?.codigo || 'Filial';
+    label.textContent = `${nomeFilial} · ${currentUser.login}`;
+    subtitle.textContent = 'Medições semanais e alertas da sua frota';
+    document.getElementById('btn-salvar-config')?.classList.add('hidden');
+  }
+}
+
+function syncMarkersLimites() {
+  tireMarker?.setLimites?.(limitesAtuais);
+  truckTireMarker?.setLimites?.(limitesAtuais);
+}
+
+function pontosFromInputs(prefix) {
+  if (prefix === 'truck') {
+    return {
+      externo: numOrNull('truck-sulco-ext'),
+      central: numOrNull('truck-sulco-cent'),
+      interno: numOrNull('truck-sulco-int'),
+      auxiliar: numOrNull('truck-sulco-aux'),
+    };
+  }
+  return {
+    externo: numOrNull('med-externo'),
+    central: numOrNull('med-central'),
+    interno: numOrNull('med-interno'),
+    auxiliar: numOrNull('med-auxiliar'),
+  };
+}
+
+function atualizarPerfilLocal(containerId, pontos, diagnostico = null) {
+  renderPerfilSulco(containerId, pontos, limitesAtuais, diagnostico);
+}
+
+// ── Navegação ────────────────────────────────────────────
+
+document.querySelectorAll('.tab').forEach((tab) => {
+  tab.addEventListener('click', () => {
+    const view = tab.dataset.view;
+    showView(view);
+    if (view === 'dashboard') loadDashboard();
+    if (view === 'veiculos') loadVeiculos();
+    if (view === 'pneus') loadPneus();
+    if (view === 'medicao') initMedicao();
+    if (view === 'alertas') loadAlertas();
+    if (view === 'acoes') loadAcoes();
+    if (view === 'chatbot') loadChatbotOperador();
+    if (view === 'configuracoes') {
+      if (!isAdmin()) {
+        toast('Limites são definidos pelo administrador total', 'error');
+        showView(isGerente() ? 'filiais' : 'dashboard');
+        if (isGerente()) loadFiliais();
+        else loadDashboard();
+        return;
+      }
+      loadConfiguracoes();
+    }
+    if (view === 'filiais') {
+      if (!isGestao()) {
+        toast('Acesso restrito a gerentes e admin', 'error');
+        return;
+      }
+      loadFiliais();
+    }
+    if (view === 'usuarios') {
+      if (!isGestao()) return toast('Acesso restrito', 'error');
+      loadUsuarios();
+    }
+    if (view === 'relatorios') {
+      if (!isAdmin()) return toast('Relatórios da diretoria: só admin total', 'error');
+      loadRelatorioDiretoria();
+    }
+  });
+});
+
+document.getElementById('btn-logout')?.addEventListener('click', () => {
+  clearAuth();
+  showLogin();
+  toast('Sessão encerrada');
+});
+
+document.getElementById('form-login')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const erro = document.getElementById('login-erro');
+  erro.classList.add('hidden');
+  try {
+    const data = await fetchJSON(`${API}/auth/login`, {
+      method: 'POST',
+      body: JSON.stringify({
+        login: document.getElementById('login-user').value,
+        senha: document.getElementById('login-senha').value,
+      }),
+    });
+    saveAuth(data.token, data.usuario);
+    document.getElementById('login-senha').value = '';
+    await bootApp();
+  } catch (err) {
+    erro.textContent = err.message;
+    erro.classList.remove('hidden');
+  }
+});
+
+document.getElementById('btn-voltar-dashboard').addEventListener('click', () => {
+  showView(voltarPara);
+  if (voltarPara === 'dashboard') loadDashboard();
+  else if (voltarPara === 'acoes') loadAcoes();
+  else loadVeiculos();
+});
+
+async function fetchDashboardResumo() {
+  try {
+    return await fetchJSON(`${API}/dashboard/resumo`);
+  } catch {
+    const veiculos = await fetchJSON(`${API}/veiculos`);
+    return {
+      veiculos_ativos: veiculos.length,
+      pneus_ok: 0,
+      pneus_alerta: 0,
+      pneus_critico: 0,
+      acoes: { troca: 0, recap: 0, monitorar: 0 },
+      limites: limitesAtuais,
+    };
+  }
+}
+
+// ── Dashboard ──────────────────────────────────────────
+
+async function loadDashboard() {
+  try {
+    const [resumo, veiculos] = await Promise.all([
+      fetchDashboardResumo(),
+      fetchJSON(`${API}/veiculos`),
+    ]);
+    veiculosCache = veiculos;
+    limitesAtuais = { ...limitesAtuais, ...resumo.limites };
+    syncMarkersLimites();
+
+    document.getElementById('stat-veiculos').textContent = resumo.veiculos_ativos;
+    document.getElementById('stat-ok').textContent = resumo.pneus_ok;
+    document.getElementById('stat-alerta').textContent = resumo.pneus_alerta;
+    document.getElementById('stat-critico').textContent = resumo.pneus_critico;
+    document.getElementById('stat-troca').textContent = resumo.acoes?.troca ?? 0;
+    document.getElementById('stat-recap').textContent = resumo.acoes?.monitorar ?? 0;
+    document.getElementById('stat-monitorar').textContent = resumo.acoes?.rodizio ?? 0;
+
+    const hint = document.getElementById('dashboard-limites-hint');
+    if (hint) hint.textContent = hintLimites();
+
+    const lista = document.getElementById('dashboard-lista');
+    if (!veiculos.length) {
+      lista.innerHTML = '<div class="empty-state"><h3>Nenhum veículo cadastrado</h3><p>Cadastre seu primeiro veículo na aba Veículos</p></div>';
+      return;
+    }
+
+    lista.innerHTML = veiculos.map((v) => `
+      <div class="veiculo-card" data-id="${v.id}">
+        <div class="veiculo-info">
+          <h4>${v.apelido || v.placa}</h4>
+          <p>${v.placa} · ${v.tipo} · ${v.km_atual?.toLocaleString('pt-BR') || 0} km</p>
+        </div>
+        <div class="veiculo-meta">
+          ${v.menor_sulco != null ? `<span style="font-weight:600">${v.menor_sulco} mm</span>` : ''}
+          ${badge(v.status_sulco)}
+        </div>
+      </div>
+    `).join('');
+
+    lista.querySelectorAll('.veiculo-card').forEach((card) => {
+      card.addEventListener('click', () => openVeiculoDetalhe(card.dataset.id, 'dashboard'));
+    });
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+// ── Veículos ───────────────────────────────────────────
+
+async function loadVeiculos() {
+  try {
+    const veiculos = await fetchJSON(`${API}/veiculos`);
+    veiculosCache = veiculos;
+    const lista = document.getElementById('veiculos-lista');
+
+    if (!veiculos.length) {
+      lista.innerHTML = '<div class="empty-state"><h3>Nenhum veículo</h3><p>Clique em "+ Novo Veículo" para começar</p></div>';
+      return;
+    }
+
+    lista.innerHTML = veiculos.map((v) => `
+      <div class="veiculo-card" data-id="${v.id}">
+        <div class="veiculo-info">
+          <h4>${v.apelido || v.placa}</h4>
+          <p>${v.placa} · ${v.tipo} · ${v.total_pneus} pneus · ${v.km_atual?.toLocaleString('pt-BR') || 0} km</p>
+        </div>
+        <div class="veiculo-meta">
+          ${badge(v.status_sulco)}
+          <button class="btn btn-sm btn-primary btn-medir" data-id="${v.id}">Medir</button>
+        </div>
+      </div>
+    `).join('');
+
+    lista.querySelectorAll('.veiculo-card').forEach((card) => {
+      card.addEventListener('click', (e) => {
+        if (e.target.classList.contains('btn-medir')) return;
+        openVeiculoDetalhe(card.dataset.id, 'veiculos');
+      });
+    });
+
+    lista.querySelectorAll('.btn-medir').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openVeiculoDetalhe(btn.dataset.id, 'veiculos');
+      });
+    });
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+async function openVeiculoDetalhe(id, origem = 'dashboard', dadosPreload = null) {
+  voltarPara = origem;
+  try {
+    const v = dadosPreload || await fetchJSON(`${API}/veiculos/${id}`);
+    veiculoAtual = v;
+    veiculoLayoutId = v.id;
+
+    if (v.posicoes) meta = { ...meta, posicoes: v.posicoes };
+    if (v.limites) {
+      limitesAtuais = { ...limitesAtuais, ...v.limites };
+      syncMarkersLimites();
+    }
+
+    const layoutInfo = getLayoutById(v.layout_pneus);
+    const nPos = v.posicoes_layout?.length || v.layout?.posicoes?.length || v.pneus.length;
+    document.getElementById('truck-header').innerHTML = `
+      <h2>${v.apelido || v.placa}</h2>
+      <p class="hint">${v.placa} · ${normalizarTipoLabel(v.tipo)} · ${v.km_atual?.toLocaleString('pt-BR') || 0} km
+        ${v.hr_atual ? ` · ${v.hr_atual} h` : ''}
+        · ${layoutInfo?.nome || 'Personalizado'}
+        · ${v.pneus.length}/${nPos} pneus montados</p>
+    `;
+
+    const barRapido = document.getElementById('acesso-rapido-bar');
+    if (barRapido) barRapido.classList.toggle('hidden', !modoAcessoRapido);
+
+    const btnVoltar = document.getElementById('btn-voltar-dashboard');
+    if (btnVoltar) btnVoltar.classList.toggle('hidden', modoAcessoRapido);
+
+    const banner = document.getElementById('truck-fluxo-banner');
+    if (banner) {
+      if (modoAcessoRapido) {
+        banner.classList.remove('hidden');
+        banner.innerHTML = `
+          <strong>Modo campo (WhatsApp)</strong>
+          <span>1) Toque no pneu para medir o sulco · 2) Toque no slot vazio (+) para informar pneu novo · 3) Os sulcos salvam sozinhos</span>`;
+      } else if (v.pneus.length === 0) {
+        banner.classList.remove('hidden');
+        banner.innerHTML = `
+          <strong>Clique em uma posição vazia para colocar o pneu</strong>
+          Não precisa ir na aba Pneus: no slot (+) você cria e monta na hora.
+          Se já tiver pneu no estoque, use a aba “Do estoque”.`;
+      } else if (v.pneus.length < nPos) {
+        banner.classList.remove('hidden');
+        banner.innerHTML = `
+          <strong>${v.pneus.length} de ${nPos} posições com pneu</strong>
+          Clique em um slot vazio (+) para colocar o próximo.`;
+      } else {
+        banner.classList.add('hidden');
+        banner.innerHTML = '';
+      }
+    }
+
+    document.getElementById('historico-pneu').innerHTML = '';
+    document.getElementById('truck-panel-form').classList.add('hidden');
+    document.querySelector('.truck-panel-empty').classList.remove('hidden');
+    pneuSelecionado = null;
+    slotPosicaoSelecionada = null;
+
+    const posicoesLayout = v.posicoes_layout?.length
+      ? v.posicoes_layout.map((p) => p.codigo)
+      : (v.layout?.posicoes || v.pneus.map((p) => p.posicao));
+
+    if (!truckDiagram) {
+      truckDiagram = new TruckDiagram('truck-diagram-container', {
+        onPneuClick: (pneu) => selecionarPneuTruck(pneu),
+        onSlotClick: (posicao) => selecionarSlotVazio(posicao),
+      });
+    }
+    truckDiagram.render(v.pneus, meta.posicoes, posicoesLayout);
+
+    document.getElementById('truck-km').value = v.km_atual || '';
+    document.getElementById('truck-hr').value = v.hr_atual || '';
+    document.getElementById('btn-truck-config').onclick = () => {
+      if (modoAcessoRapido) return toast('Indisponível no acesso rápido', 'error');
+      abrirConfigLayout(
+        v.id,
+        v.apelido || v.placa,
+        v.layout_pneus,
+        posicoesLayout
+      );
+    };
+
+    const btnWa = document.getElementById('btn-truck-whatsapp');
+    if (btnWa) {
+      btnWa.classList.toggle('hidden', modoAcessoRapido);
+      btnWa.onclick = () => gerarLinkWhatsApp(v.id, v.placa);
+    }
+
+    aplicarVisibilidadeAcessoRapido();
+    showView('veiculo-detalhe');
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+function labelPadraoPneu(codigo) {
+  const map = {
+    direcional: 'Direcional',
+    misto: 'Misto (tração)',
+    borrachudo: 'Borrachudo',
+  };
+  return map[codigo] || codigo || '—';
+}
+
+function formatUltimaMedicaoSulco(pneu) {
+  const u = pneu.ultima_medicao;
+  const menor = pneu.menor_sulco ?? u?.menor_sulco;
+  const data = u?.data || pneu.ult_medicao;
+  if (menor == null && !data) return 'Sem medição';
+  const pts = [
+    u?.sulco_externo ?? pneu.ult_sulco_ext,
+    u?.sulco_central ?? pneu.ult_sulco_cent,
+    u?.sulco_interno ?? pneu.ult_sulco_int,
+    u?.sulco_auxiliar ?? pneu.ult_sulco_aux,
+  ].map((v) => (v != null ? `${v}` : '—')).join(' · ');
+  const dataTxt = data ? formatDate(data) : '—';
+  return `${menor != null ? `${menor} mm` : '—'} (${pts}) · ${dataTxt}`;
+}
+
+function atualizarResumoPneuTruck(pneu) {
+  const partes = [];
+  if (pneu.numero_fogo) partes.push(`Fogo ${pneu.numero_fogo}`);
+  if (pneu.marca) partes.push(pneu.marca);
+  if (pneu.dot) partes.push(`DOT ${pneu.dot}`);
+  document.getElementById('truck-pneu-resumo').textContent = partes.length
+    ? partes.join(' · ')
+    : 'Pneu montado nesta posição';
+
+  const elPadrao = document.getElementById('truck-pneu-padrao');
+  const elCond = document.getElementById('truck-pneu-condicao-label');
+  const elSulco = document.getElementById('truck-pneu-ultima-sulco');
+  if (elPadrao) elPadrao.textContent = pneu.padrao_label || labelPadraoPneu(pneu.tipo_pneu);
+  if (elCond) elCond.textContent = pneu.vida_label || (pneu.condicao === 'recapado' ? 'Recapado' : 'Novo');
+  if (elSulco) elSulco.textContent = formatUltimaMedicaoSulco(pneu);
+}
+
+function aplicarVisibilidadeAcessoRapido() {
+  const idsOps = [
+    'btn-truck-desmontar',
+    'btn-truck-reposicionar',
+    'btn-truck-recap',
+    'btn-truck-troca',
+    'btn-truck-config',
+  ];
+  idsOps.forEach((id) => {
+    const el = document.getElementById(id);
+    if (el) el.classList.toggle('hidden', modoAcessoRapido);
+  });
+  // No acesso rápido permite montar pneu novo; estoque fica oculto
+  const tabEstoque = document.querySelector('.montar-tab[data-montar-tab="estoque"]');
+  if (tabEstoque) tabEstoque.classList.toggle('hidden', modoAcessoRapido);
+  const avancado = document.querySelector('#truck-montar-novo .form-avancado');
+  if (avancado && modoAcessoRapido) avancado.classList.add('hidden');
+  const custo = document.getElementById('truck-novo-custo')?.closest('.form-group');
+  const nota = document.getElementById('truck-novo-nota')?.closest('.form-group');
+  if (custo) custo.classList.toggle('hidden', modoAcessoRapido);
+  if (nota) nota.classList.toggle('hidden', modoAcessoRapido);
+  const bar = document.getElementById('acesso-rapido-bar');
+  if (bar && modoAcessoRapido) {
+    bar.innerHTML = `
+      <span><strong>Modo campo</strong> — meça sulcos ou informe pneu novo · link 24h</span>
+      <button type="button" class="btn btn-ghost btn-sm" id="btn-rapido-recarregar">Atualizar</button>`;
+    document.getElementById('btn-rapido-recarregar')?.addEventListener('click', () => recarregarAcessoRapido());
+  }
+}
+
+async function recarregarAcessoRapido() {
+  if (!tokenAcessoRapido) return;
+  try {
+    const data = await fetchJSON(`${API}/veiculos/acesso-rapido?token=${encodeURIComponent(tokenAcessoRapido)}`);
+    tokenAcessoRapido = data.token_acesso || tokenAcessoRapido;
+    await openVeiculoDetalhe(data.id, 'acesso-rapido', data);
+    toast('Veículo atualizado', 'success');
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+async function gerarLinkWhatsApp(veiculoId, placa) {
+  try {
+    const data = await fetchJSON(`${API}/veiculos/${veiculoId}/link-whatsapp`);
+    const texto = `🚛 *${data.placa || placa}*\n👉 ${data.link}`;
+    window.open(`https://wa.me/?text=${encodeURIComponent(texto)}`, '_blank');
+    toast('Link gerado — abrindo WhatsApp', 'success');
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+function selecionarPneuTruck(pneu) {
+  pneuSelecionado = pneu;
+  slotPosicaoSelecionada = null;
+  document.querySelector('.truck-panel-empty').classList.add('hidden');
+  document.getElementById('truck-panel-form').classList.remove('hidden');
+  document.getElementById('truck-montar-box').classList.add('hidden');
+  document.getElementById('truck-medicao-box').classList.remove('hidden');
+
+  const nome = meta.posicoes[pneu.posicao] || pneu.posicao_label || pneu.posicao;
+  document.getElementById('truck-pneu-nome').textContent =
+    `${nome}${pneu.numero_fogo ? ` · Fogo ${pneu.numero_fogo}` : ''}`;
+  document.getElementById('truck-pneu-status').innerHTML = badge(pneu.status_sulco);
+  document.getElementById('truck-pneu-acao').innerHTML = badgeAcao(pneu.acao_sugerida, pneu.acao_label);
+  document.getElementById('truck-pneu-vida').innerHTML = pneu.vida_label
+    ? `<span class="badge badge-vida">${pneu.vida_label}${pneu.vida_util_pct != null ? ` · ${pneu.vida_util_pct}%` : ''}</span>`
+    : '';
+
+  atualizarResumoPneuTruck(pneu);
+
+  document.getElementById('truck-sulco-ext').value = pneu.ult_sulco_ext ?? '';
+  document.getElementById('truck-sulco-cent').value = pneu.ult_sulco_cent ?? '';
+  document.getElementById('truck-sulco-int').value = pneu.ult_sulco_int ?? '';
+  document.getElementById('truck-sulco-aux').value = pneu.ult_sulco_aux ?? '';
+  document.getElementById('truck-pressao').value = '';
+  document.getElementById('truck-save-status').textContent = 'Preencha os sulcos — salva automaticamente';
+  document.getElementById('truck-save-status').className = 'hint save-status';
+  document.getElementById('truck-diagnostico').textContent = pneu.diagnostico_label
+    ? `Diagnóstico: ${pneu.diagnostico_label}`
+    : '';
+  mostrarAcaoInstrucao(pneu);
+  mostrarRodizioSugestao(pneu);
+
+  const pontos = {
+    externo: pneu.ult_sulco_ext,
+    central: pneu.ult_sulco_cent,
+    interno: pneu.ult_sulco_int,
+    auxiliar: pneu.ult_sulco_aux,
+  };
+  atualizarPerfilLocal('truck-perfil', pontos, {
+    label: pneu.diagnostico_label,
+    desc: pneu.acao_motivo,
+  });
+
+  if (!truckTireMarker) {
+    truckTireMarker = new TireMarker('truck-mini-marker', {
+      limites: limitesAtuais,
+      onSulcoClick: (sulco) => {
+        const map = {
+          externo: 'truck-sulco-ext',
+          central: 'truck-sulco-cent',
+          interno: 'truck-sulco-int',
+          auxiliar: 'truck-sulco-aux',
+        };
+        const input = document.getElementById(map[sulco]);
+        if (!input) return;
+        input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        input.focus({ preventScroll: true });
+        input.select();
+      },
+    });
+  }
+  truckTireMarker.setLimites(limitesAtuais);
+  truckTireMarker.setValores(
+    pneu.ult_sulco_ext,
+    pneu.ult_sulco_cent,
+    pneu.ult_sulco_int,
+    pneu.ult_sulco_aux
+  );
+
+  document.getElementById('btn-truck-historico').onclick = () => abrirHistoricoPneu(pneu.id);
+  document.getElementById('btn-truck-desmontar').onclick = () => desmontarPneuTruck();
+  document.getElementById('btn-truck-reposicionar').onclick = () => reposicionarPneuTruck();
+  document.getElementById('btn-truck-recap').onclick = () => registrarEventoPneu('recap');
+  document.getElementById('btn-truck-troca').onclick = () => registrarEventoPneu('descarte');
+  aplicarVisibilidadeAcessoRapido();
+
+  // Prazo de recap (15 dias) quando em monitorar
+  let elPrazo = document.getElementById('truck-prazo-recap');
+  if (!elPrazo) {
+    elPrazo = document.createElement('p');
+    elPrazo.id = 'truck-prazo-recap';
+    elPrazo.className = 'hint';
+    document.getElementById('truck-medicao-box')?.prepend(elPrazo);
+  }
+  if (pneu.status_sulco === 'alerta' && pneu.data_limite_recap) {
+    const dias = pneu.dias_restantes_recap;
+    const urg = dias != null && dias <= 3 ? ' text-critico' : '';
+    elPrazo.className = `hint${urg}`;
+    elPrazo.textContent = dias != null && dias < 0
+      ? `Prazo de recap vencido desde ${formatDate(pneu.data_limite_recap)}`
+      : `Iniciar processo de recap até ${formatDate(pneu.data_limite_recap)}${dias != null ? ` (${dias} dia(s))` : ''}`;
+    elPrazo.classList.remove('hidden');
+  } else {
+    elPrazo.textContent = '';
+    elPrazo.classList.add('hidden');
+  }
+}
+
+async function selecionarSlotVazio(posicao) {
+  pneuSelecionado = null;
+  slotPosicaoSelecionada = posicao;
+  document.querySelector('.truck-panel-empty').classList.add('hidden');
+  document.getElementById('truck-panel-form').classList.remove('hidden');
+  document.getElementById('truck-montar-box').classList.remove('hidden');
+  document.getElementById('truck-medicao-box').classList.add('hidden');
+
+  const nome = meta.posicoes[posicao] || posicao;
+  document.getElementById('truck-pneu-nome').textContent = modoAcessoRapido
+    ? `${nome} — informar pneu novo`
+    : `${nome} — vazio`;
+  document.getElementById('truck-pneu-status').innerHTML = '';
+  document.getElementById('truck-pneu-acao').innerHTML = '';
+  document.getElementById('truck-pneu-vida').innerHTML = '';
+
+  resetFormMontarNovo();
+  setMontarTab('novo');
+  aplicarVisibilidadeAcessoRapido();
+  if (!modoAcessoRapido) {
+    await carregarSelectEstoque();
+  }
+  const hint = document.getElementById('truck-montar-hint');
+  if (hint) {
+    hint.textContent = modoAcessoRapido
+      ? 'Preencha fogo, padrão e modelo e toque em “Criar e montar”.'
+      : 'Posição vazia — coloque um pneu aqui.';
+  }
+}
+
+function resetFormMontarNovo() {
+  const fogo = document.getElementById('truck-novo-fogo');
+  if (fogo) fogo.value = '';
+  const tipo = document.getElementById('truck-novo-tipo');
+  if (tipo) tipo.value = 'misto';
+  const cond = document.getElementById('truck-novo-condicao');
+  if (cond) cond.value = 'novo';
+  const marca = document.getElementById('truck-novo-marca');
+  if (marca) marca.value = '';
+  const modelo = document.getElementById('truck-novo-modelo');
+  if (modelo) modelo.value = '';
+  const custo = document.getElementById('truck-novo-custo');
+  if (custo) custo.value = '';
+  const nota = document.getElementById('truck-novo-nota');
+  if (nota) nota.value = '';
+  const dot = document.getElementById('truck-novo-dot');
+  if (dot) dot.value = '';
+  const vida = document.getElementById('truck-novo-vida');
+  if (vida) vida.value = '0';
+  const sulco = document.getElementById('truck-novo-sulco');
+  if (sulco) sulco.value = '';
+  const avancado = document.querySelector('#truck-montar-novo .form-avancado');
+  if (avancado) avancado.open = false;
+}
+
+function setMontarTab(tab) {
+  document.querySelectorAll('.montar-tab').forEach((btn) => {
+    btn.classList.toggle('ativo', btn.dataset.montarTab === tab);
+  });
+  document.getElementById('truck-montar-novo')?.classList.toggle('hidden', tab !== 'novo');
+  document.getElementById('truck-montar-estoque')?.classList.toggle('hidden', tab !== 'estoque');
+}
+
+async function criarEMontarPneuTruck() {
+  if (!veiculoAtual || !slotPosicaoSelecionada) return;
+  const fogo = document.getElementById('truck-novo-fogo')?.value?.trim();
+  if (!fogo) return toast('Informe o nº de fogo', 'error');
+  const modelo = document.getElementById('truck-novo-modelo')?.value?.trim();
+  if (!modelo) return toast('Informe o modelo do pneu', 'error');
+
+  const btn = document.getElementById('btn-truck-criar-montar');
+  if (btn) btn.disabled = true;
+  try {
+    if (modoAcessoRapido) {
+      if (!tokenAcessoRapido) throw new Error('Token de acesso rápido ausente');
+      const result = await fetchJSON(`${API}/veiculos/acesso-rapido/montar-novo`, {
+        method: 'POST',
+        body: JSON.stringify({
+          token: tokenAcessoRapido,
+          posicao: slotPosicaoSelecionada,
+          numero_fogo: fogo,
+          tipo_pneu: document.getElementById('truck-novo-tipo')?.value || 'misto',
+          condicao: document.getElementById('truck-novo-condicao')?.value || 'novo',
+          marca: document.getElementById('truck-novo-marca')?.value || null,
+          modelo,
+          sulco_inicial_mm: numOrNull('truck-novo-sulco'),
+          km_veiculo: numOrNull('truck-km') ?? veiculoAtual.km_atual,
+          hr_veiculo: numOrNull('truck-hr') ?? veiculoAtual.hr_atual,
+        }),
+      });
+      toast(result.mensagem || 'Pneu montado', 'success');
+      const pos = slotPosicaoSelecionada;
+      tokenAcessoRapido = result.token_acesso || tokenAcessoRapido;
+      await openVeiculoDetalhe(result.veiculo?.id || veiculoAtual.id, 'acesso-rapido', result.veiculo);
+      const montado = veiculoAtual?.pneus?.find((p) => p.posicao === pos);
+      if (montado) {
+        truckDiagram?.setAtivo(montado.id);
+        selecionarPneuTruck(montado);
+        toast('Agora informe os sulcos deste pneu', 'success');
+      }
+      return;
+    }
+
+    const criado = await fetchJSON(`${API}/pneus`, {
+      method: 'POST',
+      body: JSON.stringify({
+        numero_fogo: fogo,
+        tipo_pneu: document.getElementById('truck-novo-tipo')?.value || 'misto',
+        condicao: document.getElementById('truck-novo-condicao')?.value || 'novo',
+        marca: document.getElementById('truck-novo-marca')?.value || null,
+        modelo,
+        custo: numOrNull('truck-novo-custo'),
+        nota_fiscal: document.getElementById('truck-novo-nota')?.value?.trim() || null,
+        dot: document.getElementById('truck-novo-dot')?.value || null,
+        vida_recap: parseInt(document.getElementById('truck-novo-vida')?.value || '0', 10),
+        sulco_inicial_mm: numOrNull('truck-novo-sulco'),
+      }),
+    });
+    const pneuId = criado.pneu?.id || criado.id;
+    if (!pneuId) throw new Error('Pneu criado sem id');
+
+    await fetchJSON(`${API}/pneus/${pneuId}/montar`, {
+      method: 'POST',
+      body: JSON.stringify({
+        veiculo_id: veiculoAtual.id,
+        posicao: slotPosicaoSelecionada,
+        km_veiculo: numOrNull('truck-km') ?? veiculoAtual.km_atual,
+        hr_veiculo: numOrNull('truck-hr') ?? veiculoAtual.hr_atual,
+      }),
+    });
+    toast('Pneu criado e montado');
+    const pos = slotPosicaoSelecionada;
+    await openVeiculoDetalhe(veiculoAtual.id, voltarPara);
+    const montado = veiculoAtual.pneus.find((p) => p.posicao === pos);
+    if (montado) {
+      truckDiagram?.setAtivo(montado.id);
+      selecionarPneuTruck(montado);
+    }
+  } catch (err) {
+    toast(err.message, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function carregarSelectEstoque() {
+  const select = document.getElementById('truck-estoque-select');
+  try {
+    const lista = await fetchJSON(`${API}/pneus?status=estoque`);
+    if (!lista.length) {
+      select.innerHTML = '<option value="">Nenhum pneu no estoque</option>';
+      return;
+    }
+    select.innerHTML = '<option value="">Selecione...</option>' + lista.map((p) => {
+      const label = [
+        p.numero_fogo ? `Fogo ${p.numero_fogo}` : `#${p.id}`,
+        p.marca,
+        p.condicao === 'recapado' ? (p.vida_label || 'Recap') : 'Novo',
+        p.padrao_label || labelPadraoPneu(p.tipo_pneu),
+      ].filter(Boolean).join(' · ');
+      return `<option value="${p.id}">${label}</option>`;
+    }).join('');
+  } catch (err) {
+    select.innerHTML = `<option value="">Erro: ${err.message}</option>`;
+  }
+}
+
+async function montarPneuDoEstoque() {
+  if (!veiculoAtual || !slotPosicaoSelecionada) return;
+  const pneuId = parseInt(document.getElementById('truck-estoque-select').value, 10);
+  if (!pneuId) return toast('Selecione um pneu do estoque', 'error');
+
+  try {
+    await fetchJSON(`${API}/pneus/${pneuId}/montar`, {
+      method: 'POST',
+      body: JSON.stringify({
+        veiculo_id: veiculoAtual.id,
+        posicao: slotPosicaoSelecionada,
+        km_veiculo: numOrNull('truck-km') ?? veiculoAtual.km_atual,
+        hr_veiculo: numOrNull('truck-hr') ?? veiculoAtual.hr_atual,
+      }),
+    });
+    toast('Pneu montado');
+    const pos = slotPosicaoSelecionada;
+    await openVeiculoDetalhe(veiculoAtual.id, voltarPara);
+    const montado = veiculoAtual.pneus.find((p) => p.posicao === pos);
+    if (montado) {
+      truckDiagram?.setAtivo(montado.id);
+      selecionarPneuTruck(montado);
+    }
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+async function desmontarPneuTruck() {
+  if (!pneuSelecionado || !veiculoAtual) return;
+  if (!confirm('Retirar este pneu do caminhão e enviar ao estoque?')) return;
+  try {
+    await fetchJSON(`${API}/pneus/${pneuSelecionado.id}/desmontar`, {
+      method: 'POST',
+      body: JSON.stringify({
+        km_veiculo: numOrNull('truck-km') ?? veiculoAtual.km_atual,
+        hr_veiculo: numOrNull('truck-hr') ?? veiculoAtual.hr_atual,
+      }),
+    });
+    toast('Pneu retirado → estoque');
+    await openVeiculoDetalhe(veiculoAtual.id, voltarPara);
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+async function reposicionarPneuTruck() {
+  if (!pneuSelecionado || !veiculoAtual) return;
+  const posicoes = veiculoAtual.layout?.posicoes || Object.keys(meta.posicoes || {});
+  const ocupadas = new Set((veiculoAtual.pneus || []).map((p) => p.posicao));
+  const livres = posicoes.filter((p) => p !== pneuSelecionado.posicao && !ocupadas.has(p));
+  if (!livres.length) {
+    return toast('Não há posição livre neste caminhão', 'error');
+  }
+  const opcoes = livres.map((p) => `${p} = ${meta.posicoes[p] || p}`).join('\n');
+  const nova = prompt(`Nova posição (código):\n${opcoes}`, livres[0]);
+  if (!nova) return;
+  const codigo = nova.trim().toUpperCase();
+  if (!posicoes.includes(codigo) && !posicoes.includes(nova.trim())) {
+    return toast('Posição inválida', 'error');
+  }
+  const posFinal = posicoes.includes(codigo) ? codigo : nova.trim();
+  try {
+    await fetchJSON(`${API}/pneus/${pneuSelecionado.id}/reposicionar`, {
+      method: 'POST',
+      body: JSON.stringify({
+        posicao: posFinal,
+        km_veiculo: numOrNull('truck-km') ?? veiculoAtual.km_atual,
+        hr_veiculo: numOrNull('truck-hr') ?? veiculoAtual.hr_atual,
+      }),
+    });
+    toast(`Posição alterada para ${meta.posicoes[posFinal] || posFinal}`);
+    await openVeiculoDetalhe(veiculoAtual.id, voltarPara);
+    const movido = veiculoAtual.pneus.find((p) => p.id === pneuSelecionado.id);
+    if (movido) {
+      truckDiagram?.setAtivo(movido.id);
+      selecionarPneuTruck(movido);
+    }
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+function syncTruckMarkerFromInputs() {
+  if (!truckTireMarker) return;
+  const p = pontosFromInputs('truck');
+  truckTireMarker.setValores(p.externo, p.central, p.interno, p.auxiliar);
+  atualizarPerfilLocal('truck-perfil', p);
+}
+
+function agendarAutoSave() {
+  clearTimeout(autoSaveTimer);
+  const status = document.getElementById('truck-save-status');
+  status.textContent = 'Salvando...';
+  status.className = 'hint save-status salvando';
+  autoSaveTimer = setTimeout(salvarMedicaoTruck, 700);
+}
+
+async function salvarMedicaoTruck() {
+  if (!pneuSelecionado || !veiculoAtual) return;
+
+  const pontos = pontosFromInputs('truck');
+  const pressao = numOrNull('truck-pressao');
+  const km = parseInt(document.getElementById('truck-km').value, 10);
+  const hr = numOrNull('truck-hr');
+
+  if (pontos.externo == null && pontos.central == null && pontos.interno == null && pontos.auxiliar == null) {
+    document.getElementById('truck-save-status').textContent = 'Informe ao menos um sulco';
+    document.getElementById('truck-save-status').className = 'hint save-status';
+    return;
+  }
+
+  const status = document.getElementById('truck-save-status');
+  try {
+    const result = await fetchJSON(`${API}/medicoes`, {
+      method: 'POST',
+      body: JSON.stringify({
+        pneu_id: pneuSelecionado.id,
+        data_medicao: new Date().toISOString().split('T')[0],
+        km_veiculo: Number.isFinite(km) ? km : (veiculoAtual.km_atual || null),
+        hr_veiculo: hr,
+        sulco_externo: pontos.externo,
+        sulco_central: pontos.central,
+        sulco_interno: pontos.interno,
+        sulco_auxiliar: pontos.auxiliar,
+        pressao_psi: pressao,
+        marcacao_json: truckTireMarker?.getValores(),
+        ...(modoAcessoRapido && tokenAcessoRapido
+          ? { token_acesso: tokenAcessoRapido }
+          : {}),
+      }),
+    });
+
+    pneuSelecionado = {
+      ...pneuSelecionado,
+      ult_sulco_ext: pontos.externo,
+      ult_sulco_cent: pontos.central,
+      ult_sulco_int: pontos.interno,
+      ult_sulco_aux: pontos.auxiliar,
+      menor_sulco: result.menor_sulco,
+      status_sulco: result.status_sulco,
+      diagnostico: result.diagnostico,
+      diagnostico_label: result.diagnostico_label,
+      acao_sugerida: result.acao_sugerida,
+      acao_label: result.acao_label,
+      acao_motivo: result.acao_motivo,
+      desvio_mm: result.desvio_mm,
+      rodizio_sugestao: result.rodizio_sugestao || null,
+      ultima_medicao: {
+        data: new Date().toISOString().split('T')[0],
+        sulco_externo: pontos.externo,
+        sulco_central: pontos.central,
+        sulco_interno: pontos.interno,
+        sulco_auxiliar: pontos.auxiliar,
+        menor_sulco: result.menor_sulco,
+      },
+    };
+
+    const idx = veiculoAtual.pneus.findIndex((p) => p.id === pneuSelecionado.id);
+    if (idx >= 0) veiculoAtual.pneus[idx] = { ...veiculoAtual.pneus[idx], ...pneuSelecionado };
+
+    truckDiagram.atualizarPneu(pneuSelecionado, meta.posicoes);
+    document.getElementById('truck-pneu-status').innerHTML = badge(result.status_sulco);
+    document.getElementById('truck-pneu-acao').innerHTML = badgeAcao(result.acao_sugerida, result.acao_label);
+    document.getElementById('truck-diagnostico').textContent =
+      result.diagnostico_label ? `Diagnóstico: ${result.diagnostico_label}` : '';
+    mostrarAcaoInstrucao({
+      acao_sugerida: result.acao_sugerida,
+      acao_motivo: result.acao_motivo,
+      rodizio_sugestao: result.rodizio_sugestao,
+    });
+    mostrarRodizioSugestao({
+      acao_sugerida: result.acao_sugerida,
+      rodizio_sugestao: result.rodizio_sugestao,
+    });
+    atualizarResumoPneuTruck(pneuSelecionado);
+    atualizarPerfilLocal('truck-perfil', pontos, {
+      label: result.diagnostico_label,
+      desc: result.acao_motivo,
+    });
+
+    const acaoTxt = result.acao_sugerida !== 'ok' ? ` · ${result.acao_label}` : '';
+    status.textContent = result.status_sulco === 'critico'
+      ? `Salvo! Crítico — ${result.menor_sulco} mm${acaoTxt}`
+      : `Salvo — menor sulco: ${result.menor_sulco ?? '-'} mm${acaoTxt}`;
+    status.className = `hint save-status ${result.status_sulco === 'critico' ? 'erro' : 'salvo'}`;
+    if (modoAcessoRapido) {
+      toast(`Sulco salvo (${result.menor_sulco ?? '—'} mm)`, 'success');
+    }
+  } catch (err) {
+    status.textContent = err.message;
+    status.className = 'hint save-status erro';
+    if (modoAcessoRapido) toast(err.message, 'error');
+  }
+}
+
+async function registrarEventoPneu(tipo) {
+  if (!pneuSelecionado || !veiculoAtual) return;
+  const label = tipo === 'recap' ? 'recapagem (volta ao estoque)' : 'descarte';
+  if (!confirm(`Registrar ${label} deste pneu?`)) return;
+
+  try {
+    const pontos = pontosFromInputs('truck');
+    const menor = [pontos.externo, pontos.central, pontos.interno, pontos.auxiliar]
+      .filter((v) => v != null);
+    const sulco = menor.length ? Math.min(...menor) : pneuSelecionado.menor_sulco;
+
+    const result = await fetchJSON(`${API}/pneus/${pneuSelecionado.id}/evento`, {
+      method: 'POST',
+      body: JSON.stringify({
+        tipo,
+        km_veiculo: parseInt(document.getElementById('truck-km').value, 10) || veiculoAtual.km_atual,
+        hr_veiculo: numOrNull('truck-hr'),
+        sulco_mm: tipo === 'recap' ? (limitesAtuais.sulco_novo_mm || 14) : sulco,
+        detalhes: `Registrado pelo painel do veículo`,
+      }),
+    });
+
+    toast(result.mensagem, 'success');
+    openVeiculoDetalhe(veiculoAtual.id, voltarPara);
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+['truck-sulco-ext', 'truck-sulco-cent', 'truck-sulco-int', 'truck-sulco-aux', 'truck-pressao', 'truck-km', 'truck-hr']
+  .forEach((id) => {
+    document.getElementById(id)?.addEventListener('input', () => {
+      syncTruckMarkerFromInputs();
+      agendarAutoSave();
+    });
+  });
+
+document.getElementById('btn-truck-salvar-sulco')?.addEventListener('click', () => {
+  clearTimeout(autoSaveTimer);
+  salvarMedicaoTruck();
+});
+
+document.getElementById('btn-truck-montar')?.addEventListener('click', montarPneuDoEstoque);
+document.getElementById('btn-truck-criar-montar')?.addEventListener('click', criarEMontarPneuTruck);
+document.querySelectorAll('.montar-tab').forEach((btn) => {
+  btn.addEventListener('click', () => setMontarTab(btn.dataset.montarTab));
+});
+document.getElementById('link-ir-pneus')?.addEventListener('click', (e) => {
+  e.preventDefault();
+  showView('pneus');
+  loadPneus();
+});
+
+// ── Aba Pneus (estoque) ─────────────────────────────────
+
+async function loadPneus() {
+  const status = document.getElementById('pneus-filtro-status')?.value || 'estoque';
+  const q = document.getElementById('pneus-busca')?.value?.trim() || '';
+  const lista = document.getElementById('pneus-lista');
+  try {
+    const params = new URLSearchParams({ status });
+    if (q) params.set('q', q);
+    const pneus = await fetchJSON(`${API}/pneus?${params}`);
+    if (!pneus.length) {
+      lista.innerHTML = `
+        <div class="empty-state">
+          <h3>Nenhum pneu encontrado</h3>
+          <p>Cadastre pneus no estoque e depois monte no caminhão para medir.</p>
+        </div>`;
+      return;
+    }
+    lista.innerHTML = pneus.map((p) => {
+      const onde = p.status_pneu === 'montado'
+        ? `${p.veiculo_placa || 'Veículo'}${p.posicao ? ` · ${p.posicao}` : ''}`
+        : 'Estoque';
+      return `
+        <article class="pneu-card card">
+          <div class="pneu-card-main">
+            <h3>Fogo ${p.numero_fogo || '—'}</h3>
+            <p class="hint">${[p.marca, p.dot ? `DOT ${p.dot}` : null, p.vida_label].filter(Boolean).join(' · ')}</p>
+            <p class="hint">${onde} · ${p.padrao_label || labelPadraoPneu(p.tipo_pneu)}
+              ${p.menor_sulco != null ? ` · sulco ${p.menor_sulco} mm` : ' · sem medição'}
+              ${p.ultima_medicao?.data ? ` · ${formatDate(p.ultima_medicao.data)}` : ''}</p>
+          </div>
+          <div class="pneu-card-actions">
+            ${badge(p.status_sulco)}
+            <span class="badge badge-vida">${p.status_pneu}</span>
+            ${p.status_pneu === 'estoque'
+              ? `<button type="button" class="btn btn-primary btn-sm" data-montar-pneu="${p.id}" data-fogo="${p.numero_fogo || ''}">Montar</button>`
+              : ''}
+            <button type="button" class="btn btn-ghost btn-sm" data-edit-pneu="${p.id}">Editar</button>
+            ${p.status_pneu === 'montado'
+              ? `<button type="button" class="btn btn-ghost btn-sm" data-desmontar-pneu="${p.id}">Desmontar</button>`
+              : ''}
+            <button type="button" class="btn btn-ghost btn-sm" data-hist-pneu="${p.id}">Histórico</button>
+          </div>
+        </article>`;
+    }).join('');
+
+    lista.querySelectorAll('[data-montar-pneu]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        abrirModalMontar(parseInt(btn.dataset.montarPneu, 10), btn.dataset.fogo || '');
+      });
+    });
+    lista.querySelectorAll('[data-edit-pneu]').forEach((btn) => {
+      btn.addEventListener('click', () => abrirModalPneu(parseInt(btn.dataset.editPneu, 10)));
+    });
+    lista.querySelectorAll('[data-desmontar-pneu]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        if (!confirm('Desmontar e enviar ao estoque?')) return;
+        try {
+          await fetchJSON(`${API}/pneus/${btn.dataset.desmontarPneu}/desmontar`, { method: 'POST', body: '{}' });
+          toast('Pneu no estoque');
+          loadPneus();
+        } catch (err) {
+          toast(err.message, 'error');
+        }
+      });
+    });
+    lista.querySelectorAll('[data-hist-pneu]').forEach((btn) => {
+      btn.addEventListener('click', () => abrirHistoricoPneu(parseInt(btn.dataset.histPneu, 10)));
+    });
+  } catch (err) {
+    lista.innerHTML = `<p class="hint erro">${err.message}</p>`;
+  }
+}
+
+function setTipoCondicaoEditaveis(editavel) {
+  const tipo = document.getElementById('pneu-tipo');
+  const cond = document.getElementById('pneu-condicao');
+  if (tipo) tipo.disabled = !editavel;
+  if (cond) cond.disabled = !editavel;
+  const hintTipo = document.getElementById('pneu-tipo-hint');
+  const hintCond = document.getElementById('pneu-condicao-hint');
+  if (hintTipo) {
+    hintTipo.textContent = editavel
+      ? 'Direcional = dianteira · Misto/Borrachudo = tração'
+      : 'Padrão fixo (não pode alterar)';
+  }
+  if (hintCond) {
+    hintCond.textContent = editavel
+      ? 'Não muda depois (exceto via Registrar recap)'
+      : 'Condição fixa — use Registrar recap';
+  }
+}
+
+function abrirModalPneuNovo() {
+  document.getElementById('modal-pneu-titulo').textContent = 'Novo pneu no estoque';
+  document.getElementById('pneu-edit-id').value = '';
+  document.getElementById('form-pneu').reset();
+  document.getElementById('pneu-tipo').value = 'misto';
+  document.getElementById('pneu-condicao').value = 'novo';
+  document.getElementById('pneu-vida').value = '0';
+  const avancado = document.getElementById('pneu-avancado');
+  if (avancado) avancado.open = false;
+  setTipoCondicaoEditaveis(true);
+  document.getElementById('modal-pneu').showModal();
+}
+
+async function abrirModalPneu(id) {
+  try {
+    const p = await fetchJSON(`${API}/pneus/${id}`);
+    document.getElementById('modal-pneu-titulo').textContent = 'Editar pneu';
+    document.getElementById('pneu-edit-id').value = String(p.id);
+    document.getElementById('pneu-fogo').value = p.numero_fogo || '';
+    document.getElementById('pneu-dot').value = p.dot || '';
+    document.getElementById('pneu-marca').value = p.marca || '';
+    document.getElementById('pneu-modelo').value = p.modelo || '';
+    document.getElementById('pneu-custo').value = p.custo ?? '';
+    document.getElementById('pneu-nota').value = p.nota_fiscal || '';
+    document.getElementById('pneu-medida').value = p.medida || '';
+    document.getElementById('pneu-tipo').value = p.tipo_pneu || 'misto';
+    document.getElementById('pneu-condicao').value = p.condicao || 'novo';
+    document.getElementById('pneu-vida').value = String(p.vida_recap ?? 0);
+    document.getElementById('pneu-sulco-inicial').value = p.sulco_inicial_mm ?? '';
+    const avancado = document.getElementById('pneu-avancado');
+    if (avancado) {
+      avancado.open = !!(p.dot || p.medida || p.sulco_inicial_mm || (p.vida_recap > 0));
+    }
+    setTipoCondicaoEditaveis(false);
+    document.getElementById('modal-pneu').showModal();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+document.getElementById('btn-novo-pneu')?.addEventListener('click', abrirModalPneuNovo);
+document.getElementById('btn-cancelar-pneu')?.addEventListener('click', () => {
+  document.getElementById('modal-pneu').close();
+});
+document.getElementById('pneus-filtro-status')?.addEventListener('change', loadPneus);
+let pneusBuscaTimer;
+document.getElementById('pneus-busca')?.addEventListener('input', () => {
+  clearTimeout(pneusBuscaTimer);
+  pneusBuscaTimer = setTimeout(loadPneus, 300);
+});
+
+document.getElementById('form-pneu')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const id = document.getElementById('pneu-edit-id').value;
+  const payload = {
+    numero_fogo: document.getElementById('pneu-fogo').value,
+    dot: document.getElementById('pneu-dot').value,
+    marca: document.getElementById('pneu-marca').value,
+    modelo: document.getElementById('pneu-modelo').value,
+    medida: document.getElementById('pneu-medida')?.value || null,
+    custo: numOrNull('pneu-custo'),
+    nota_fiscal: document.getElementById('pneu-nota').value || null,
+    vida_recap: parseInt(document.getElementById('pneu-vida').value, 10),
+    sulco_inicial_mm: numOrNull('pneu-sulco-inicial'),
+  };
+  if (!payload.modelo?.trim()) {
+    return toast('Informe o modelo do pneu', 'error');
+  }
+  if (!id) {
+    payload.tipo_pneu = document.getElementById('pneu-tipo').value;
+    payload.condicao = document.getElementById('pneu-condicao').value;
+  }
+  try {
+    if (id) {
+      await fetchJSON(`${API}/pneus/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
+      toast('Pneu atualizado');
+      document.getElementById('modal-pneu').close();
+      loadPneus();
+    } else {
+      const result = await fetchJSON(`${API}/pneus`, { method: 'POST', body: JSON.stringify(payload) });
+      document.getElementById('modal-pneu').close();
+      document.getElementById('pneus-filtro-status').value = 'estoque';
+      await loadPneus();
+      const pneuId = result.pneu?.id;
+      const fogo = result.pneu?.numero_fogo || payload.numero_fogo;
+      if (pneuId) {
+        abrirModalPneuPosCriar(pneuId, fogo);
+      } else {
+        toast('Pneu no estoque', 'success');
+      }
+    }
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+});
+
+function abrirModalPneuPosCriar(pneuId, fogo = '') {
+  document.getElementById('pneu-pos-id').value = String(pneuId);
+  document.getElementById('pneu-pos-fogo').value = fogo || '';
+  document.getElementById('pneu-pos-label').textContent = fogo
+    ? `Fogo ${fogo} está no estoque. Quer montar agora em um veículo?`
+    : 'O pneu está no estoque. Quer montar agora em um veículo?';
+  document.getElementById('modal-pneu-pos').showModal();
+}
+
+document.getElementById('btn-pos-montar')?.addEventListener('click', () => {
+  const id = parseInt(document.getElementById('pneu-pos-id').value, 10);
+  const fogo = document.getElementById('pneu-pos-fogo').value;
+  document.getElementById('modal-pneu-pos').close();
+  if (id) abrirModalMontar(id, fogo);
+});
+
+document.getElementById('btn-pos-estoque')?.addEventListener('click', () => {
+  document.getElementById('modal-pneu-pos').close();
+  toast('Pneu ficou no estoque', 'success');
+});
+
+async function abrirModalMontar(pneuId, fogo = '') {
+  document.getElementById('montar-pneu-id').value = String(pneuId);
+  document.getElementById('montar-pneu-label').textContent =
+    fogo ? `Pneu fogo ${fogo}` : `Pneu #${pneuId}`;
+  const selV = document.getElementById('montar-veiculo');
+  const selP = document.getElementById('montar-posicao');
+  selP.innerHTML = '<option value="">Selecione o veículo primeiro</option>';
+  selP.disabled = true;
+  try {
+    const veiculos = veiculosCache.length ? veiculosCache : await fetchJSON(`${API}/veiculos`);
+    veiculosCache = veiculos;
+    selV.innerHTML = '<option value="">Selecione...</option>' +
+      veiculos.map((v) =>
+        `<option value="${v.id}">${v.apelido || v.placa} (${v.placa}) · ${v.total_pneus || 0} montados</option>`
+      ).join('');
+    if (veiculoAtual?.id) selV.value = String(veiculoAtual.id);
+    document.getElementById('modal-montar').showModal();
+    if (selV.value) selV.dispatchEvent(new Event('change'));
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+document.getElementById('btn-cancelar-montar')?.addEventListener('click', () => {
+  document.getElementById('modal-montar').close();
+});
+
+document.getElementById('montar-veiculo')?.addEventListener('change', async (e) => {
+  const veiculoId = e.target.value;
+  const selP = document.getElementById('montar-posicao');
+  if (!veiculoId) {
+    selP.innerHTML = '<option value="">Selecione o veículo primeiro</option>';
+    selP.disabled = true;
+    return;
+  }
+  try {
+    const v = await fetchJSON(`${API}/veiculos/${veiculoId}`);
+    const vazias = (v.posicoes_layout || []).filter((p) => !p.montado);
+    if (!vazias.length) {
+      selP.innerHTML = '<option value="">Todas as posições já têm pneu</option>';
+      selP.disabled = true;
+      return;
+    }
+    selP.disabled = false;
+    selP.innerHTML = '<option value="">Selecione...</option>' +
+      vazias.map((p) =>
+        `<option value="${p.codigo}">${p.codigo} — ${p.label || meta.posicoes[p.codigo] || p.codigo}</option>`
+      ).join('');
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+});
+
+document.getElementById('form-montar')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const pneuId = parseInt(document.getElementById('montar-pneu-id').value, 10);
+  const veiculoId = parseInt(document.getElementById('montar-veiculo').value, 10);
+  const posicao = document.getElementById('montar-posicao').value;
+  if (!pneuId || !veiculoId || !posicao) {
+    return toast('Informe veículo e posição', 'error');
+  }
+  try {
+    const result = await fetchJSON(`${API}/pneus/${pneuId}/montar`, {
+      method: 'POST',
+      body: JSON.stringify({ veiculo_id: veiculoId, posicao }),
+    });
+    document.getElementById('modal-montar').close();
+    toast(result.mensagem || 'Pneu montado', 'success');
+    await openVeiculoDetalhe(veiculoId, 'pneus');
+    const montado = veiculoAtual?.pneus?.find((p) => p.posicao === posicao);
+    if (montado) {
+      truckDiagram?.setAtivo(montado.id);
+      selecionarPneuTruck(montado);
+    }
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+});
+async function abrirHistoricoPneu(pneuId) {
+  try {
+    let data;
+    if (modoAcessoRapido) {
+      const pneu = veiculoAtual?.pneus?.find((p) => Number(p.id) === Number(pneuId));
+      const medicoes = (veiculoAtual?.medicoes || [])
+        .filter((m) => Number(m.pneu_id) === Number(pneuId))
+        .map((m) => ({
+          ...m,
+          menor_sulco: [m.sulco_externo, m.sulco_central, m.sulco_interno, m.sulco_auxiliar]
+            .filter((v) => v != null)
+            .reduce((min, v) => (min == null || v < min ? v : min), null),
+          status_sulco: 'sem_dado',
+        }));
+      data = {
+        id: pneuId,
+        numero_fogo: pneu?.numero_fogo,
+        posicao: pneu?.posicao,
+        medicoes,
+        movimentacoes: [],
+      };
+    } else {
+      data = await fetchJSON(`${API}/pneus/${pneuId}`);
+    }
+    const viewPneus = document.getElementById('view-pneus')?.classList.contains('active');
+    const el = viewPneus
+      ? document.getElementById('pneu-historico-panel')
+      : document.getElementById('historico-pneu');
+    if (viewPneus && el) el.classList.remove('hidden');
+
+    const placaTitulo = data.veiculo_placa ? ` · Placa ${data.veiculo_placa}` : '';
+    const custoTitulo = data.custo != null
+      ? ` · R$ ${Number(data.custo).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`
+      : '';
+    const notaTitulo = data.nota_fiscal ? ` · NF ${data.nota_fiscal}` : '';
+    const modeloTitulo = data.modelo ? ` · ${data.modelo}` : '';
+    const titulo = `Histórico — ${data.numero_fogo ? `Fogo ${data.numero_fogo}` : `#${data.id}`}${modeloTitulo}${placaTitulo}${data.posicao ? ` · ${meta.posicoes[data.posicao] || data.posicao}` : ' · estoque'}${custoTitulo}${notaTitulo}${data.padrao_label || data.tipo_pneu ? ` · ${data.padrao_label || labelPadraoPneu(data.tipo_pneu)}` : ''}`;
+
+    if (!data.medicoes.length && !data.movimentacoes?.length) {
+      el.innerHTML = `<div class="card"><h3>${titulo}</h3><p class="hint">Nenhuma medição ou movimentação registrada.</p></div>`;
+      return;
+    }
+
+    el.innerHTML = `
+      <div class="card">
+      <h3>${titulo}</h3>
+      ${data.medicoes.length ? `
+      <table class="historico-table">
+        <thead>
+          <tr>
+            <th>Data</th><th>Placa</th><th>1ª</th><th>2ª</th><th>3ª</th><th>4ª</th>
+            <th>Menor</th><th>Status</th><th>Diagnóstico</th><th>KM</th><th>Hr</th><th>mm/km</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${data.medicoes.map((m) => `
+            <tr>
+              <td>${formatDate(m.data_medicao)}</td>
+              <td><strong>${m.veiculo_placa || data.veiculo_placa || '-'}</strong></td>
+              <td>${m.sulco_externo ?? '-'}</td>
+              <td>${m.sulco_central ?? '-'}</td>
+              <td>${m.sulco_interno ?? '-'}</td>
+              <td>${m.sulco_auxiliar ?? '-'}</td>
+              <td><strong>${m.menor_sulco ?? '-'}</strong></td>
+              <td>${badge(m.status_sulco)}</td>
+              <td>${m.diagnostico_label || m.diagnostico || '-'}</td>
+              <td>${m.km_veiculo?.toLocaleString('pt-BR') || '-'}</td>
+              <td>${m.hr_veiculo != null ? m.hr_veiculo : '-'}</td>
+              <td>${m.desgaste_mm_km != null ? m.desgaste_mm_km : '-'}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>` : '<p class="hint">Sem medições.</p>'}
+      ${data.movimentacoes?.length ? `
+        <h4 style="margin-top:1rem">Movimentações (colocar / retirar / mudar posição)</h4>
+        <table class="historico-table">
+          <thead><tr><th>Data</th><th>Tipo</th><th>Placa</th><th>Posição</th><th>KM</th><th>Hr</th><th>Km rodados</th><th>Detalhes</th></tr></thead>
+          <tbody>
+            ${data.movimentacoes.map((m) => `
+              <tr>
+                <td>${formatDate(m.data_evento)}</td>
+                <td>${m.tipo_label || m.tipo}</td>
+                <td><strong>${m.veiculo_placa || '-'}</strong></td>
+                <td>${m.posicao_anterior ? `${meta.posicoes[m.posicao_anterior] || m.posicao_anterior} → ` : ''}${meta.posicoes[m.posicao] || m.posicao || '-'}</td>
+                <td>${m.km_veiculo?.toLocaleString('pt-BR') || '-'}</td>
+                <td>${m.hr_veiculo != null ? m.hr_veiculo : '-'}</td>
+                <td>${m.km_rodado != null ? m.km_rodado.toLocaleString('pt-BR') : '-'}</td>
+                <td>${m.detalhes || '-'}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      ` : ''}
+      </div>`;
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+window.abrirHistoricoPneu = abrirHistoricoPneu;
+
+// ── Layout de pneus ────────────────────────────────────
+
+function getLayoutById(id) {
+  return meta.layouts?.find((l) => l.id === id);
+}
+
+function renderLayoutTags(posicoes, containerId) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  el.innerHTML = posicoes.map((p) =>
+    `<span class="layout-tag">${meta.posicoes[p] || p}</span>`
+  ).join('');
+}
+
+function layoutsParaTipo(tipo) {
+  if (tipo === 'Toco / Mini') return ['toco_6'];
+  // Truck / Tração: eixos com 2 ou 4 pneus
+  return ['truck_10', 'truck_8', 'truck_8_b'];
+}
+
+function preencherSelectLayouts(selectId, selectedId, { soTruckToco = false, tipo = null } = {}) {
+  const sel = document.getElementById(selectId);
+  if (!sel || !meta.layouts) return;
+  let lista = meta.layouts;
+  if (soTruckToco) {
+    const ids = layoutsParaTipo(tipo || document.getElementById('v-tipo')?.value || 'Truck / Tração');
+    lista = meta.layouts.filter((l) => ids.includes(l.id));
+    if (!lista.length) lista = meta.layouts.filter((l) =>
+      l.id === 'truck_10' || l.id === 'truck_8' || l.id === 'truck_8_b' || l.id === 'toco_6'
+    );
+  }
+  sel.innerHTML = lista.map((l) =>
+    `<option value="${l.id}">${l.nome}</option>`
+  ).join('');
+  const preferido = selectedId && lista.some((l) => l.id === selectedId)
+    ? selectedId
+    : (soTruckToco ? (lista[0]?.id || meta.layout_padrao) : (selectedId || meta.layout_padrao));
+  sel.value = preferido;
+  sel.dispatchEvent(new Event('change'));
+}
+
+function onLayoutSelectChange(selectId, descId, previewId, diagramId = null) {
+  const sel = document.getElementById(selectId);
+  const layout = getLayoutById(sel.value);
+  if (!layout) return;
+  const desc = document.getElementById(descId);
+  if (desc) desc.textContent = layout.descricao;
+  if (previewId) renderLayoutTags(layout.posicoes, previewId);
+  if (diagramId) {
+    renderLayoutPreview(document.getElementById(diagramId), {
+      posicoes: layout.posicoes,
+      labels: meta.posicoes || {},
+      papeis: meta.papeis || {},
+    });
+  }
+}
+
+function preencherCheckboxesPosicoes(containerId, selecionadas = []) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  el.innerHTML = Object.entries(meta.posicoes).map(([cod, label]) => `
+    <label>
+      <input type="checkbox" name="posicao-custom" value="${cod}" ${selecionadas.includes(cod) ? 'checked' : ''}>
+      ${label}
+    </label>
+  `).join('');
+}
+
+function abrirConfigLayout(veiculoId, veiculoNome, layoutAtual, posicoesAtuais) {
+  veiculoLayoutId = veiculoId;
+  document.getElementById('layout-veiculo-nome').textContent = veiculoNome;
+  preencherSelectLayouts('layout-select', layoutAtual || meta.layout_padrao);
+  preencherCheckboxesPosicoes('layout-custom-checkboxes', posicoesAtuais || []);
+  document.getElementById('modal-layout').showModal();
+}
+
+window.abrirConfigLayout = abrirConfigLayout;
+
+// ── Importação CSV (veículos / pneus) ───────────────────
+
+async function baixarModeloCsv(url, filename) {
+  try {
+    const headers = {};
+    if (authToken) headers.Authorization = `Bearer ${authToken}`;
+    const resp = await fetch(url, { headers });
+    if (!resp.ok) {
+      let msg = 'Falha ao baixar planilha';
+      try {
+        const data = await resp.json();
+        msg = data.erro || msg;
+      } catch { /* ignore */ }
+      throw new Error(msg);
+    }
+    const blob = await resp.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(a.href);
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+function mostrarResultadoImport(elId, result) {
+  const el = document.getElementById(elId);
+  if (!el) return;
+  const erros = result.erros || [];
+  const avisos = result.avisos || [];
+  el.classList.remove('hidden');
+  el.innerHTML = `
+    <strong>${result.mensagem || 'Importação concluída'}</strong>
+    <p class="hint" style="margin:.35rem 0 0">
+      ${result.veiculos != null ? `Veículos: <strong>${result.veiculos}</strong> · ` : ''}
+      ${result.pneus_montados != null ? `Montados: <strong>${result.pneus_montados}</strong> · ` : ''}
+      ${result.pneus_estoque != null ? `Estoque: <strong>${result.pneus_estoque}</strong> · ` : ''}
+      ${result.inseridos != null ? `Inseridos: <strong>${result.inseridos}</strong>` : ''}
+      ${erros.length ? ` · Erros: <strong>${erros.length}</strong>` : ''}
+      ${avisos.length ? ` · Avisos: <strong>${avisos.length}</strong>` : ''}
+    </p>
+    ${erros.length
+      ? `<ul class="import-erros">${erros.slice(0, 12).map((e) =>
+          `<li>Linha ${e.linha}${e.placa || e.numero_fogo ? ` (${e.placa || e.numero_fogo})` : ''}: ${e.erro}</li>`
+        ).join('')}${erros.length > 12 ? `<li>… e mais ${erros.length - 12}</li>` : ''}</ul>`
+      : ''}
+    ${avisos.length
+      ? `<ul class="import-avisos">${avisos.slice(0, 8).map((a) =>
+          `<li>Linha ${a.linha}${a.numero_fogo ? ` (${a.numero_fogo})` : ''}: ${a.aviso}</li>`
+        ).join('')}</ul>`
+      : ''}
+  `;
+}
+
+async function importarCsvArquivo(file, endpoint, resultadoId, onOk) {
+  if (!file) return;
+  try {
+    const csv = await file.text();
+    if (!csv.trim()) throw new Error('Arquivo vazio');
+    const result = await fetchJSON(endpoint, {
+      method: 'POST',
+      body: JSON.stringify({ csv }),
+    });
+    mostrarResultadoImport(resultadoId, result);
+    toast(result.mensagem || 'Importação concluída', 'success');
+    onOk?.(result);
+  } catch (err) {
+    const data = err.data;
+    if (data?.erros) {
+      mostrarResultadoImport(resultadoId, data);
+    }
+    toast(err.message, 'error');
+  }
+}
+
+document.getElementById('btn-modelo-veiculos')?.addEventListener('click', (e) => {
+  e.preventDefault();
+  baixarModeloCsv(`${API}/veiculos/import/modelo`, 'modelo-veiculos.csv');
+});
+document.getElementById('file-import-veiculos')?.addEventListener('change', async (e) => {
+  const file = e.target.files?.[0];
+  e.target.value = '';
+  await importarCsvArquivo(file, `${API}/veiculos/import`, 'import-resultado-veiculos', () => loadVeiculos());
+});
+
+document.getElementById('btn-modelo-frota')?.addEventListener('click', (e) => {
+  e.preventDefault();
+  baixarModeloCsv(`${API}/frota/import/modelo`, 'modelo-carga-frota.csv');
+});
+document.getElementById('file-import-frota')?.addEventListener('change', async (e) => {
+  const file = e.target.files?.[0];
+  e.target.value = '';
+  await importarCsvArquivo(file, `${API}/frota/import`, 'import-resultado-frota', () => {
+    loadVeiculos();
+  });
+});
+
+document.getElementById('btn-modelo-pneus')?.addEventListener('click', (e) => {
+  e.preventDefault();
+  baixarModeloCsv(`${API}/pneus/import/modelo`, 'modelo-pneus.csv');
+});
+document.getElementById('file-import-pneus')?.addEventListener('change', async (e) => {
+  const file = e.target.files?.[0];
+  e.target.value = '';
+  await importarCsvArquivo(file, `${API}/pneus/import`, 'import-resultado-pneus', () => loadPneus());
+});
+
+// ── Modal Veículo ──────────────────────────────────────
+
+const modalVeiculo = document.getElementById('modal-veiculo');
+
+document.getElementById('btn-novo-veiculo').addEventListener('click', () => {
+  document.getElementById('form-veiculo').reset();
+  document.getElementById('modal-veiculo-titulo').textContent = 'Novo Veículo';
+  preencherSelectLayouts('v-layout', meta.layout_padrao, {
+    soTruckToco: true,
+    tipo: document.getElementById('v-tipo')?.value || 'Truck / Tração',
+  });
+  const tipo = document.getElementById('v-tipo');
+  if (tipo?.value) {
+    const sugestao = LAYOUT_POR_TIPO[tipo.value];
+    if (sugestao) {
+      document.getElementById('v-layout').value = sugestao;
+    }
+  }
+  onLayoutSelectChange('v-layout', 'v-layout-desc', 'v-layout-preview', 'v-layout-diagram');
+  modalVeiculo.showModal();
+});
+
+document.getElementById('v-layout')?.addEventListener('change', () => {
+  onLayoutSelectChange('v-layout', 'v-layout-desc', 'v-layout-preview', 'v-layout-diagram');
+});
+
+document.getElementById('v-tipo')?.addEventListener('change', (e) => {
+  const tipo = e.target.value;
+  const sugestao = LAYOUT_POR_TIPO[tipo] || (tipo === 'Toco / Mini' ? 'toco_6' : 'truck_10');
+  preencherSelectLayouts('v-layout', sugestao, { soTruckToco: true, tipo });
+});
+
+document.getElementById('layout-select')?.addEventListener('change', () => {
+  const layout = getLayoutById(document.getElementById('layout-select').value);
+  onLayoutSelectChange('layout-select', 'layout-select-desc', 'layout-posicoes-preview');
+  if (layout) preencherCheckboxesPosicoes('layout-custom-checkboxes', layout.posicoes);
+});
+
+document.getElementById('btn-cancelar-veiculo').addEventListener('click', () => modalVeiculo.close());
+
+document.getElementById('form-veiculo').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  try {
+    const result = await fetchJSON(`${API}/veiculos`, {
+      method: 'POST',
+      body: JSON.stringify({
+        placa: document.getElementById('v-placa').value,
+        apelido: document.getElementById('v-apelido').value,
+        tipo: document.getElementById('v-tipo').value,
+        marca: document.getElementById('v-marca').value,
+        modelo: document.getElementById('v-modelo').value,
+        ano: parseInt(document.getElementById('v-ano').value) || null,
+        km_atual: parseInt(document.getElementById('v-km').value) || 0,
+        hr_atual: parseFloat(document.getElementById('v-hr').value) || 0,
+        layout_pneus: document.getElementById('v-layout').value,
+      }),
+    });
+    modalVeiculo.close();
+    toast('Veículo pronto — clique nas posições vazias para colocar os pneus', 'success');
+    await openVeiculoDetalhe(result.id, 'veiculos');
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+});
+
+document.getElementById('btn-cancelar-layout')?.addEventListener('click', () => {
+  document.getElementById('modal-layout').close();
+});
+
+document.getElementById('form-layout')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  if (!veiculoLayoutId) return;
+
+  const custom = [...document.querySelectorAll('input[name="posicao-custom"]:checked')].map((c) => c.value);
+  const layoutId = document.getElementById('layout-select').value;
+  const layout = getLayoutById(layoutId);
+  const posicoesLayout = layout?.posicoes || [];
+  const iguais = custom.length === posicoesLayout.length && custom.every((p) => posicoesLayout.includes(p));
+
+  const payload = iguais
+    ? { layout_pneus: layoutId }
+    : { layout_pneus: 'personalizado', posicoes_custom: custom };
+
+  if (!custom.length) return toast('Selecione ao menos uma posição de pneu', 'error');
+
+  try {
+    const result = await fetchJSON(`${API}/veiculos/${veiculoLayoutId}/layout`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+    document.getElementById('modal-layout').close();
+    toast(result.mensagem, 'success');
+    openVeiculoDetalhe(veiculoLayoutId, voltarPara);
+    loadVeiculos();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+});
+
+// ── Medição ────────────────────────────────────────────
+
+const sulcoInputs = {
+  externo: document.getElementById('med-externo'),
+  central: document.getElementById('med-central'),
+  interno: document.getElementById('med-interno'),
+  auxiliar: document.getElementById('med-auxiliar'),
+};
+
+function syncTireFromInputs() {
+  if (!tireMarker) return;
+  const p = pontosFromInputs('med');
+  tireMarker.setValores(p.externo, p.central, p.interno, p.auxiliar);
+  atualizarPerfilLocal('med-perfil', p);
+}
+
+Object.values(sulcoInputs).forEach((input) => {
+  input?.addEventListener('input', syncTireFromInputs);
+});
+
+async function initMedicao() {
+  document.getElementById('med-data').value = new Date().toISOString().split('T')[0];
+
+  if (!tireMarker) {
+    tireMarker = new TireMarker('tire-marker-container', {
+      limites: limitesAtuais,
+      onSulcoClick: (sulco) => {
+        const map = { externo: 'med-externo', central: 'med-central', interno: 'med-interno', auxiliar: 'med-auxiliar' };
+        const input = document.getElementById(map[sulco]);
+        if (input) {
+          input.focus();
+          input.select();
+        }
+      },
+    });
+  } else {
+    tireMarker.setLimites(limitesAtuais);
+    tireMarker.reset();
+  }
+
+  try {
+    const veiculos = veiculosCache.length ? veiculosCache : await fetchJSON(`${API}/veiculos`);
+    const select = document.getElementById('med-veiculo');
+    select.innerHTML = '<option value="">Selecione...</option>' +
+      veiculos.map((v) => `<option value="${v.id}">${v.apelido || v.placa} (${v.placa})</option>`).join('');
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+document.getElementById('med-veiculo').addEventListener('change', async (e) => {
+  const veiculoId = e.target.value;
+  const selectPneu = document.getElementById('med-pneu');
+
+  if (!veiculoId) {
+    selectPneu.innerHTML = '<option value="">Selecione o veículo primeiro</option>';
+    selectPneu.disabled = true;
+    return;
+  }
+
+  try {
+    const v = await fetchJSON(`${API}/veiculos/${veiculoId}`);
+    selectPneu.disabled = false;
+    if (!v.pneus.length) {
+      selectPneu.innerHTML = '<option value="">Nenhum pneu montado — monte na aba Veículos</option>';
+      selectPneu.disabled = true;
+      return;
+    }
+    selectPneu.innerHTML = v.pneus.map((p) =>
+      `<option value="${p.id}">${meta.posicoes[p.posicao] || p.posicao}${p.numero_fogo ? ` · ${p.numero_fogo}` : ''}</option>`
+    ).join('');
+    document.getElementById('med-km').value = v.km_atual || '';
+    document.getElementById('med-hr').value = v.hr_atual || '';
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+});
+
+document.getElementById('btn-salvar-medicao').addEventListener('click', async () => {
+  const pneuId = document.getElementById('med-pneu').value;
+  if (!pneuId) return toast('Selecione o pneu', 'error');
+
+  const pontos = pontosFromInputs('med');
+  const payload = {
+    pneu_id: parseInt(pneuId, 10),
+    data_medicao: document.getElementById('med-data').value,
+    km_veiculo: parseInt(document.getElementById('med-km').value, 10) || null,
+    hr_veiculo: numOrNull('med-hr'),
+    sulco_externo: pontos.externo,
+    sulco_central: pontos.central,
+    sulco_interno: pontos.interno,
+    sulco_auxiliar: pontos.auxiliar,
+    pressao_psi: numOrNull('med-pressao'),
+    responsavel: document.getElementById('med-responsavel').value,
+    observacoes: document.getElementById('med-obs').value,
+    marcacao_json: tireMarker?.getValores(),
+  };
+
+  if (payload.sulco_externo == null && payload.sulco_central == null
+    && payload.sulco_interno == null && payload.sulco_auxiliar == null) {
+    return toast('Informe ao menos um valor de sulco', 'error');
+  }
+
+  try {
+    const result = await fetchJSON(`${API}/medicoes`, {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    });
+
+    const msg = result.acao_sugerida === 'troca'
+      ? `Medição salva! TROCA sugerida (${result.menor_sulco} mm) — ${result.diagnostico_label}`
+      : result.acao_sugerida === 'recap'
+        ? `Medição salva! RECAP sugerida (${result.menor_sulco} mm)`
+        : `Medição salva! ${result.menor_sulco} mm · ${result.diagnostico_label}`;
+
+    toast(msg, result.acao_sugerida === 'troca' ? 'error' : 'success');
+
+    ['med-externo', 'med-central', 'med-interno', 'med-auxiliar', 'med-pressao', 'med-obs']
+      .forEach((id) => { document.getElementById(id).value = ''; });
+    tireMarker?.reset();
+    document.getElementById('med-perfil').innerHTML = '';
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+});
+
+// ── Alertas ────────────────────────────────────────────
+
+async function loadAlertas() {
+  try {
+    const [alertas, config] = await Promise.all([
+      fetchJSON(`${API}/medicoes/alertas`),
+      fetchConfiguracoes(),
+    ]);
+    limitesAtuais = { ...limitesAtuais, ...config };
+
+    const hint = document.getElementById('alertas-limites-hint');
+    if (hint) hint.textContent = hintLimites();
+
+    const lista = document.getElementById('alertas-lista');
+
+    if (!alertas.length) {
+      lista.innerHTML = '<div class="empty-state"><h3>Nenhum alerta</h3><p>Todos os pneus estão dentro do limite</p></div>';
+      return;
+    }
+
+    lista.innerHTML = alertas.map((a) => `
+      <div class="alerta-card ${a.status_sulco}">
+        <div>
+          <strong>${a.apelido || a.placa}</strong> — ${meta.posicoes[a.posicao] || a.posicao}
+          <p class="hint">${a.placa} · ${a.diagnostico_label || ''} · ${a.acao_motivo || ''} · ${formatDate(a.data_medicao)}</p>
+        </div>
+        <div class="veiculo-meta">
+          <span style="font-size:1.25rem;font-weight:700">${a.menor_sulco} mm</span>
+          ${badge(a.status_sulco)}
+          ${badgeAcao(a.acao_sugerida, a.acao_label)}
+        </div>
+      </div>
+    `).join('');
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+// ── Ações ──────────────────────────────────────────────
+
+async function loadAcoes() {
+  try {
+    const data = await fetchJSON(`${API}/medicoes/acoes`);
+    const resumo = document.getElementById('acoes-resumo');
+    resumo.innerHTML = `
+      <div class="stat-card stat-troca"><span class="stat-value">${data.troca}</span><span class="stat-label">Troca</span></div>
+      <div class="stat-card stat-recap"><span class="stat-value">${data.recap}</span><span class="stat-label">Recapagem</span></div>
+      <div class="stat-card stat-monitorar"><span class="stat-value">${data.monitorar}</span><span class="stat-label">Monitorar</span></div>
+    `;
+
+    const lista = document.getElementById('acoes-lista');
+    if (!data.itens.length) {
+      lista.innerHTML = '<div class="empty-state"><h3>Nenhuma ação pendente</h3><p>A frota está dentro dos parâmetros</p></div>';
+      return;
+    }
+
+    lista.innerHTML = data.itens.map((a) => `
+      <div class="alerta-card ${a.acao_sugerida === 'troca' ? 'critico' : a.acao_sugerida === 'recap' ? 'alerta' : ''}">
+        <div>
+          <strong>${a.apelido || a.placa}</strong> — ${meta.posicoes[a.posicao] || a.posicao}
+          <p class="hint">${a.acao_motivo || ''} · Vida: ${a.vida_recap || 0}ª recap</p>
+        </div>
+        <div class="veiculo-meta">
+          <span style="font-weight:700">${a.menor_sulco ?? '—'} mm</span>
+          ${badgeAcao(a.acao_sugerida, a.acao_label)}
+          <button class="btn btn-sm btn-primary" data-veiculo="${a.veiculo_id}">Abrir</button>
+        </div>
+      </div>
+    `).join('');
+
+    lista.querySelectorAll('button[data-veiculo]').forEach((btn) => {
+      btn.addEventListener('click', () => openVeiculoDetalhe(btn.dataset.veiculo, 'acoes'));
+    });
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+// ── Configurações ──────────────────────────────────────
+
+async function loadConfiguracoes() {
+  if (!isAdmin()) return;
+  try {
+    const config = await fetchConfiguracoes();
+    limitesAtuais = { ...limitesAtuais, ...config };
+
+    document.getElementById('cfg-critico').value = config.sulco_critico_mm;
+    document.getElementById('cfg-alerta').value = config.sulco_alerta_mm;
+    document.getElementById('cfg-recap').value = config.sulco_critico_mm ?? 3;
+    document.getElementById('cfg-prazo-recap').value = config.prazo_recap_dias ?? 15;
+    document.getElementById('cfg-novo').value = config.sulco_novo_mm ?? 14;
+    document.getElementById('cfg-max-recaps').value = config.max_recaps ?? 6;
+    document.getElementById('cfg-tolerancia').value = config.diagnostico_tolerancia_mm ?? 1;
+    document.getElementById('cfg-rodizio-desvio').value = config.rodizio_desvio_mm ?? 3;
+    document.getElementById('cfg-rodizio-similaridade').value = config.rodizio_similaridade_mm ?? 2.5;
+
+    const a = config.acoes || {};
+    document.getElementById('cfg-acao-troca-label').value = a.troca?.label || 'Trocar';
+    document.getElementById('cfg-acao-troca-instrucao').value = a.troca?.instrucao || '';
+    document.getElementById('cfg-acao-recap-label').value = a.recap?.label || 'Recapagem';
+    document.getElementById('cfg-acao-recap-instrucao').value = a.recap?.instrucao || '';
+    document.getElementById('cfg-acao-monitorar-label').value = a.monitorar?.label || 'Monitorar';
+    document.getElementById('cfg-acao-monitorar-instrucao').value = a.monitorar?.instrucao || '';
+    document.getElementById('cfg-acao-rodizio-label').value = a.rodizio?.label || 'Mudar posição';
+    document.getElementById('cfg-acao-rodizio-instrucao').value = a.rodizio?.instrucao || '';
+    document.getElementById('cfg-acao-ok-label').value = a.ok?.label || 'OK';
+    document.getElementById('cfg-acao-ok-instrucao').value = a.ok?.instrucao || '';
+
+    atualizarPreviewLimites();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+['cfg-critico', 'cfg-alerta', 'cfg-prazo-recap',
+  'cfg-acao-troca-label', 'cfg-acao-troca-instrucao',
+  'cfg-acao-monitorar-label', 'cfg-acao-monitorar-instrucao',
+  'cfg-acao-rodizio-label', 'cfg-acao-rodizio-instrucao',
+  'cfg-acao-ok-label', 'cfg-acao-ok-instrucao',
+  'cfg-rodizio-desvio', 'cfg-rodizio-similaridade',
+].forEach((id) => {
+  document.getElementById(id)?.addEventListener('input', atualizarPreviewLimites);
+});
+
+document.getElementById('btn-salvar-config')?.addEventListener('click', async () => {
+  const critico = parseFloat(document.getElementById('cfg-critico').value);
+  const payload = {
+    sulco_critico_mm: critico,
+    sulco_alerta_mm: parseFloat(document.getElementById('cfg-alerta').value),
+    sulco_recap_mm: critico,
+    prazo_recap_dias: parseInt(document.getElementById('cfg-prazo-recap').value, 10),
+    sulco_novo_mm: parseFloat(document.getElementById('cfg-novo').value),
+    max_recaps: parseInt(document.getElementById('cfg-max-recaps').value, 10),
+    diagnostico_tolerancia_mm: parseFloat(document.getElementById('cfg-tolerancia').value),
+    rodizio_desvio_mm: parseFloat(document.getElementById('cfg-rodizio-desvio').value),
+    rodizio_similaridade_mm: parseFloat(document.getElementById('cfg-rodizio-similaridade').value),
+    acoes: {
+      troca: {
+        label: document.getElementById('cfg-acao-troca-label').value,
+        instrucao: document.getElementById('cfg-acao-troca-instrucao').value,
+      },
+      recap: {
+        label: document.getElementById('cfg-acao-recap-label').value,
+        instrucao: document.getElementById('cfg-acao-recap-instrucao').value,
+      },
+      monitorar: {
+        label: document.getElementById('cfg-acao-monitorar-label').value,
+        instrucao: document.getElementById('cfg-acao-monitorar-instrucao').value,
+      },
+      rodizio: {
+        label: document.getElementById('cfg-acao-rodizio-label').value,
+        instrucao: document.getElementById('cfg-acao-rodizio-instrucao').value,
+      },
+      ok: {
+        label: document.getElementById('cfg-acao-ok-label').value,
+        instrucao: document.getElementById('cfg-acao-ok-instrucao').value,
+      },
+    },
+  };
+
+  if (!Number.isFinite(payload.sulco_critico_mm) || !Number.isFinite(payload.sulco_alerta_mm)) {
+    return toast('Informe valores válidos em mm', 'error');
+  }
+
+  try {
+    const result = await fetchJSON(`${API}/configuracoes`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    });
+    limitesAtuais = { ...limitesAtuais, ...result };
+    syncMarkersLimites();
+    atualizarPreviewLimites();
+    toast('Limites e ações salvos! Medições usam as novas regras.', 'success');
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+});
+
+// ── WhatsApp chatbot (dentro do perfil da filial) ──────
+
+let waPollTimer = null;
+let waPollFilialId = null;
+
+function stopWaPoll() {
+  if (waPollTimer) {
+    clearInterval(waPollTimer);
+    waPollTimer = null;
+  }
+  waPollFilialId = null;
+}
+
+function mostrarQrFilial(data, nomeFilial) {
+  const qrWrap = document.getElementById('wa-qr-wrap');
+  const qrImg = document.getElementById('wa-qr-img');
+  const titulo = document.getElementById('wa-qr-titulo');
+  if (titulo) titulo.textContent = `QR — chatbot ${nomeFilial || ''}`.trim();
+  if (data.qrcode && qrImg) {
+    qrImg.src = data.qrcode;
+    qrWrap?.classList.remove('hidden');
+  }
+  if (data.loggedIn) {
+    qrWrap?.classList.add('hidden');
+    stopWaPoll();
+  }
+}
+
+function startWaPollFilial(filialId, nome) {
+  stopWaPoll();
+  waPollFilialId = filialId;
+  waPollTimer = setInterval(async () => {
+    try {
+      const data = await fetchJSON(`${API}/whatsapp/filial/${filialId}/status`);
+      if (data.qrcode) mostrarQrFilial(data, nome);
+      if (data.loggedIn) {
+        toast(`Chatbot ${nome} conectado!`, 'success');
+        document.getElementById('wa-qr-wrap')?.classList.add('hidden');
+        stopWaPoll();
+        const statusEl = document.getElementById('fc-status');
+        if (statusEl) {
+          statusEl.className = 'badge badge-ok';
+          statusEl.textContent = 'Online';
+        }
+      }
+    } catch {
+      // ignore
+    }
+  }, 3000);
+}
+
+document.getElementById('btn-wa-qr-fechar')?.addEventListener('click', () => {
+  document.getElementById('wa-qr-wrap')?.classList.add('hidden');
+  stopWaPoll();
+});
+
+// ── Filiais (admin total + gerente de unidade) ──────────
+
+async function loadFiliais() {
+  if (!isGestao()) return;
+  try {
+    const [filiais, compras] = await Promise.all([
+      fetchJSON(`${API}/filiais`),
+      fetchJSON(`${API}/filiais/compras/consolidado`),
+    ]);
+    filiaisCache = filiais;
+    const lista = document.getElementById('filiais-lista');
+    document.getElementById('filial-detalhe').classList.add('hidden');
+
+    const banner = document.getElementById('compras-consolidado');
+    const t = compras.totais || {};
+    banner.innerHTML = `
+      <div class="compras-banner-inner">
+        <div>
+          <h3>Compras e recapagens — consolidado</h3>
+          <p class="hint">Baseado nas medições enviadas pelas filiais</p>
+        </div>
+        <div class="compras-totais">
+          <div class="compras-chip compra">
+            <strong>${t.pneus_para_comprar ?? 0}</strong>
+            <span>Comprar (troca)</span>
+          </div>
+          <div class="compras-chip recap">
+            <strong>${t.pneus_para_recap ?? 0}</strong>
+            <span>Recapagem</span>
+          </div>
+          <div class="compras-chip monitorar">
+            <strong>${t.pneus_monitorar ?? 0}</strong>
+            <span>Monitorar</span>
+          </div>
+        </div>
+      </div>
+      ${compras.filiais?.length ? `
+        <div class="compras-por-filial">
+          ${compras.filiais.map((f) => `
+            <button type="button" class="compras-filial-chip" data-id="${f.filial_id}">
+              <strong>${f.codigo}</strong>
+              ${f.compras.pneus_para_comprar ? `<span class="chip-troca">${f.compras.pneus_para_comprar} compra</span>` : ''}
+              ${f.compras.pneus_para_recap ? `<span class="chip-recap">${f.compras.pneus_para_recap} recap</span>` : ''}
+              ${f.compras.pneus_monitorar ? `<span class="chip-mon">${f.compras.pneus_monitorar} mon.</span>` : ''}
+            </button>
+          `).join('')}
+        </div>` : '<p class="hint" style="margin-top:.75rem">Nenhuma pendência de compra no momento</p>'}
+    `;
+    banner.querySelectorAll('.compras-filial-chip').forEach((btn) => {
+      btn.addEventListener('click', () => abrirDetalheFilial(btn.dataset.id));
+    });
+
+    if (!filiais.length) {
+      lista.innerHTML = '<div class="empty-state"><h3>Nenhuma filial</h3><p>Cadastre a primeira filial para começar</p></div>';
+      return;
+    }
+
+    lista.innerHTML = filiais.map((f) => {
+      const r = f.resumo || {};
+      const c = r.compras || {};
+      const urgente = (r.pneus_critico || 0) > 0 || (c.pneus_para_comprar || 0) > 0;
+      const atrasado = r.precisa_medir_semana;
+      return `
+        <div class="filial-card ${urgente ? 'is-urgente' : ''} ${atrasado ? 'is-atrasado' : ''}" data-id="${f.id}">
+          <div class="filial-card-head">
+            <h3>${f.nome}</h3>
+            <span class="badge badge-vida">${f.codigo}</span>
+          </div>
+          <p class="hint">${f.contrato || 'Sem contrato'} · login: ${f.login || '—'}</p>
+          <p class="hint">
+            Chatbot:
+            ${f.whatsapp ? `<span class="mono">${escapeHtml(f.whatsapp)}</span>` : '<em>não cadastrado</em>'}
+            ${f.whatsapp_grupo ? ` · grupo <span class="mono">${escapeHtml(f.whatsapp_grupo)}</span>` : ''}
+            ${f.whatsapp_alerta ? ` · alertas <span class="mono">${escapeHtml(f.whatsapp_alerta)}</span>` : ''}
+            ${f.tem_wuzapi_token ? ' · token OK' : ''}
+          </p>
+          <div class="filial-stats">
+            <span><strong>${r.veiculos_ativos ?? 0}</strong> veículos</span>
+            <span class="text-critico"><strong>${c.pneus_para_comprar ?? r.acoes?.troca ?? 0}</strong> comprar</span>
+            <span class="text-recap"><strong>${c.pneus_para_recap ?? r.acoes?.recap ?? 0}</strong> recap</span>
+            <span><strong>${r.pneus_critico ?? 0}</strong> críticos</span>
+          </div>
+          <p class="hint filial-medicao">
+            ${r.ultima_medicao
+              ? `Última medição: ${formatDate(r.ultima_medicao)} (${r.dias_sem_medicao ?? 0} dias)`
+              : 'Nunca mediu'}
+            ${atrasado ? ' · <strong>Medir esta semana</strong>' : ''}
+          </p>
+          <div class="filial-card-actions">
+            <button type="button" class="btn btn-sm btn-primary btn-abrir-filial" data-id="${f.id}">Abrir perfil</button>
+            <button type="button" class="btn btn-sm btn-ghost btn-editar-filial" data-id="${f.id}">Editar / senha</button>
+          </div>
+        </div>
+      `;
+    }).join('');
+
+    lista.querySelectorAll('.btn-abrir-filial').forEach((btn) => {
+      btn.addEventListener('click', () => abrirDetalheFilial(btn.dataset.id));
+    });
+    lista.querySelectorAll('.btn-editar-filial').forEach((btn) => {
+      btn.addEventListener('click', () => abrirModalFilial(btn.dataset.id));
+    });
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+function renderPendenciaRows(itens, tipo) {
+  if (!itens?.length) return '';
+  return `
+    <div class="pendencia-grupo pendencia-${tipo}">
+      <h4>${tipo === 'troca' ? 'Comprar / Trocar' : tipo === 'recap' ? 'Recapagem' : 'Monitorar'} (${itens.length})</h4>
+      <table class="historico-table">
+        <thead>
+          <tr>
+            <th>Veículo</th><th>Posição</th><th>Fogo</th><th>Sulco</th>
+            <th>Status</th><th>Diagnóstico</th><th>Motivo</th><th>Medição</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${itens.map((p) => `
+            <tr>
+              <td><strong>${p.apelido || p.placa}</strong><br><span class="hint">${p.placa}</span></td>
+              <td>${p.posicao_label || p.posicao}</td>
+              <td>${p.numero_fogo || '—'}</td>
+              <td><strong>${p.menor_sulco ?? '—'} mm</strong></td>
+              <td>${badge(p.status_sulco)}</td>
+              <td>${p.diagnostico_label || '—'}</td>
+              <td>${p.acao_motivo || '—'}</td>
+              <td>${formatDate(p.data_medicao)}</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function valorCampoWa(v) {
+  if (v == null) return '';
+  const s = String(v).trim();
+  if (!s || s === 'null' || s === 'undefined') return '';
+  return s;
+}
+
+async function abrirDetalheFilial(id) {
+  try {
+    const data = await fetchJSON(`${API}/filiais/${id}`);
+    const el = document.getElementById('filial-detalhe');
+    const r = data.resumo || {};
+    const c = data.compras || r.compras || {};
+    const pend = data.pendencias || { troca: [], recap: [], monitorar: [] };
+
+    el.classList.remove('hidden');
+    el.innerHTML = `
+      <div class="section-header">
+        <h3>${escapeHtml(data.nome)} (${escapeHtml(data.codigo)})</h3>
+        <button type="button" class="btn btn-ghost btn-sm" id="btn-fechar-detalhe-filial">Fechar</button>
+      </div>
+      <p class="hint">${escapeHtml(data.contrato || '')} · Login: ${escapeHtml(data.login || '—')}
+        ${r.ultima_medicao ? ` · Última medição ${formatDate(r.ultima_medicao)}` : ''}</p>
+
+      <div class="filial-chatbot-panel">
+        <h4>Chatbot WhatsApp desta unidade</h4>
+        <p class="hint">
+          1) Conecte o chip · 2) Escolha o <strong>grupo</strong> · 3) Informe o <strong>número de alertas</strong>.
+        </p>
+        <div class="form-group">
+          <label for="fc-whatsapp">Número do chip (chatbot)</label>
+          <input type="text" id="fc-whatsapp" class="mono" value="${escapeHtml(valorCampoWa(data.whatsapp))}" placeholder="5511999999999" inputmode="tel">
+        </div>
+        <div class="form-group">
+          <label for="fc-whatsapp-grupo">Grupo do chatbot (placa → link)</label>
+          <div class="form-row" style="align-items:flex-end;gap:.5rem">
+            <select id="fc-whatsapp-grupo" style="flex:1">
+              <option value="">— Selecione o grupo —</option>
+              ${valorCampoWa(data.whatsapp_grupo) ? `<option value="${escapeHtml(valorCampoWa(data.whatsapp_grupo))}" selected>${escapeHtml(valorCampoWa(data.whatsapp_grupo))}</option>` : ''}
+            </select>
+            <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-grupos">Atualizar grupos</button>
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="fc-whatsapp-alerta">Número para alertas</label>
+          <input type="text" id="fc-whatsapp-alerta" class="mono" value="${escapeHtml(valorCampoWa(data.whatsapp_alerta))}" placeholder="5511888888888" inputmode="tel">
+        </div>
+        <div class="form-group">
+          <label for="fc-wuzapi-token">Token WuzAPI</label>
+          <div class="form-row" style="align-items:flex-end;gap:.5rem">
+            <input type="password" id="fc-wuzapi-token" style="flex:1" placeholder="${data.tem_wuzapi_token ? '•••• (deixe em branco para manter)' : 'Gere o token ou cole aqui'}" autocomplete="off">
+            <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-gerar-token">Gerar token</button>
+          </div>
+          <small class="field-hint">WuzAPI no Docker: <code>npm run wuzapi:up</code>. Depois: Gerar token → Conectar / QR.</small>
+        </div>
+        <div class="wa-actions" style="margin-bottom:.75rem">
+          <span id="fc-status" class="badge badge-sem_dado">Status…</span>
+          <button type="button" class="btn btn-primary btn-sm" id="btn-fc-salvar">Salvar</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-conectar">Conectar / QR</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-desconectar">Desconectar</button>
+        </div>
+      </div>
+
+      <div class="compras-resumo-filial">
+        <div class="compras-chip compra"><strong>${c.pneus_para_comprar ?? 0}</strong><span>Pneus a comprar</span></div>
+        <div class="compras-chip recap"><strong>${c.pneus_para_recap ?? 0}</strong><span>Enviar a recap</span></div>
+        <div class="compras-chip monitorar"><strong>${c.pneus_monitorar ?? 0}</strong><span>Monitorar</span></div>
+        <div class="compras-chip"><strong>${r.pneus_sem_dado ?? 0}</strong><span>Sem medição</span></div>
+      </div>
+
+      <h4 style="margin-top:1.25rem">Alertas para adiantar compras</h4>
+      ${pend.todos?.length
+        ? `${renderPendenciaRows(pend.troca, 'troca')}
+           ${renderPendenciaRows(pend.recap, 'recap')}
+           ${renderPendenciaRows(pend.monitorar, 'monitorar')}`
+        : '<p class="hint">Nenhum alerta pendente nesta filial — frota dentro dos parâmetros.</p>'}
+
+      <h4 style="margin-top:1.5rem">Frota (${data.veiculos?.length || 0})</h4>
+      <p class="hint">Clique em um veículo para ver o desenho dos pneus. Clique de novo no mesmo card para recolher.</p>
+      ${data.veiculos?.length
+        ? `<div class="card-list">${data.veiculos.map((v) => `
+            <div class="veiculo-card" data-id="${v.id}" role="button" tabindex="0">
+              <div class="veiculo-info">
+                <h4>${escapeHtml(v.apelido || v.placa)}</h4>
+                <p>${escapeHtml(v.placa)} · ${escapeHtml(v.tipo)} · ${v.total_pneus} pneus · ${v.km_atual?.toLocaleString('pt-BR') || 0} km
+                  ${v.menor_sulco != null ? ` · menor sulco ${v.menor_sulco} mm` : ''}</p>
+              </div>
+              <div class="veiculo-meta">
+                ${badge(v.status_sulco)}
+                ${v.pendencias_troca ? badgeAcao('troca', `${v.pendencias_troca} troca`) : ''}
+                ${v.pendencias_recap ? badgeAcao('recap', `${v.pendencias_recap} recap`) : ''}
+              </div>
+            </div>`).join('')}</div>`
+        : '<p class="hint">Nenhum veículo nesta filial</p>'}
+      <div id="filial-veiculo-inspecao" class="filial-inspecao hidden"></div>
+    `;
+
+    document.getElementById('btn-fechar-detalhe-filial').onclick = () => {
+      fecharInspecaoVeiculoFilial();
+      document.getElementById('wa-qr-wrap')?.classList.add('hidden');
+      stopWaPoll();
+      el.classList.add('hidden');
+    };
+
+    wireFilialChatbotPanel(id, data.nome);
+
+    el.querySelectorAll('.veiculo-card[data-id]').forEach((card) => {
+      const open = () => abrirInspecaoVeiculoFilial(id, card.dataset.id);
+      card.addEventListener('click', open);
+      card.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          open();
+        }
+      });
+    });
+    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+function renderChatbotPanelHtml(data) {
+  const grupoAtual = valorCampoWa(data.whatsapp_grupo);
+  return `
+    <div class="filial-chatbot-panel" style="margin:0;border:none;padding:0;background:transparent">
+      <h3 style="margin-top:0">${escapeHtml(data.nome || 'Unidade')} ${data.codigo ? `(${escapeHtml(data.codigo)})` : ''}</h3>
+      <p class="hint">
+        1) Conecte o chip · 2) Escolha o <strong>grupo</strong> onde o borracheiro manda a placa ·
+        3) Informe o <strong>número de alertas</strong> (quem recebe crítico/monitorar).
+      </p>
+      <p class="hint" id="fc-wuzapi-hint">
+        WuzAPI precisa estar no ar (<code>http://localhost:8080</code>). Depois de conectar, clique em “Atualizar grupos”.
+      </p>
+
+      <div class="form-group">
+        <label for="fc-whatsapp">Número do chip (chatbot)</label>
+        <input type="text" id="fc-whatsapp" class="mono" value="${escapeHtml(valorCampoWa(data.whatsapp))}" placeholder="5511999999999" inputmode="tel">
+        <small class="field-hint">Número do WhatsApp conectado via QR nesta unidade.</small>
+      </div>
+
+      <div class="form-group">
+        <label for="fc-whatsapp-grupo">Grupo do chatbot (placa → link)</label>
+        <div class="form-row" style="align-items:flex-end;gap:.5rem">
+          <select id="fc-whatsapp-grupo" style="flex:1">
+            <option value="">— Selecione o grupo —</option>
+            ${grupoAtual ? `<option value="${escapeHtml(grupoAtual)}" selected>${escapeHtml(grupoAtual)}</option>` : ''}
+          </select>
+          <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-grupos">Atualizar grupos</button>
+        </div>
+        <small class="field-hint">O bot precisa estar no grupo. A lista vem do WuzAPI após conectar.</small>
+      </div>
+
+      <div class="form-group">
+        <label for="fc-whatsapp-alerta">Número para alertas</label>
+        <input type="text" id="fc-whatsapp-alerta" class="mono" value="${escapeHtml(valorCampoWa(data.whatsapp_alerta))}" placeholder="5511888888888" inputmode="tel">
+        <small class="field-hint">Para onde vão os avisos de pneu crítico / monitorar (gerente, compras, etc.).</small>
+      </div>
+
+      <div class="form-group">
+        <label for="fc-wuzapi-token">Token WuzAPI</label>
+        <div class="form-row" style="align-items:flex-end;gap:.5rem">
+          <input type="password" id="fc-wuzapi-token" style="flex:1" placeholder="${data.tem_wuzapi_token ? '•••• (deixe em branco para manter)' : 'Gere o token ou cole aqui'}" autocomplete="off">
+          <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-gerar-token">Gerar token</button>
+        </div>
+        <small class="field-hint">WuzAPI precisa estar no Docker (<code>npm run wuzapi:up</code>). Depois: Gerar token → Conectar / QR.</small>
+      </div>
+      <div class="wa-actions" style="margin-bottom:.75rem">
+        <span id="fc-status" class="badge badge-sem_dado">Status…</span>
+        <button type="button" class="btn btn-primary btn-sm" id="btn-fc-salvar">Salvar</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-conectar">Conectar / QR</button>
+        <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-desconectar">Desconectar</button>
+      </div>
+
+      <div class="wa-envios-panel" id="fc-envios-panel">
+        <div class="section-header" style="margin:1rem 0 .5rem;align-items:center">
+          <h4 style="margin:0">Envios WhatsApp</h4>
+          <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-envios">Atualizar</button>
+        </div>
+        <div class="compras-resumo-filial" style="margin-bottom:.75rem">
+          <div class="compras-chip monitorar"><strong id="fc-env-pendentes">—</strong><span>Pendentes / falha</span></div>
+          <div class="compras-chip"><strong id="fc-env-enviados">—</strong><span>Enviados</span></div>
+        </div>
+        <details class="wa-envios-logs" id="fc-envios-detalhes-wrap">
+          <summary>Ver pendentes, enviados e logs</summary>
+          <div id="fc-envios-pendentes-list" class="wa-envios-list" style="margin-top:.65rem"></div>
+          <div id="fc-envios-enviados-list" class="wa-envios-list" style="margin-top:.5rem"></div>
+          <div id="fc-envios-logs" class="wa-envios-logs-body mono" style="margin-top:.75rem"></div>
+        </details>
+      </div>
+    </div>
+  `;
+}
+
+async function loadChatbotOperador() {
+  const box = document.getElementById('chatbot-filial-panel');
+  if (!box) return;
+  let filialId = currentUser?.filial_id;
+  // Gerente multiunidade: pega a primeira do escopo
+  if (!filialId && isGestao()) {
+    try {
+      const filiais = await fetchJSON(`${API}/filiais`);
+      filialId = filiais[0]?.id || null;
+    } catch { /* ignore */ }
+  }
+  if (!filialId) {
+    box.innerHTML = `<p class="hint login-erro">Seu login não está vinculado a uma filial. Abra o perfil em Filiais / Minha unidade.</p>`;
+    return;
+  }
+  try {
+    const data = await fetchJSON(`${API}/whatsapp/filial/${filialId}/config`);
+    box.innerHTML = renderChatbotPanelHtml(data);
+    wireFilialChatbotPanel(filialId, data.nome);
+  } catch (err) {
+    box.innerHTML = `<p class="hint login-erro">${escapeHtml(err.message)}</p>`;
+  }
+}
+
+function wireFilialChatbotPanel(filialId, nomeFilial) {
+  const statusEl = document.getElementById('fc-status');
+
+  const refreshStatus = async () => {
+    if (!statusEl) return;
+    try {
+      const st = await fetchJSON(`${API}/whatsapp/filial/${filialId}/status`);
+      if (st.loggedIn) {
+        statusEl.className = 'badge badge-ok';
+        statusEl.textContent = 'Online';
+      } else if (st.connected) {
+        statusEl.className = 'badge badge-alerta';
+        statusEl.textContent = 'Aguardando QR';
+      } else if (!st.configurado) {
+        statusEl.className = 'badge badge-sem_dado';
+        statusEl.textContent = 'Sem token';
+      } else {
+        statusEl.className = 'badge badge-sem_dado';
+        statusEl.textContent = 'Desconectado';
+      }
+    } catch (err) {
+      statusEl.className = 'badge badge-critico';
+      statusEl.textContent = 'Erro status';
+      const hint = document.getElementById('fc-wuzapi-hint');
+      if (hint && err?.message) {
+        hint.textContent = err.message;
+        hint.classList.add('login-erro');
+      }
+    }
+  };
+  refreshStatus();
+
+  const renderEnvioItem = (item, { reenviar = false } = {}) => `
+    <div class="wa-envio-item" data-id="${item.id}">
+      <div class="wa-envio-meta">
+        <span class="badge ${item.status === 'erro' ? 'badge-critico' : 'badge-ok'}">${escapeHtml(item.status_label)}</span>
+        <strong>${escapeHtml(item.tipo_label)}</strong>
+        ${item.placa ? `<span class="mono">${escapeHtml(item.placa)}</span>` : ''}
+        <span class="hint">${escapeHtml(formatDateTime(item.criado_em))}</span>
+      </div>
+      <div class="hint">Para: <span class="mono">${escapeHtml(item.destinatario || '—')}</span></div>
+      <div class="hint">${escapeHtml(item.preview || '')}${item.erro ? ` · <span class="login-erro">${escapeHtml(item.erro)}</span>` : ''}</div>
+      ${reenviar ? `<button type="button" class="btn btn-ghost btn-sm btn-fc-reenviar" data-id="${item.id}">Reenviar</button>` : ''}
+    </div>
+  `;
+
+  const carregarEnvios = async (silencioso = false) => {
+    const pendEl = document.getElementById('fc-envios-pendentes-list');
+    const envEl = document.getElementById('fc-envios-enviados-list');
+    const logsEl = document.getElementById('fc-envios-logs');
+    if (!pendEl && !envEl) return;
+    try {
+      const data = await fetchJSON(`${API}/whatsapp/filial/${filialId}/envios`);
+      const r = data.resumo || {};
+      const pCount = document.getElementById('fc-env-pendentes');
+      const eCount = document.getElementById('fc-env-enviados');
+      if (pCount) pCount.textContent = String(r.pendentes ?? 0);
+      if (eCount) eCount.textContent = String(r.enviados ?? 0);
+
+      if (pendEl) {
+        pendEl.innerHTML = data.pendentes?.length
+          ? `<h5 style="margin:.25rem 0">Pendentes / falha</h5>${data.pendentes.map((i) => renderEnvioItem(i, { reenviar: true })).join('')}`
+          : '<p class="hint">Nenhum envio pendente.</p>';
+      }
+      if (envEl) {
+        envEl.innerHTML = data.enviados?.length
+          ? `<h5 style="margin:.25rem 0">Últimos enviados</h5>${data.enviados.slice(0, 8).map((i) => renderEnvioItem(i)).join('')}`
+          : '<p class="hint">Nenhum envio registrado ainda.</p>';
+      }
+      if (logsEl) {
+        logsEl.innerHTML = (data.logs || []).map((i) => `
+          <div class="wa-log-line">
+            <div><strong>#${i.id}</strong> ${escapeHtml(i.criado_em || '')} · ${escapeHtml(i.status_label)} · ${escapeHtml(i.tipo_label)}
+              → <span class="mono">${escapeHtml(i.destinatario || '')}</span>
+              ${i.placa ? ` · ${escapeHtml(i.placa)}` : ''}
+              ${i.erro ? ` · <span class="login-erro">${escapeHtml(i.erro)}</span>` : ''}
+            </div>
+            <pre class="wa-log-msg">${escapeHtml(i.mensagem || '')}</pre>
+          </div>
+        `).join('') || '<p class="hint">Sem logs.</p>';
+      }
+
+      pendEl?.querySelectorAll('.btn-fc-reenviar').forEach((btn) => {
+        btn.addEventListener('click', async () => {
+          const id = btn.dataset.id;
+          try {
+            btn.disabled = true;
+            await fetchJSON(`${API}/whatsapp/filial/${filialId}/envios/${id}/reenviar`, {
+              method: 'POST',
+              body: '{}',
+            });
+            toast('Reenviado', 'success');
+            carregarEnvios(true);
+          } catch (err) {
+            toast(err.message, 'error');
+          } finally {
+            btn.disabled = false;
+          }
+        });
+      });
+    } catch (err) {
+      if (!silencioso) toast(err.message, 'error');
+      if (pendEl) pendEl.innerHTML = `<p class="hint login-erro">${escapeHtml(err.message)}</p>`;
+    }
+  };
+
+  document.getElementById('btn-fc-envios')?.addEventListener('click', () => carregarEnvios(false));
+  carregarEnvios(true);
+
+  const carregarGrupos = async (silencioso = false) => {
+    const sel = document.getElementById('fc-whatsapp-grupo');
+    if (!sel) return;
+    const atual = valorCampoWa(sel.value);
+    try {
+      if (!silencioso) toast('Buscando grupos no WhatsApp…');
+      const data = await fetchJSON(`${API}/whatsapp/filial/${filialId}/grupos`);
+      const grupos = data.grupos || [];
+      sel.innerHTML = '<option value="">— Selecione o grupo —</option>';
+      for (const g of grupos) {
+        const id = valorCampoWa(g.jid || g.id);
+        if (!id) continue;
+        const nome = valorCampoWa(g.nome || g.name) || id;
+        const opt = document.createElement('option');
+        opt.value = id;
+        opt.textContent = `${nome} (${id})`;
+        if (atual && atual === id) opt.selected = true;
+        sel.appendChild(opt);
+      }
+      if (atual && !grupos.some((g) => valorCampoWa(g.jid || g.id) === atual)) {
+        const opt = document.createElement('option');
+        opt.value = atual;
+        opt.textContent = `Salvo: ${atual}`;
+        opt.selected = true;
+        sel.appendChild(opt);
+      }
+      if (!silencioso) {
+        toast(grupos.length ? `${grupos.length} grupo(s) encontrado(s)` : 'Nenhum grupo — entre no grupo com o chip e tente de novo', grupos.length ? 'success' : 'error');
+      }
+    } catch (err) {
+      if (!silencioso) toast(err.message, 'error');
+    }
+  };
+
+  document.getElementById('btn-fc-grupos')?.addEventListener('click', () => carregarGrupos(false));
+  // Tenta carregar silenciosamente se já estiver conectado
+  setTimeout(() => carregarGrupos(true), 400);
+
+  document.getElementById('btn-fc-gerar-token')?.addEventListener('click', async () => {
+    try {
+      toast('Gerando token no WuzAPI…');
+      const data = await fetchJSON(`${API}/whatsapp/filial/${filialId}/provisionar-token`, {
+        method: 'POST',
+        body: '{}',
+      });
+      toast(data.mensagem || 'Token gerado', 'success');
+      const tokenInput = document.getElementById('fc-wuzapi-token');
+      if (tokenInput) {
+        tokenInput.value = '';
+        tokenInput.placeholder = '•••• (deixe em branco para manter)';
+      }
+      const hint = document.getElementById('fc-wuzapi-hint');
+      if (hint) {
+        hint.textContent = 'Token OK. Agora clique em Conectar / QR.';
+        hint.classList.remove('login-erro');
+      }
+      refreshStatus();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  });
+
+  document.getElementById('btn-fc-salvar')?.addEventListener('click', async () => {
+    const body = {
+      whatsapp: document.getElementById('fc-whatsapp')?.value || null,
+      whatsapp_grupo: document.getElementById('fc-whatsapp-grupo')?.value || null,
+      whatsapp_alerta: document.getElementById('fc-whatsapp-alerta')?.value || null,
+    };
+    const tok = document.getElementById('fc-wuzapi-token')?.value?.trim();
+    if (tok) body.wuzapi_token = tok;
+    try {
+      await fetchJSON(`${API}/whatsapp/filiais-chatbot/${filialId}`, {
+        method: 'PUT',
+        body: JSON.stringify(body),
+      });
+      toast('Chatbot da filial salvo', 'success');
+      const tokenInput = document.getElementById('fc-wuzapi-token');
+      if (tokenInput) {
+        tokenInput.value = '';
+        tokenInput.placeholder = '•••• (deixe em branco para manter)';
+      }
+      refreshStatus();
+      filiaisCache = [];
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  });
+
+  document.getElementById('btn-fc-conectar')?.addEventListener('click', async () => {
+    try {
+      toast(`Conectando chatbot ${nomeFilial}…`);
+      const data = await fetchJSON(`${API}/whatsapp/filial/${filialId}/connect`, {
+        method: 'POST',
+        body: '{}',
+      });
+      mostrarQrFilial(data, nomeFilial);
+      toast(data.mensagem || 'Escaneie o QR', 'success');
+      startWaPollFilial(filialId, nomeFilial);
+      refreshStatus();
+      setTimeout(() => carregarGrupos(true), 2000);
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  });
+
+  document.getElementById('btn-fc-desconectar')?.addEventListener('click', async () => {
+    try {
+      await fetchJSON(`${API}/whatsapp/filial/${filialId}/disconnect`, {
+        method: 'POST',
+        body: '{}',
+      });
+      toast('Chatbot desconectado');
+      document.getElementById('wa-qr-wrap')?.classList.add('hidden');
+      stopWaPoll();
+      refreshStatus();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  });
+}
+
+let inspecaoDiagram = null;
+let inspecaoVeiculoCache = null;
+let inspecaoVeiculoIdAberto = null;
+
+function textoOQueFazer(p) {
+  const acao = (p.acao_sugerida || 'ok').toLowerCase();
+  if (acao === 'troca') {
+    return 'Trocar o pneu. Retire da posição, descarte ou encaminhe conforme política da frota e monte um pneu do estoque.';
+  }
+  if (acao === 'recap') {
+    return 'Enviar para recapagem. Desmonte, registre a recap e remonte (ou use outro pneu) na posição.';
+  }
+  if (acao === 'monitorar') {
+    return 'Programar substituição — iniciar processo de recap em até 15 dias e acompanhar o sulco.';
+  }
+  if (acao === 'rodizio') {
+    return 'Mudar de posição no caminhão para equalizar o desgaste (não faz balanceamento no eixo traseiro).';
+  }
+  if (p.diagnostico && p.diagnostico !== 'ok' && p.diagnostico !== 'sem_dado') {
+    return p.diagnostico_desc || `Corrigir causa: ${p.diagnostico_label}.`;
+  }
+  if (p.status_sulco === 'sem_dado') {
+    return 'Realizar medição dos 4 pontos de sulco para avaliar o pneu.';
+  }
+  return 'Nenhuma ação urgente — manter medição periódica.';
+}
+
+function renderPainelPneuInspecao(p) {
+  if (!p) {
+    return `<div class="inspecao-empty">
+      <p>Clique em um pneu no desenho (ou na lista) para ver o diagnóstico e a ação recomendada.</p>
+    </div>`;
+  }
+  const sulcos = [
+    p.ult_sulco_ext, p.ult_sulco_cent, p.ult_sulco_int, p.ult_sulco_aux,
+  ].map((v) => (v != null ? `${v} mm` : '—')).join(' · ');
+
+  return `
+    <div class="inspecao-pneu-detalhe">
+      <div class="inspecao-pneu-head">
+        <h4>${p.posicao_label || p.posicao}${p.numero_fogo ? ` · Fogo ${p.numero_fogo}` : ''}</h4>
+        <div class="inspecao-badges">
+          ${badge(p.status_sulco)}
+          ${badgeAcao(p.acao_sugerida, p.acao_label)}
+        </div>
+      </div>
+      <p class="hint">${p.marca || '—'} · ${p.modelo || ''}${p.modelo ? ' · ' : ''}${p.vida_label || ''}${p.ult_medicao ? ` · medido em ${formatDate(p.ult_medicao)}` : ''}</p>
+      <dl class="inspecao-dl">
+        <div><dt>Menor sulco</dt><dd><strong>${p.menor_sulco != null ? `${p.menor_sulco} mm` : '—'}</strong></dd></div>
+        <div><dt>4 pontos</dt><dd>${sulcos}</dd></div>
+        <div><dt>Diagnóstico</dt><dd>${p.diagnostico_label || '—'}${p.diagnostico_desc ? `<br><span class="hint">${p.diagnostico_desc}</span>` : ''}</dd></div>
+        <div><dt>Motivo</dt><dd>${p.acao_motivo || '—'}</dd></div>
+      </dl>
+      <div class="inspecao-acao-box inspecao-acao-${p.acao_sugerida || 'ok'}">
+        <strong>O que fazer</strong>
+        <p>${textoOQueFazer(p)}</p>
+      </div>
+    </div>`;
+}
+
+function renderListaAnomalias(anomalias) {
+  if (!anomalias?.length) {
+    return `<div class="inspecao-ok-banner">
+      <strong>Sem anomalias</strong>
+      <p>Todos os pneus montados estão dentro dos parâmetros ou sem ação pendente.</p>
+    </div>`;
+  }
+  return `
+    <div class="inspecao-anomalias">
+      <h4>Pneus com anomalia (${anomalias.length})</h4>
+      <div class="inspecao-anomalia-list">
+        ${anomalias.map((p) => `
+          <button type="button" class="inspecao-anomalia-item" data-pneu-id="${p.id}">
+            <span class="inspecao-anomalia-pos">${p.posicao_label || p.posicao}</span>
+            <span class="inspecao-anomalia-meta">
+              ${badge(p.status_sulco)}
+              ${badgeAcao(p.acao_sugerida, p.acao_label)}
+              <span class="hint">${p.menor_sulco != null ? `${p.menor_sulco} mm` : 'sem medição'}</span>
+            </span>
+            <span class="inspecao-anomalia-fazer">${textoOQueFazer(p)}</span>
+          </button>
+        `).join('')}
+      </div>
+    </div>`;
+}
+
+function fecharInspecaoVeiculoFilial() {
+  const box = document.getElementById('filial-veiculo-inspecao');
+  if (box) {
+    box.classList.add('hidden');
+    box.innerHTML = '';
+  }
+  inspecaoDiagram = null;
+  inspecaoVeiculoCache = null;
+  inspecaoVeiculoIdAberto = null;
+  document.querySelectorAll('#filial-detalhe .veiculo-card.is-aberto').forEach((c) => {
+    c.classList.remove('is-aberto');
+  });
+}
+
+async function abrirInspecaoVeiculoFilial(filialId, veiculoId) {
+  const box = document.getElementById('filial-veiculo-inspecao');
+  if (!box) return;
+
+  const idNum = Number(veiculoId);
+  // Segundo clique no mesmo veículo → recolhe
+  if (inspecaoVeiculoIdAberto === idNum && !box.classList.contains('hidden')) {
+    fecharInspecaoVeiculoFilial();
+    return;
+  }
+
+  document.querySelectorAll('#filial-detalhe .veiculo-card').forEach((c) => {
+    c.classList.toggle('is-aberto', Number(c.dataset.id) === idNum);
+  });
+
+  inspecaoVeiculoIdAberto = idNum;
+  box.classList.remove('hidden');
+  box.innerHTML = '<p class="hint">Carregando diagrama e diagnósticos…</p>';
+  box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+
+  try {
+    const v = await fetchJSON(`${API}/filiais/${filialId}/veiculos/${veiculoId}`);
+    if (inspecaoVeiculoIdAberto !== idNum) return;
+
+    inspecaoVeiculoCache = v;
+    const labels = v.posicoes_labels || {};
+    const posicoes = v.posicoes_layout?.map((p) => p.codigo) || v.layout?.posicoes || [];
+    const nAnom = v.anomalias?.length || 0;
+
+    box.innerHTML = `
+      <div class="inspecao-header">
+        <div>
+          <h3>${v.apelido || v.placa}</h3>
+          <p class="hint">${v.placa} · ${v.tipo} · ${v.km_atual?.toLocaleString('pt-BR') || 0} km
+            · ${v.layout?.nome || 'Layout'}
+            · Filial ${v.filial?.nome || ''}</p>
+        </div>
+        <button type="button" class="btn btn-ghost btn-sm" id="btn-fechar-inspecao">Fechar desenho</button>
+      </div>
+      <p class="inspecao-legenda hint">
+        Cores no desenho: <span class="dot-inline ok"></span> OK ·
+        <span class="dot-inline alerta"></span> Alerta ·
+        <span class="dot-inline critico"></span> Crítico ·
+        ${nAnom ? `<strong>${nAnom} pneu(s) exigem ação</strong>` : '<strong>Frota OK neste veículo</strong>'}
+      </p>
+      <div class="inspecao-layout">
+        <div class="card truck-diagram-wrap">
+          <div id="filial-inspecao-diagram"></div>
+        </div>
+        <div class="card inspecao-side">
+          <div id="filial-inspecao-painel">${renderPainelPneuInspecao(null)}</div>
+          ${renderListaAnomalias(v.anomalias)}
+        </div>
+      </div>`;
+
+    document.getElementById('btn-fechar-inspecao').onclick = () => fecharInspecaoVeiculoFilial();
+
+    inspecaoDiagram = new TruckDiagram('filial-inspecao-diagram', {
+      pickerHint: 'Clique no pneu colorido para ver a anomalia e o que fazer:',
+      onPneuClick: (pneu) => {
+        const painel = document.getElementById('filial-inspecao-painel');
+        if (painel) painel.innerHTML = renderPainelPneuInspecao(pneu);
+      },
+      onSlotClick: () => {
+        const painel = document.getElementById('filial-inspecao-painel');
+        if (painel) {
+          painel.innerHTML = `<div class="inspecao-empty"><p>Posição vazia — a filial precisa montar um pneu do estoque neste slot.</p></div>`;
+        }
+      },
+    });
+    inspecaoDiagram.render(v.pneus, labels, posicoes);
+
+    box.querySelectorAll('.inspecao-anomalia-item').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const id = parseInt(btn.dataset.pneuId, 10);
+        const pneu = v.pneus.find((p) => p.id === id);
+        if (!pneu) return;
+        inspecaoDiagram?.setAtivo(id);
+        const painel = document.getElementById('filial-inspecao-painel');
+        if (painel) painel.innerHTML = renderPainelPneuInspecao(pneu);
+        painel?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      });
+    });
+
+    if (v.anomalias?.length) {
+      const primeiro = v.anomalias[0];
+      inspecaoDiagram.setAtivo(primeiro.id);
+      document.getElementById('filial-inspecao-painel').innerHTML = renderPainelPneuInspecao(primeiro);
+    }
+  } catch (err) {
+    if (inspecaoVeiculoIdAberto === idNum) {
+      box.innerHTML = `<p class="hint login-erro">${err.message}</p>`;
+    }
+    toast(err.message, 'error');
+  }
+}
+
+async function abrirModalFilial(id = null) {
+  const modal = document.getElementById('modal-filial');
+  document.getElementById('form-filial').reset();
+  document.getElementById('f-id').value = id || '';
+
+  if (id) {
+    document.getElementById('modal-filial-titulo').textContent = 'Editar Filial';
+    document.getElementById('f-login-row').classList.add('hidden');
+    document.getElementById('f-reset-row').classList.remove('hidden');
+    document.getElementById('f-login').required = false;
+    document.getElementById('f-senha').required = false;
+
+    if (!filiaisCache.length) {
+      filiaisCache = await fetchJSON(`${API}/filiais`);
+    }
+    const f = filiaisCache.find((x) => String(x.id) === String(id))
+      || await fetchJSON(`${API}/filiais/${id}`);
+    document.getElementById('f-nome').value = f.nome || '';
+    document.getElementById('f-codigo').value = f.codigo || '';
+    document.getElementById('f-contrato').value = f.contrato || '';
+    document.getElementById('f-whatsapp').value = valorCampoWa(f.whatsapp);
+    const alertaEl = document.getElementById('f-whatsapp-alerta');
+    if (alertaEl) alertaEl.value = valorCampoWa(f.whatsapp_alerta);
+    const tok = document.getElementById('f-wuzapi-token');
+    if (tok) {
+      tok.value = '';
+      tok.placeholder = f.tem_wuzapi_token ? '•••• (deixe em branco para manter)' : 'Token WuzAPI';
+    }
+  } else {
+    document.getElementById('modal-filial-titulo').textContent = 'Nova Filial';
+    document.getElementById('f-login-row').classList.remove('hidden');
+    document.getElementById('f-reset-row').classList.add('hidden');
+    document.getElementById('f-login').required = true;
+    document.getElementById('f-senha').required = true;
+    document.getElementById('f-whatsapp').value = '';
+    const alertaEl = document.getElementById('f-whatsapp-alerta');
+    if (alertaEl) alertaEl.value = '';
+    const tok = document.getElementById('f-wuzapi-token');
+    if (tok) {
+      tok.value = '';
+      tok.placeholder = 'Token WuzAPI';
+    }
+  }
+  document.getElementById('f-wuzapi-token-wrap')?.classList.toggle('hidden', !isAdmin());
+  modal.showModal();
+}
+
+document.getElementById('btn-nova-filial')?.addEventListener('click', () => abrirModalFilial());
+document.getElementById('btn-cancelar-filial')?.addEventListener('click', () => {
+  document.getElementById('modal-filial').close();
+});
+
+document.getElementById('form-filial')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const id = document.getElementById('f-id').value;
+  try {
+    if (id) {
+      const body = {
+        nome: document.getElementById('f-nome').value,
+        codigo: document.getElementById('f-codigo').value,
+        contrato: document.getElementById('f-contrato').value,
+        whatsapp: document.getElementById('f-whatsapp').value || null,
+        whatsapp_alerta: document.getElementById('f-whatsapp-alerta')?.value || null,
+      };
+      const tok = document.getElementById('f-wuzapi-token')?.value?.trim();
+      if (tok) body.wuzapi_token = tok;
+      await fetchJSON(`${API}/filiais/${id}`, {
+        method: 'PUT',
+        body: JSON.stringify(body),
+      });
+      const novaSenha = document.getElementById('f-nova-senha').value;
+      if (novaSenha) {
+        await fetchJSON(`${API}/filiais/${id}/reset-senha`, {
+          method: 'POST',
+          body: JSON.stringify({ senha: novaSenha }),
+        });
+      }
+      toast('Filial atualizada', 'success');
+    } else {
+      const result = await fetchJSON(`${API}/filiais`, {
+        method: 'POST',
+        body: JSON.stringify({
+          nome: document.getElementById('f-nome').value,
+          codigo: document.getElementById('f-codigo').value,
+          contrato: document.getElementById('f-contrato').value,
+          login: document.getElementById('f-login').value,
+          senha: document.getElementById('f-senha').value,
+          whatsapp: document.getElementById('f-whatsapp').value || null,
+          whatsapp_alerta: document.getElementById('f-whatsapp-alerta')?.value || null,
+          wuzapi_token: document.getElementById('f-wuzapi-token')?.value?.trim() || null,
+        }),
+      });
+      toast(result.mensagem, 'success');
+    }
+    document.getElementById('modal-filial').close();
+    filiaisCache = [];
+    loadFiliais();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+});
+
+// ── Usuários e acessos ─────────────────────────────────
+
+function formatMoney(v) {
+  if (v == null || !Number.isFinite(Number(v))) return '—';
+  return `R$ ${Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2 })}`;
+}
+
+function formatDateTime(iso) {
+  if (!iso) return 'Nunca';
+  const s = String(iso).replace('T', ' ').slice(0, 16);
+  const [d, t] = s.split(' ');
+  if (!d) return iso;
+  const [y, m, day] = d.split('-');
+  return `${day}/${m}/${y}${t ? ` ${t}` : ''}`;
+}
+
+async function loadUsuarios() {
+  if (!isGestao()) return;
+  const el = document.getElementById('usuarios-lista');
+  if (!el) return;
+  const btnNovo = document.getElementById('btn-novo-usuario');
+  if (btnNovo) btnNovo.classList.toggle('hidden', !isAdmin());
+  try {
+    const data = await fetchJSON(`${API}/usuarios`);
+    const rows = data.usuarios || [];
+    el.innerHTML = `
+      <table class="historico-table">
+        <thead>
+          <tr>
+            <th>Login</th><th>Tipo de acesso</th><th>Filial</th><th>WhatsApp</th>
+            <th>Último acesso</th><th>Status</th><th></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${rows.map((u) => {
+            const badgePapel = u.papel === 'gerente'
+              ? '<span class="badge badge-alerta">Gerente</span>'
+              : u.papel === 'admin'
+                ? '<span class="badge badge-ok">Admin</span>'
+                : '<span class="badge badge-sem_dado">Operador</span>';
+            return `
+            <tr>
+              <td><strong>${escapeHtml(u.login)}</strong></td>
+              <td>${badgePapel}<br><span class="hint">${escapeHtml(u.papel_label || u.papel)}</span></td>
+              <td>${escapeHtml(u.filial_nome || u.filial_codigo || '—')}</td>
+              <td class="mono">${escapeHtml(u.whatsapp || '—')}</td>
+              <td>${formatDateTime(u.ultimo_login)}</td>
+              <td>${u.ativo ? '<span class="badge badge-ok">Ativo</span>' : '<span class="badge badge-critico">Inativo</span>'}</td>
+              <td>
+                ${isAdmin() ? `
+                  <button type="button" class="btn btn-ghost btn-sm btn-edit-user"
+                    data-id="${u.id}"
+                    data-login="${escapeHtml(u.login)}"
+                    data-papel="${u.papel}"
+                    data-filial="${u.filial_id ?? ''}"
+                    data-whatsapp="${escapeHtml(u.whatsapp || '')}">
+                    Editar tipo
+                  </button>` : ''}
+                <button type="button" class="btn btn-ghost btn-sm btn-reset-user" data-id="${u.id}" data-login="${escapeHtml(u.login)}">Redefinir senha</button>
+                ${isAdmin() && u.papel !== 'admin' ? `
+                  <button type="button" class="btn btn-ghost btn-sm btn-toggle-user" data-id="${u.id}" data-ativo="${u.ativo ? 1 : 0}">
+                    ${u.ativo ? 'Desativar' : 'Ativar'}
+                  </button>` : ''}
+              </td>
+            </tr>`;
+          }).join('') || '<tr><td colspan="7">Nenhum usuário</td></tr>'}
+        </tbody>
+      </table>`;
+
+    el.querySelectorAll('.btn-edit-user').forEach((btn) => {
+      btn.addEventListener('click', () => abrirModalUsuario({
+        id: btn.dataset.id,
+        login: btn.dataset.login,
+        papel: btn.dataset.papel,
+        filial_id: btn.dataset.filial || '',
+        whatsapp: btn.dataset.whatsapp || '',
+      }));
+    });
+
+    el.querySelectorAll('.btn-reset-user').forEach((btn) => {
+      btn.addEventListener('click', () => abrirModalResetSenha(btn.dataset.id, btn.dataset.login));
+    });
+
+    el.querySelectorAll('.btn-toggle-user').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const ativo = btn.dataset.ativo === '1' ? false : true;
+        try {
+          await fetchJSON(`${API}/usuarios/${btn.dataset.id}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ ativo }),
+          });
+          toast(ativo ? 'Usuário ativado' : 'Usuário desativado');
+          loadUsuarios();
+        } catch (err) {
+          toast(err.message, 'error');
+        }
+      });
+    });
+  } catch (err) {
+    el.innerHTML = `<p class="hint login-erro">${err.message}</p>`;
+  }
+}
+
+function atualizarHintPapelUsuario() {
+  const papel = document.getElementById('u-papel')?.value;
+  const hint = document.getElementById('u-papel-hint');
+  const filialWrap = document.getElementById('u-filial-wrap');
+  if (!hint) return;
+  if (papel === 'filial') {
+    hint.textContent = 'Operador: Dashboard, veículos, medições e frota da filial.';
+    filialWrap?.classList.remove('hidden');
+  } else if (papel === 'gerente') {
+    hint.textContent = 'Gerente: Minha unidade, alertas/compras e conectar chatbot WhatsApp.';
+    filialWrap?.classList.remove('hidden');
+  } else {
+    hint.textContent = 'Admin total: relatórios, usuários, todas as filiais e limites.';
+    filialWrap?.classList.add('hidden');
+  }
+}
+
+async function preencherSelectFiliaisUsuario(selectedId = '') {
+  const sel = document.getElementById('u-filial');
+  if (!sel) return;
+  try {
+    const filiais = await fetchJSON(`${API}/filiais`);
+    sel.innerHTML = '<option value="">— (sem vínculo / multiunidade)</option>'
+      + filiais.map((f) =>
+        `<option value="${f.id}" ${String(selectedId) === String(f.id) ? 'selected' : ''}>${escapeHtml(f.nome)} (${escapeHtml(f.codigo)})</option>`
+      ).join('');
+  } catch {
+    sel.innerHTML = '<option value="">—</option>';
+  }
+}
+
+async function abrirModalUsuario(usuario = null) {
+  if (!isAdmin()) return toast('Só o admin total altera tipo de acesso', 'error');
+  const form = document.getElementById('form-usuario');
+  form?.reset();
+  document.getElementById('u-id').value = usuario?.id || '';
+  document.getElementById('u-senha-aviso').textContent = '';
+  const senhaWrap = document.getElementById('u-senha-wrap');
+  const senhaInput = document.getElementById('u-senha');
+  const titulo = document.getElementById('modal-usuario-titulo');
+  const btnSalvar = document.getElementById('btn-salvar-usuario');
+  const loginInput = document.getElementById('u-login');
+
+  await preencherSelectFiliaisUsuario(usuario?.filial_id || '');
+
+  if (usuario) {
+    titulo.textContent = 'Editar tipo de acesso';
+    btnSalvar.textContent = 'Salvar';
+    loginInput.value = usuario.login || '';
+    loginInput.readOnly = true;
+    document.getElementById('u-papel').value = usuario.papel || 'filial';
+    document.getElementById('u-whatsapp').value = usuario.whatsapp || '';
+    senhaWrap?.classList.add('hidden');
+    senhaInput.required = false;
+    senhaInput.value = '';
+  } else {
+    titulo.textContent = 'Novo usuário';
+    btnSalvar.textContent = 'Criar';
+    loginInput.readOnly = false;
+    senhaWrap?.classList.remove('hidden');
+    senhaInput.required = true;
+  }
+  atualizarHintPapelUsuario();
+  document.getElementById('modal-usuario').showModal();
+}
+
+function sugerirSenhaProvisoria() {
+  const chars = 'abcdefghjkmnpqrstuvwxyz23456789';
+  let s = '';
+  for (let i = 0; i < 8; i++) s += chars[Math.floor(Math.random() * chars.length)];
+  return s;
+}
+
+function abrirModalResetSenha(userId, login) {
+  const modal = document.getElementById('modal-reset-senha');
+  if (!modal) return toast('Modal de senha não encontrado — recarregue a página', 'error');
+  document.getElementById('reset-senha-user-id').value = userId;
+  document.getElementById('reset-senha-login-hint').textContent =
+    `Nova senha provisória para “${login}”. Anote — ela só aparece agora.`;
+  document.getElementById('reset-senha-nova').value = sugerirSenhaProvisoria();
+  document.getElementById('reset-senha-nova').readOnly = false;
+  document.getElementById('reset-senha-resultado-wrap')?.classList.add('hidden');
+  document.getElementById('reset-senha-resultado').value = '';
+  document.getElementById('btn-salvar-reset-senha')?.classList.remove('hidden');
+  document.getElementById('btn-fechar-reset-senha')?.classList.add('hidden');
+  document.getElementById('btn-cancelar-reset-senha')?.classList.remove('hidden');
+  modal.showModal();
+  document.getElementById('reset-senha-nova')?.focus();
+  document.getElementById('reset-senha-nova')?.select();
+}
+
+document.getElementById('btn-cancelar-reset-senha')?.addEventListener('click', () => {
+  document.getElementById('modal-reset-senha')?.close();
+});
+
+document.getElementById('btn-fechar-reset-senha')?.addEventListener('click', () => {
+  document.getElementById('modal-reset-senha')?.close();
+});
+
+document.getElementById('form-reset-senha')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const id = document.getElementById('reset-senha-user-id').value;
+  const senha = document.getElementById('reset-senha-nova').value.trim();
+  if (!senha || senha.length < 4) return toast('Senha mínima: 4 caracteres', 'error');
+  try {
+    const r = await fetchJSON(`${API}/usuarios/${id}/reset-senha`, {
+      method: 'POST',
+      body: JSON.stringify({ senha }),
+    });
+    document.getElementById('reset-senha-nova').readOnly = true;
+    document.getElementById('reset-senha-resultado-wrap')?.classList.remove('hidden');
+    document.getElementById('reset-senha-resultado').value = r.senha_provisoria || senha;
+    document.getElementById('btn-salvar-reset-senha')?.classList.add('hidden');
+    document.getElementById('btn-cancelar-reset-senha')?.classList.add('hidden');
+    document.getElementById('btn-fechar-reset-senha')?.classList.remove('hidden');
+    document.getElementById('reset-senha-login-hint').textContent =
+      `Senha de “${r.login}” redefinida. Copie agora — não será exibida de novo.`;
+    toast(r.mensagem || 'Senha redefinida', 'success');
+    try {
+      await navigator.clipboard.writeText(r.senha_provisoria || senha);
+      toast('Senha copiada para a área de transferência', 'success');
+    } catch { /* clipboard pode falhar sem HTTPS */ }
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+});
+
+document.getElementById('btn-novo-usuario')?.addEventListener('click', () => abrirModalUsuario(null));
+
+document.getElementById('u-papel')?.addEventListener('change', atualizarHintPapelUsuario);
+
+document.getElementById('btn-cancelar-usuario')?.addEventListener('click', () => {
+  document.getElementById('modal-usuario').close();
+});
+
+document.getElementById('form-usuario')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const id = document.getElementById('u-id').value;
+  const papel = document.getElementById('u-papel').value;
+  const filialId = document.getElementById('u-filial').value || null;
+
+  if (papel === 'filial' && !filialId) {
+    return toast('Operador de filial precisa de uma filial', 'error');
+  }
+
+  try {
+    if (id) {
+      await fetchJSON(`${API}/usuarios/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({
+          papel,
+          filial_id: papel === 'admin' ? null : filialId,
+          whatsapp: document.getElementById('u-whatsapp').value || null,
+        }),
+      });
+      document.getElementById('modal-usuario').close();
+      toast('Tipo de acesso atualizado', 'success');
+      loadUsuarios();
+      return;
+    }
+
+    const senha = document.getElementById('u-senha').value;
+    if (!senha || senha.length < 4) return toast('Senha mínima: 4 caracteres', 'error');
+
+    const result = await fetchJSON(`${API}/usuarios`, {
+      method: 'POST',
+      body: JSON.stringify({
+        login: document.getElementById('u-login').value,
+        senha,
+        papel,
+        filial_id: papel === 'admin' ? null : filialId,
+        whatsapp: document.getElementById('u-whatsapp').value || null,
+      }),
+    });
+    document.getElementById('modal-usuario').close();
+    toast(result.mensagem, 'success');
+    if (result.senha_provisoria) {
+      toast(`Senha provisória de ${result.usuario.login}: ${result.senha_provisoria}`, 'success');
+    }
+    loadUsuarios();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+});
+
+// ── Relatórios diretoria ───────────────────────────────
+
+async function loadRelatorioDiretoria() {
+  if (!isAdmin()) return;
+  try {
+    const rel = await fetchJSON(`${API}/relatorios/diretoria`);
+    const c = rel.consolidado || {};
+    document.getElementById('relatorio-resumo').innerHTML = `
+      <div class="stat-card"><span class="stat-value">${c.filiais_ativas ?? 0}</span><span class="stat-label">Filiais</span></div>
+      <div class="stat-card"><span class="stat-value">${c.veiculos ?? 0}</span><span class="stat-label">Veículos</span></div>
+      <div class="stat-card stat-ok"><span class="stat-value">${c.sulco_ok ?? 0}</span><span class="stat-label">Pneus OK</span></div>
+      <div class="stat-card stat-alerta"><span class="stat-value">${c.sulco_monitorar ?? 0}</span><span class="stat-label">Monitorar</span></div>
+      <div class="stat-card stat-critico"><span class="stat-value">${c.sulco_critico ?? 0}</span><span class="stat-label">Críticos</span></div>
+      <div class="stat-card stat-troca"><span class="stat-value">${c.acao_trocar ?? 0}</span><span class="stat-label">Trocar</span></div>
+      <div class="stat-card"><span class="stat-value" style="font-size:1.1rem">${formatMoney(c.custo_total_pneus)}</span><span class="stat-label">Custo total pneus</span></div>
+    `;
+    document.getElementById('relatorio-leitura').innerHTML = `
+      <div class="compras-banner-inner">
+        <div>
+          <h3>Leitura para a diretoria</h3>
+          <p class="hint">Gerado em ${formatDateTime(rel.gerado_em)}</p>
+          <ul style="margin:.5rem 0 0;padding-left:1.1rem">
+            ${(rel.leitura_diretoria || []).map((l) => `<li>${l}</li>`).join('')}
+          </ul>
+        </div>
+      </div>`;
+    const tbody = document.querySelector('#relatorio-tabela tbody');
+    tbody.innerHTML = (rel.por_filial || []).map((r) => `
+      <tr>
+        <td><strong>${r.filial}</strong> <span class="hint">${r.codigo}</span></td>
+        <td>${r.veiculos}</td>
+        <td>${r.pneus_montados}</td>
+        <td>${r.sulco_ok}</td>
+        <td>${r.sulco_monitorar}</td>
+        <td>${r.sulco_critico}</td>
+        <td>${r.acao_trocar}</td>
+        <td>${formatMoney(r.custo_montado)}</td>
+        <td>${formatMoney(r.custo_estoque)}</td>
+      </tr>
+    `).join('') || '<tr><td colspan="9">Sem dados</td></tr>';
+
+    const csv = document.getElementById('btn-relatorio-csv');
+    if (csv) {
+      csv.href = `${API}/relatorios/diretoria.csv`;
+      csv.onclick = async (e) => {
+        e.preventDefault();
+        try {
+          const resp = await fetch(`${API}/relatorios/diretoria.csv`, {
+            headers: { Authorization: `Bearer ${authToken}` },
+          });
+          if (!resp.ok) throw new Error('Falha ao baixar CSV');
+          const blob = await resp.blob();
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url;
+          a.download = 'relatorio-diretoria-pneus.csv';
+          a.click();
+          URL.revokeObjectURL(url);
+        } catch (err) {
+          toast(err.message, 'error');
+        }
+      };
+    }
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+document.getElementById('btn-relatorio-refresh')?.addEventListener('click', () => loadRelatorioDiretoria());
+
+// ── Inicialização ──────────────────────────────────────
+
+function isRotaAcessoRapido() {
+  const path = window.location.pathname.replace(/\/+$/, '') || '/';
+  return path.endsWith('/veiculo-acesso-rapido')
+    || window.location.search.includes('token=') && path.includes('acesso-rapido');
+}
+
+function mostrarErroToken(msg) {
+  document.getElementById('app-login')?.classList.add('hidden');
+  document.getElementById('app-shell')?.classList.remove('hidden');
+  document.getElementById('nav-tabs-filial')?.classList.add('hidden');
+  document.getElementById('nav-tabs-admin')?.classList.add('hidden');
+  document.getElementById('nav-tabs-gerente')?.classList.add('hidden');
+  document.getElementById('btn-logout')?.classList.add('hidden');
+  const label = document.getElementById('header-user-label');
+  if (label) label.textContent = 'Acesso rápido';
+  const subtitle = document.getElementById('header-subtitle');
+  if (subtitle) subtitle.textContent = 'Link WhatsApp';
+  const box = document.querySelector('#view-acesso-erro .erro-token-container p');
+  if (box && msg) box.textContent = msg;
+  showView('acesso-erro');
+}
+
+async function bootAcessoRapido(token) {
+  modoAcessoRapido = true;
+  tokenAcessoRapido = token;
+  document.getElementById('app-login')?.classList.add('hidden');
+  document.getElementById('app-shell')?.classList.remove('hidden');
+  document.getElementById('nav-tabs-filial')?.classList.add('hidden');
+  document.getElementById('nav-tabs-admin')?.classList.add('hidden');
+  document.getElementById('nav-tabs-gerente')?.classList.add('hidden');
+  document.getElementById('btn-logout')?.classList.add('hidden');
+  const label = document.getElementById('header-user-label');
+  if (label) label.textContent = 'Acesso rápido · WhatsApp';
+  const subtitle = document.getElementById('header-subtitle');
+  if (subtitle) subtitle.textContent = 'Medição sem login — link temporário';
+
+  try {
+    const data = await fetchJSON(`${API}/veiculos/acesso-rapido?token=${encodeURIComponent(token)}`);
+    if (data.posicoes) meta = { ...meta, posicoes: data.posicoes };
+    if (data.limites) limitesAtuais = { ...limitesAtuais, ...data.limites };
+    tokenAcessoRapido = data.token_acesso || token;
+    await openVeiculoDetalhe(data.id, 'acesso-rapido', data);
+  } catch (err) {
+    mostrarErroToken(err.message || 'Link expirado ou inválido');
+  }
+}
+
+async function bootApp() {
+  showAppShell();
+  try {
+    if (isAdmin()) {
+      const config = await fetchConfiguracoes();
+      limitesAtuais = { ...limitesAtuais, ...config };
+      showView('relatorios');
+      loadRelatorioDiretoria();
+      return;
+    }
+
+    if (isGerente()) {
+      const config = await fetchConfiguracoes();
+      limitesAtuais = { ...limitesAtuais, ...config };
+      showView('filiais');
+      loadFiliais();
+      return;
+    }
+
+    const [config, metaData] = await Promise.all([
+      fetchConfiguracoes(),
+      fetchJSON(`${API}/veiculos/meta`),
+    ]);
+    meta = metaData;
+    limitesAtuais = { ...limitesAtuais, ...config };
+    const selectTipo = document.getElementById('v-tipo');
+    if (selectTipo) {
+      selectTipo.innerHTML = meta.tipos.map((t) => `<option value="${t}">${t}</option>`).join('');
+    }
+    preencherSelectLayouts('v-layout', meta.layout_padrao, { soTruckToco: true });
+    preencherSelectLayouts('layout-select', meta.layout_padrao);
+    preencherCheckboxesPosicoes('layout-custom-checkboxes', getLayoutById(meta.layout_padrao)?.posicoes || []);
+    showView('dashboard');
+    loadDashboard();
+  } catch (err) {
+    toast(err.message || 'Erro ao carregar o sistema', 'error');
+  }
+}
+
+async function init() {
+  const params = new URLSearchParams(window.location.search);
+  const tokenUrl = params.get('token');
+  if (isRotaAcessoRapido() || (tokenUrl && window.location.pathname.includes('acesso-rapido'))) {
+    if (!tokenUrl) {
+      mostrarErroToken('Link inválido — token ausente.');
+      return;
+    }
+    await bootAcessoRapido(tokenUrl);
+    return;
+  }
+
+  const saved = loadAuth();
+  if (saved?.token && saved?.usuario) {
+    authToken = saved.token;
+    currentUser = saved.usuario;
+    try {
+      const me = await fetchJSON(`${API}/auth/me`);
+      currentUser = me;
+      saveAuth(authToken, me);
+      await bootApp();
+      return;
+    } catch {
+      clearAuth();
+    }
+  }
+  showLogin();
+}
+
+init();

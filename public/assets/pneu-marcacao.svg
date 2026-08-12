@@ -1,0 +1,165 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 420 520" id="pneu-svg">
+  <defs>
+    <linearGradient id="bg-grad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#e8eef5"/>
+      <stop offset="100%" stop-color="#d5dde8"/>
+    </linearGradient>
+    <linearGradient id="rubber" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#3f3f46"/>
+      <stop offset="40%" stop-color="#27272a"/>
+      <stop offset="100%" stop-color="#18181b"/>
+    </linearGradient>
+    <linearGradient id="rubber-side" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#09090b"/>
+      <stop offset="35%" stop-color="#3f3f46"/>
+      <stop offset="65%" stop-color="#3f3f46"/>
+      <stop offset="100%" stop-color="#09090b"/>
+    </linearGradient>
+    <linearGradient id="groove-fill" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#09090b"/>
+      <stop offset="100%" stop-color="#27272a"/>
+    </linearGradient>
+    <linearGradient id="rim-face" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#e2e8f0"/>
+      <stop offset="50%" stop-color="#94a3b8"/>
+      <stop offset="100%" stop-color="#64748b"/>
+    </linearGradient>
+    <filter id="soft-shadow" x="-15%" y="-10%" width="130%" height="140%">
+      <feDropShadow dx="0" dy="10" stdDeviation="14" flood-color="#0f172a" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+
+  <rect width="420" height="520" fill="url(#bg-grad)" rx="12"/>
+  <text x="210" y="30" text-anchor="middle" font-family="Segoe UI,system-ui,sans-serif"
+        font-size="13" font-weight="700" fill="#1e293b">Banda de rodagem — 4 medições (Esq → Dir)</text>
+
+  <!-- Pneu em corte / face da banda -->
+  <g filter="url(#soft-shadow)" transform="translate(30, 55)">
+    <!-- sombra -->
+    <ellipse cx="180" cy="390" rx="150" ry="16" fill="#0f172a" opacity="0.15"/>
+
+    <!-- corpo do pneu (vista frontal da banda) -->
+    <path d="M40 40
+             Q20 40 20 70
+             L20 300
+             Q20 340 60 340
+             L300 340
+             Q340 340 340 300
+             L340 70
+             Q340 40 320 40 Z"
+          fill="url(#rubber)" stroke="#09090b" stroke-width="2"/>
+
+    <!-- ombros laterais -->
+    <path d="M20 70 L20 300 Q20 330 50 335 L20 335 Q8 320 8 290 L8 80 Q8 55 20 70 Z"
+          fill="#18181b" opacity="0.9"/>
+    <path d="M340 70 L340 300 Q340 330 310 335 L340 335 Q352 320 352 290 L352 80 Q352 55 340 70 Z"
+          fill="#18181b" opacity="0.9"/>
+
+    <!-- superfície da banda -->
+    <rect x="40" y="55" width="280" height="250" rx="8" fill="url(#rubber-side)"/>
+
+    <!-- 4 sulcos (canais) -->
+    <g>
+      <!-- sulco 1 -->
+      <rect x="78" y="62" width="22" height="236" rx="6" fill="url(#groove-fill)" stroke="#000" stroke-width="1"/>
+      <!-- sulco 2 -->
+      <rect x="139" y="62" width="22" height="236" rx="6" fill="url(#groove-fill)" stroke="#000" stroke-width="1"/>
+      <!-- sulco 3 -->
+      <rect x="200" y="62" width="22" height="236" rx="6" fill="url(#groove-fill)" stroke="#000" stroke-width="1"/>
+      <!-- sulco 4 -->
+      <rect x="261" y="62" width="22" height="236" rx="6" fill="url(#groove-fill)" stroke="#000" stroke-width="1"/>
+    </g>
+
+    <!-- blocos entre sulcos (textura) -->
+    <g fill="#3f3f46" opacity="0.55">
+      <rect x="48" y="70" width="24" height="28" rx="3"/>
+      <rect x="48" y="110" width="24" height="28" rx="3"/>
+      <rect x="48" y="150" width="24" height="28" rx="3"/>
+      <rect x="48" y="190" width="24" height="28" rx="3"/>
+      <rect x="48" y="230" width="24" height="28" rx="3"/>
+      <rect x="48" y="270" width="24" height="22" rx="3"/>
+
+      <rect x="106" y="70" width="26" height="28" rx="3"/>
+      <rect x="106" y="110" width="26" height="28" rx="3"/>
+      <rect x="106" y="150" width="26" height="28" rx="3"/>
+      <rect x="106" y="190" width="26" height="28" rx="3"/>
+      <rect x="106" y="230" width="26" height="28" rx="3"/>
+      <rect x="106" y="270" width="26" height="22" rx="3"/>
+
+      <rect x="168" y="70" width="26" height="28" rx="3"/>
+      <rect x="168" y="110" width="26" height="28" rx="3"/>
+      <rect x="168" y="150" width="26" height="28" rx="3"/>
+      <rect x="168" y="190" width="26" height="28" rx="3"/>
+      <rect x="168" y="230" width="26" height="28" rx="3"/>
+      <rect x="168" y="270" width="26" height="22" rx="3"/>
+
+      <rect x="229" y="70" width="26" height="28" rx="3"/>
+      <rect x="229" y="110" width="26" height="28" rx="3"/>
+      <rect x="229" y="150" width="26" height="28" rx="3"/>
+      <rect x="229" y="190" width="26" height="28" rx="3"/>
+      <rect x="229" y="230" width="26" height="28" rx="3"/>
+      <rect x="229" y="270" width="26" height="22" rx="3"/>
+
+      <rect x="290" y="70" width="24" height="28" rx="3"/>
+      <rect x="290" y="110" width="24" height="28" rx="3"/>
+      <rect x="290" y="150" width="24" height="28" rx="3"/>
+      <rect x="290" y="190" width="24" height="28" rx="3"/>
+      <rect x="290" y="230" width="24" height="28" rx="3"/>
+      <rect x="290" y="270" width="24" height="22" rx="3"/>
+    </g>
+
+    <!-- linha TWI / mínimo legal -->
+    <line x1="40" y1="268" x2="320" y2="268" stroke="#ef4444" stroke-width="1.5" stroke-dasharray="5 4" opacity="0.85"/>
+    <text x="328" y="272" font-family="Segoe UI,sans-serif" font-size="10" font-weight="700" fill="#ef4444">1,6 mm</text>
+
+    <!-- seta ESQ → DIR -->
+    <text x="50" y="365" font-family="Segoe UI,sans-serif" font-size="11" font-weight="700" fill="#475569">ESQ.</text>
+    <line x1="80" y1="361" x2="270" y2="361" stroke="#64748b" stroke-width="2" marker-end="url(#arrow)"/>
+    <text x="280" y="365" font-family="Segoe UI,sans-serif" font-size="11" font-weight="700" fill="#475569">DIR.</text>
+  </g>
+
+  <defs>
+    <marker id="arrow" markerWidth="8" markerHeight="8" refX="6" refY="3" orient="auto">
+      <path d="M0,0 L6,3 L0,6 Z" fill="#64748b"/>
+    </marker>
+  </defs>
+
+  <!-- Pontos de medição (sobre os sulcos) — coords absolutas = translate(30,55) + sulco center -->
+  <!-- sulco centers at x: 30+89=119, 30+150=180, 30+211=241, 30+272=302 ; y mid ~ 55+180=235 -->
+
+  <g id="ponto-externo" class="ponto-medicao" data-sulco="externo">
+    <circle cx="119" cy="200" r="22" fill="#3b82f6" stroke="#fff" stroke-width="3" class="ponto-circulo"/>
+    <text x="119" y="205" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="11" font-weight="800" fill="#fff" pointer-events="none">1ª</text>
+  </g>
+  <g id="ponto-central" class="ponto-medicao" data-sulco="central">
+    <circle cx="180" cy="200" r="22" fill="#22c55e" stroke="#fff" stroke-width="3" class="ponto-circulo"/>
+    <text x="180" y="205" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="11" font-weight="800" fill="#fff" pointer-events="none">2ª</text>
+  </g>
+  <g id="ponto-interno" class="ponto-medicao" data-sulco="interno">
+    <circle cx="241" cy="200" r="22" fill="#f59e0b" stroke="#fff" stroke-width="3" class="ponto-circulo"/>
+    <text x="241" y="205" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="11" font-weight="800" fill="#fff" pointer-events="none">3ª</text>
+  </g>
+  <g id="ponto-auxiliar" class="ponto-medicao" data-sulco="auxiliar">
+    <circle cx="302" cy="200" r="22" fill="#8b5cf6" stroke="#fff" stroke-width="3" class="ponto-circulo"/>
+    <text x="302" y="205" text-anchor="middle" font-family="Segoe UI,sans-serif" font-size="11" font-weight="800" fill="#fff" pointer-events="none">4ª</text>
+  </g>
+
+  <!-- Valores -->
+  <g id="valores-sulco" font-family="Segoe UI,sans-serif" font-size="12" font-weight="700">
+    <text id="valor-externo" x="119" y="160" text-anchor="middle" fill="#1e40af">-- mm</text>
+    <text id="valor-central" x="180" y="160" text-anchor="middle" fill="#166534">-- mm</text>
+    <text id="valor-interno" x="241" y="160" text-anchor="middle" fill="#b45309">-- mm</text>
+    <text id="valor-auxiliar" x="302" y="160" text-anchor="middle" fill="#6d28d9">-- mm</text>
+  </g>
+
+  <!-- Legenda -->
+  <g font-family="Segoe UI,sans-serif" font-size="11" fill="#475569">
+    <rect x="24" y="450" width="372" height="52" rx="8" fill="#fff" stroke="#e2e8f0"/>
+    <circle cx="48" cy="468" r="6" fill="#3b82f6"/><text x="60" y="472">1ª MED</text>
+    <circle cx="128" cy="468" r="6" fill="#22c55e"/><text x="140" y="472">2ª MED</text>
+    <circle cx="208" cy="468" r="6" fill="#f59e0b"/><text x="220" y="472">3ª MED</text>
+    <circle cx="288" cy="468" r="6" fill="#8b5cf6"/><text x="300" y="472">4ª MED</text>
+    <text x="48" y="490" font-size="10" fill="#94a3b8">Clique no sulco para focar o campo de medição</text>
+  </g>
+</svg>

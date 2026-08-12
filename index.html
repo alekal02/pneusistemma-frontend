@@ -1,0 +1,1061 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Controle de Pneus - Limpeza Urbana</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='42' fill='%23145223'/><circle cx='50' cy='50' r='18' fill='%232d8a3e'/><circle cx='50' cy='50' r='8' fill='%23e8f5e9'/></svg>">
+</head>
+<body>
+  <div id="app-login" class="login-screen">
+    <div class="login-card">
+      <div class="login-brand">
+        <div class="logo-mark" aria-hidden="true">
+          <svg viewBox="0 0 48 48" width="48" height="48"><circle cx="24" cy="24" r="20" fill="#145223"/><circle cx="24" cy="24" r="9" fill="#2d8a3e"/><circle cx="24" cy="24" r="4" fill="#e8f5e9"/></svg>
+        </div>
+        <h1>Controle de Pneus</h1>
+        <p>Acesse com o login da sua filial ou administrador</p>
+      </div>
+      <form id="form-login">
+        <div class="form-group">
+          <label for="login-user">Login</label>
+          <input type="text" id="login-user" required autocomplete="username" placeholder="Ex: matriz ou admin">
+        </div>
+        <div class="form-group">
+          <label for="login-senha">Senha</label>
+          <input type="password" id="login-senha" required autocomplete="current-password" placeholder="••••••••">
+        </div>
+        <p class="hint login-erro hidden" id="login-erro"></p>
+        <button type="submit" class="btn btn-primary btn-block">Entrar</button>
+      </form>
+    </div>
+  </div>
+
+  <div id="app-shell" class="hidden">
+  <header class="header">
+    <div class="header-top">
+      <div class="header-brand">
+        <div class="logo-mark" aria-hidden="true">
+          <svg viewBox="0 0 40 40" width="36" height="36"><circle cx="20" cy="20" r="17" fill="#4caf50"/><circle cx="20" cy="20" r="8" fill="#145223"/><circle cx="20" cy="20" r="3.5" fill="#e8f5e9"/></svg>
+        </div>
+        <div>
+          <h1>Controle de Pneus</h1>
+          <p class="subtitle" id="header-subtitle">Gestão automatizada de desgaste e ciclo de vida</p>
+        </div>
+      </div>
+      <div class="header-user">
+        <span id="header-user-label" class="user-chip"></span>
+        <button type="button" class="btn btn-ghost btn-sm" id="btn-logout">Sair</button>
+      </div>
+    </div>
+    <nav class="nav-tabs" id="nav-tabs-filial">
+      <button class="tab active" data-view="dashboard">Dashboard</button>
+      <button class="tab" data-view="veiculos">Veículos</button>
+      <button class="tab" data-view="pneus">Pneus</button>
+      <button class="tab" data-view="medicao">Nova Medição</button>
+      <button class="tab" data-view="alertas">Alertas</button>
+      <button class="tab" data-view="acoes">Ações</button>
+      <button class="tab" data-view="chatbot">WhatsApp</button>
+    </nav>
+    <nav class="nav-tabs hidden" id="nav-tabs-gerente">
+      <button class="tab active" data-view="filiais">Minha unidade</button>
+      <button class="tab" data-view="chatbot">WhatsApp</button>
+      <button class="tab" data-view="usuarios">Logins da unidade</button>
+    </nav>
+    <nav class="nav-tabs hidden" id="nav-tabs-admin">
+      <button class="tab active" data-view="relatorios">Relatórios</button>
+      <button class="tab" data-view="usuarios">Usuários e acessos</button>
+      <button class="tab" data-view="filiais">Filiais</button>
+      <button class="tab" data-view="configuracoes">Limites globais</button>
+    </nav>
+  </header>
+
+  <main class="container">
+    <section id="view-relatorios" class="view">
+      <div class="section-header">
+        <h2>Relatórios para diretoria</h2>
+        <div class="section-actions">
+          <button type="button" class="btn btn-ghost" id="btn-relatorio-refresh">Atualizar</button>
+          <a class="btn btn-primary" id="btn-relatorio-csv" href="#">Baixar CSV</a>
+        </div>
+      </div>
+      <p class="hint">Consolidado da frota para apresentar à diretoria — criticidade, ações e custo de pneus por filial.</p>
+      <div id="relatorio-resumo" class="stats-grid"></div>
+      <div id="relatorio-leitura" class="compras-banner" style="margin-top:1rem"></div>
+      <div class="card" style="margin-top:1.25rem;overflow-x:auto">
+        <h3>Por filial</h3>
+        <table class="historico-table" id="relatorio-tabela">
+          <thead>
+            <tr>
+              <th>Filial</th><th>Veículos</th><th>Pneus</th>
+              <th>OK</th><th>Monitorar</th><th>Crítico</th>
+              <th>Trocar</th><th>Custo montado</th><th>Custo estoque</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
+    <section id="view-usuarios" class="view">
+      <div class="section-header">
+        <h2>Usuários e acessos</h2>
+        <button type="button" class="btn btn-primary" id="btn-novo-usuario">+ Novo usuário</button>
+      </div>
+      <p class="hint">
+        Defina o <strong>tipo de acesso</strong> de cada login:
+        <strong>Operador de filial</strong> (frota/medições) ou
+        <strong>Gerente de unidade</strong> (alertas, compras e chatbot WhatsApp).
+        Senhas ficam criptografadas — ao redefinir, a provisória aparece só nesta tela.
+      </p>
+      <div id="usuarios-lista" class="card" style="overflow-x:auto"></div>
+    </section>
+
+    <section id="view-filiais" class="view">
+      <div class="section-header">
+        <h2 id="filiais-titulo">Filiais</h2>
+        <button class="btn btn-primary" id="btn-nova-filial">+ Nova Filial</button>
+      </div>
+      <p class="hint" id="filiais-hint">Abra a filial para ver alertas, frota e configurar o chatbot WhatsApp da unidade.</p>
+      <div id="compras-consolidado" class="compras-banner"></div>
+      <div id="filiais-lista" class="filiais-grid"></div>
+      <div id="filial-detalhe" class="card hidden" style="margin-top:1.5rem"></div>
+    </section>
+
+    <section id="view-chatbot" class="view">
+      <div class="section-header">
+        <h2>WhatsApp — chatbot da unidade</h2>
+      </div>
+      <p class="hint">
+        Cadastre o número do chatbot, salve o token WuzAPI e conecte pelo QR.
+        O borracheiro envia a <strong>placa</strong> neste WhatsApp para medir os sulcos.
+      </p>
+      <div id="chatbot-filial-panel" class="card"></div>
+    </section>
+
+    <section id="view-dashboard" class="view">
+      <div class="stats-grid" id="stats-grid">
+        <div class="stat-card">
+          <span class="stat-value" id="stat-veiculos">-</span>
+          <span class="stat-label">Veículos ativos</span>
+        </div>
+        <div class="stat-card stat-ok">
+          <span class="stat-value" id="stat-ok">-</span>
+          <span class="stat-label">Pneus OK</span>
+        </div>
+        <div class="stat-card stat-alerta">
+          <span class="stat-value" id="stat-alerta">-</span>
+          <span class="stat-label">Em alerta</span>
+        </div>
+        <div class="stat-card stat-critico">
+          <span class="stat-value" id="stat-critico">-</span>
+          <span class="stat-label">Críticos</span>
+        </div>
+      </div>
+      <div class="stats-grid stats-acoes" id="stats-acoes">
+        <div class="stat-card stat-troca">
+          <span class="stat-value" id="stat-troca">-</span>
+          <span class="stat-label">Troca sugerida</span>
+        </div>
+        <div class="stat-card stat-recap">
+          <span class="stat-value" id="stat-recap">-</span>
+          <span class="stat-label">Prazo recap (15d)</span>
+        </div>
+        <div class="stat-card stat-monitorar">
+          <span class="stat-value" id="stat-monitorar">-</span>
+          <span class="stat-label">Mudar posição</span>
+        </div>
+      </div>
+      <h2>Resumo da Frota</h2>
+      <p class="hint" id="dashboard-limites-hint"></p>
+      <div id="dashboard-lista" class="card-list"></div>
+    </section>
+
+    <section id="view-veiculos" class="view">
+      <div class="section-header">
+        <h2>Veículos</h2>
+        <div class="section-actions">
+          <a class="btn btn-ghost" id="btn-modelo-veiculos" href="#">Baixar planilha veículos</a>
+          <label class="btn btn-ghost btn-file">
+            Importar veículos
+            <input type="file" id="file-import-veiculos" accept=".csv,text/csv" hidden>
+          </label>
+          <button class="btn btn-primary" id="btn-novo-veiculo">+ Novo Veículo</button>
+        </div>
+      </div>
+
+      <div class="carga-frota-banner card">
+        <div>
+          <h3>Carga inicial da frota</h3>
+          <p class="hint" style="margin:0">
+            Já tem a frota em planilha? Importe caminhões e pneus de uma vez. No dia a dia: abra o veículo e meça o sulco.
+          </p>
+        </div>
+        <div class="section-actions">
+          <a class="btn btn-primary" id="btn-modelo-frota" href="#">Baixar planilha da frota</a>
+          <label class="btn btn-ghost btn-file">
+            Importar carga da frota
+            <input type="file" id="file-import-frota" accept=".csv,text/csv" hidden>
+          </label>
+        </div>
+      </div>
+      <div id="import-resultado-frota" class="import-resultado hidden"></div>
+
+      <ol class="fluxo-passos">
+        <li class="ativo"><strong>1.</strong> Cadastre o veículo</li>
+        <li><strong>2.</strong> Abra o diagrama e clique nas posições vazias para colocar os pneus</li>
+      </ol>
+      <details class="import-hint-details">
+        <summary>Dica para importação CSV de veículos</summary>
+        <p class="hint import-hint">Layouts aceitos: <code>truck_10</code>, <code>truck_8</code>, <code>truck_8_b</code>, <code>toco_6</code>.</p>
+      </details>
+      <div id="import-resultado-veiculos" class="import-resultado hidden"></div>
+      <div id="veiculos-lista" class="card-list"></div>
+    </section>
+
+    <section id="view-pneus" class="view">
+      <div class="section-header">
+        <h2>Pneus</h2>
+        <div class="section-actions">
+          <a class="btn btn-ghost" id="btn-modelo-pneus" href="#">Baixar planilha</a>
+          <label class="btn btn-ghost btn-file">
+            Importar CSV
+            <input type="file" id="file-import-pneus" accept=".csv,text/csv" hidden>
+          </label>
+          <button class="btn btn-primary" id="btn-novo-pneu">+ Novo pneu</button>
+        </div>
+      </div>
+      <ol class="fluxo-passos">
+        <li class="ativo"><strong>Estoque</strong> — cadastre pneus avulsos aqui</li>
+        <li><strong>Atalho</strong> — no veículo, clique no slot vazio e crie o pneu na hora</li>
+      </ol>
+      <p class="hint">Use esta aba para estoque e histórico. Para montar rápido, prefira o diagrama do veículo.</p>
+      <details class="import-hint-details">
+        <summary>Dica para importação CSV de pneus</summary>
+        <p class="hint import-hint">Campos: nº de fogo, padrão (<code>direcional</code>, <code>misto</code>, <code>borrachudo</code>), condição.</p>
+      </details>
+      <div id="import-resultado-pneus" class="import-resultado hidden"></div>
+      <div class="pneus-toolbar">
+        <div class="form-group" style="margin:0;min-width:140px">
+          <label for="pneus-filtro-status">Status</label>
+          <select id="pneus-filtro-status">
+            <option value="todos">Todos</option>
+            <option value="estoque" selected>Estoque</option>
+            <option value="montado">Montados</option>
+          </select>
+        </div>
+        <div class="form-group" style="margin:0;flex:1">
+          <label for="pneus-busca">Buscar</label>
+          <input type="search" id="pneus-busca" placeholder="Nº fogo, marca, DOT, placa...">
+        </div>
+      </div>
+      <div id="pneu-historico-panel" class="hidden" style="margin-bottom:1rem"></div>
+      <div id="pneus-lista" class="pneus-lista"></div>
+    </section>
+
+    <section id="view-veiculo-detalhe" class="view">
+      <button class="btn btn-ghost" id="btn-voltar-dashboard">← Voltar</button>
+      <div id="truck-header" class="truck-header"></div>
+      <div class="acesso-rapido-bar hidden" id="acesso-rapido-bar">
+        <span>Modo acesso rápido (WhatsApp) — link válido por 24h</span>
+      </div>
+      <div id="truck-fluxo-banner" class="fluxo-banner hidden"></div>
+      <div class="truck-layout">
+        <div class="card truck-diagram-wrap">
+          <div id="truck-diagram-container"></div>
+        </div>
+        <div class="card truck-panel" id="truck-panel">
+          <div class="truck-panel-empty">
+            <p>Clique em uma posição</p>
+            <p class="hint">Slot vazio (+) = colocar pneu · Pneu montado = medir sulco</p>
+          </div>
+          <div class="truck-panel-form hidden" id="truck-panel-form">
+            <h3 id="truck-pneu-nome">Pneu</h3>
+            <div class="truck-badges">
+              <span id="truck-pneu-status"></span>
+              <span id="truck-pneu-acao"></span>
+              <span id="truck-pneu-vida"></span>
+            </div>
+
+            <!-- Slot vazio: criar e montar OU usar estoque -->
+            <div id="truck-montar-box" class="truck-montar-box hidden">
+              <p class="hint" id="truck-montar-hint">Posição vazia — coloque um pneu aqui.</p>
+              <div class="montar-tabs" role="tablist">
+                <button type="button" class="montar-tab ativo" data-montar-tab="novo" role="tab">Novo pneu</button>
+                <button type="button" class="montar-tab" data-montar-tab="estoque" role="tab">Do estoque</button>
+              </div>
+
+              <div id="truck-montar-novo" class="montar-tab-panel">
+                <div class="form-group">
+                  <label for="truck-novo-fogo">Nº de fogo *</label>
+                  <input type="text" id="truck-novo-fogo" required placeholder="Identificação do pneu" autocomplete="off">
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="truck-novo-tipo">Padrão *</label>
+                    <select id="truck-novo-tipo">
+                      <option value="direcional">Direcional</option>
+                      <option value="misto" selected>Misto (tração)</option>
+                      <option value="borrachudo">Borrachudo</option>
+                    </select>
+                  </div>
+                  <div class="form-group">
+                    <label for="truck-novo-condicao">Condição *</label>
+                    <select id="truck-novo-condicao">
+                      <option value="novo">Novo</option>
+                      <option value="recapado">Recapado</option>
+                    </select>
+                  </div>
+                </div>
+                <p class="hint">Direcional = dianteira · Misto/Borrachudo = tração</p>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="truck-novo-marca">Marca</label>
+                    <input type="text" id="truck-novo-marca" placeholder="Ex: Michelin">
+                  </div>
+                  <div class="form-group">
+                    <label for="truck-novo-modelo">Modelo *</label>
+                    <input type="text" id="truck-novo-modelo" placeholder="Ex: X Multi D">
+                  </div>
+                </div>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="truck-novo-custo">Custo (R$)</label>
+                    <input type="number" id="truck-novo-custo" step="0.01" min="0" placeholder="Ex: 1850">
+                  </div>
+                  <div class="form-group">
+                    <label for="truck-novo-nota">Nota fiscal</label>
+                    <input type="text" id="truck-novo-nota" placeholder="Nº da NF">
+                  </div>
+                </div>
+                <details class="form-avancado">
+                  <summary>Mais dados (opcional)</summary>
+                  <div class="form-row">
+                    <div class="form-group">
+                      <label for="truck-novo-dot">DOT</label>
+                      <input type="text" id="truck-novo-dot" placeholder="Ex: 3522">
+                    </div>
+                    <div class="form-group">
+                      <label for="truck-novo-vida">Vida (recap)</label>
+                      <select id="truck-novo-vida">
+                        <option value="0">Novo (0)</option>
+                        <option value="1">1ª recap</option>
+                        <option value="2">2ª recap</option>
+                        <option value="3">3ª recap</option>
+                        <option value="4">4ª recap</option>
+                        <option value="5">5ª recap</option>
+                        <option value="6">6ª recap</option>
+                      </select>
+                    </div>
+                  </div>
+                  <div class="form-group">
+                    <label for="truck-novo-sulco">Espessura inicial (mm)</label>
+                    <input type="number" id="truck-novo-sulco" step="0.1" min="0" max="30" placeholder="Ex: 14">
+                  </div>
+                </details>
+                <button type="button" class="btn btn-primary btn-sm" id="btn-truck-criar-montar">Criar e montar</button>
+              </div>
+
+              <div id="truck-montar-estoque" class="montar-tab-panel hidden">
+                <div class="form-group">
+                  <label for="truck-estoque-select">Pneu do estoque</label>
+                  <select id="truck-estoque-select">
+                    <option value="">Carregando...</option>
+                  </select>
+                </div>
+                <button type="button" class="btn btn-primary btn-sm" id="btn-truck-montar">Montar neste veículo</button>
+                <p class="hint"><a href="#" id="link-ir-pneus">Ver todos os pneus na aba Pneus</a></p>
+              </div>
+            </div>
+
+            <!-- Pneu montado: resumo + medição -->
+            <div id="truck-medicao-box">
+              <p class="pneu-resumo-compacto" id="truck-pneu-resumo"></p>
+              <div class="pneu-info-fixa" id="truck-pneu-info-fixa">
+                <div><span class="label">Padrão</span><strong id="truck-pneu-padrao">—</strong></div>
+                <div><span class="label">Condição</span><strong id="truck-pneu-condicao-label">—</strong></div>
+                <div class="span-2"><span class="label">Última medição de sulco</span><strong id="truck-pneu-ultima-sulco">Sem medição</strong></div>
+              </div>
+
+              <h4 class="panel-subtitle">Medição do sulco (Esq → Dir)</h4>
+              <div class="form-row form-row-4">
+                <div class="form-group">
+                  <label for="truck-sulco-ext">1ª MED</label>
+                  <input type="number" id="truck-sulco-ext" step="0.1" min="0" max="30">
+                </div>
+                <div class="form-group">
+                  <label for="truck-sulco-cent">2ª MED</label>
+                  <input type="number" id="truck-sulco-cent" step="0.1" min="0" max="30">
+                </div>
+                <div class="form-group">
+                  <label for="truck-sulco-int">3ª MED</label>
+                  <input type="number" id="truck-sulco-int" step="0.1" min="0" max="30">
+                </div>
+                <div class="form-group">
+                  <label for="truck-sulco-aux">4ª MED</label>
+                  <input type="number" id="truck-sulco-aux" step="0.1" min="0" max="30">
+                </div>
+              </div>
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="truck-pressao">Pressão (PSI)</label>
+                  <input type="number" id="truck-pressao" step="0.5" min="0">
+                </div>
+                <div class="form-group">
+                  <label for="truck-km">KM veículo</label>
+                  <input type="number" id="truck-km" min="0">
+                </div>
+                <div class="form-group">
+                  <label for="truck-hr">Horas veículo</label>
+                  <input type="number" id="truck-hr" step="0.1" min="0">
+                </div>
+              </div>
+              <div id="truck-perfil" class="truck-perfil"></div>
+              <p class="hint" id="truck-diagnostico"></p>
+              <div class="acao-instrucao hidden" id="truck-acao-instrucao"></div>
+              <div class="rodizio-sugestao hidden" id="truck-rodizio-sugestao"></div>
+              <p class="hint save-status" id="truck-save-status">Preencha os sulcos — salva automaticamente</p>
+              <button type="button" class="btn btn-primary" id="btn-truck-salvar-sulco">Salvar medição de sulco</button>
+              <div id="truck-mini-marker" class="tire-container" style="min-height:240px"></div>
+              <div class="panel-actions">
+                <button class="btn btn-ghost btn-sm" id="btn-truck-historico">Histórico</button>
+                <button class="btn btn-ghost btn-sm" id="btn-truck-desmontar">Retirar → estoque</button>
+                <button class="btn btn-ghost btn-sm" id="btn-truck-reposicionar">Mudar posição</button>
+                <button class="btn btn-ghost btn-sm" id="btn-truck-recap">Registrar recap</button>
+                <button class="btn btn-ghost btn-sm btn-danger-text" id="btn-truck-troca">Registrar descarte</button>
+                <button class="btn btn-ghost btn-sm" id="btn-truck-config">Configurar layout</button>
+                <button class="btn btn-primary btn-sm" id="btn-truck-whatsapp">Compartilhar WhatsApp</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div id="historico-pneu" style="margin-top:1.5rem"></div>
+    </section>
+
+    <section id="view-acesso-erro" class="view">
+      <div class="erro-token-container">
+        <h2>Link expirado ou inválido</h2>
+        <p>Este link de acesso rápido não é mais válido. Solicite um novo link pelo WhatsApp enviando a placa do caminhão.</p>
+        <a class="btn btn-primary" href="/">Voltar ao login</a>
+      </div>
+    </section>
+
+    <section id="view-medicao" class="view">
+      <h2>Registrar Medição de Sulco</h2>
+      <div class="medicao-layout">
+        <div class="medicao-form card">
+          <div class="form-group">
+            <label for="med-veiculo">Veículo</label>
+            <select id="med-veiculo" required><option value="">Selecione...</option></select>
+          </div>
+          <div class="form-group">
+            <label for="med-pneu">Posição do Pneu</label>
+            <select id="med-pneu" required disabled><option value="">Selecione o veículo primeiro</option></select>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="med-data">Data</label>
+              <input type="date" id="med-data">
+            </div>
+            <div class="form-group">
+              <label for="med-km">KM do veículo</label>
+              <input type="number" id="med-km" min="0" placeholder="Ex: 45000">
+            </div>
+            <div class="form-group">
+              <label for="med-hr">Horas do veículo</label>
+              <input type="number" id="med-hr" step="0.1" min="0" placeholder="Ex: 1200">
+            </div>
+          </div>
+          <div class="form-row form-row-4">
+            <div class="form-group">
+              <label for="med-externo">1ª MED (Esq)</label>
+              <input type="number" id="med-externo" step="0.1" min="0" max="30" placeholder="0.0">
+            </div>
+            <div class="form-group">
+              <label for="med-central">2ª MED</label>
+              <input type="number" id="med-central" step="0.1" min="0" max="30" placeholder="0.0">
+            </div>
+            <div class="form-group">
+              <label for="med-interno">3ª MED</label>
+              <input type="number" id="med-interno" step="0.1" min="0" max="30" placeholder="0.0">
+            </div>
+            <div class="form-group">
+              <label for="med-auxiliar">4ª MED (Dir)</label>
+              <input type="number" id="med-auxiliar" step="0.1" min="0" max="30" placeholder="0.0">
+            </div>
+          </div>
+          <div id="med-perfil" class="truck-perfil"></div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="med-pressao">Pressão (PSI)</label>
+              <input type="number" id="med-pressao" step="0.5" min="0" placeholder="Ex: 110">
+            </div>
+            <div class="form-group">
+              <label for="med-responsavel">Responsável</label>
+              <input type="text" id="med-responsavel" placeholder="Nome do inspetor">
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="med-obs">Observações</label>
+            <textarea id="med-obs" rows="2" placeholder="Desgaste irregular, cortes, etc."></textarea>
+          </div>
+          <button class="btn btn-primary btn-block" id="btn-salvar-medicao">Salvar Medição</button>
+        </div>
+
+        <div class="medicao-pneu card">
+          <h3>Marcação Visual do Pneu</h3>
+          <p class="hint">4 medições do sulco — Esq → Dir</p>
+          <div id="tire-marker-container" class="tire-container"></div>
+        </div>
+      </div>
+    </section>
+
+    <section id="view-alertas" class="view">
+      <h2>Alertas de Desgaste</h2>
+      <p class="hint" id="alertas-limites-hint"></p>
+      <div id="alertas-lista" class="card-list"></div>
+    </section>
+
+    <section id="view-acoes" class="view">
+      <h2>Ações sugeridas</h2>
+      <p class="hint">Troca, recapagem e monitoramento calculados automaticamente a cada medição.</p>
+      <div id="acoes-resumo" class="stats-grid stats-acoes"></div>
+      <div id="acoes-lista" class="card-list"></div>
+    </section>
+
+    <section id="view-configuracoes" class="view">
+      <h2>Limites e o que fazer</h2>
+      <p class="hint">
+        Defina até quantos mm cada faixa vale e escreva <strong>o que deve ser feito</strong> quando a medição cair nela.
+        Vale para toda a frota.
+      </p>
+
+      <div class="config-layout">
+        <div class="card config-form config-faixas">
+          <h3 class="config-subtitle">Faixas de sulco (mm)</h3>
+
+          <article class="faixa-card faixa-critico">
+            <header>
+              <span class="faixa-badge">1 · Crítico — trocar</span>
+              <div class="form-group faixa-limite">
+                <label for="cfg-critico">Quando menor que (mm)</label>
+                <input type="number" id="cfg-critico" step="0.1" min="0" max="30" placeholder="3">
+              </div>
+            </header>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="cfg-acao-troca-label">Nome da ação</label>
+                <input type="text" id="cfg-acao-troca-label" maxlength="40" placeholder="Trocar">
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="cfg-acao-troca-instrucao">O que fazer nesta medição</label>
+              <textarea id="cfg-acao-troca-instrucao" rows="2" maxlength="240" placeholder="Ex: Crítico — retirar e trocar o pneu"></textarea>
+            </div>
+          </article>
+
+          <article class="faixa-card faixa-alerta">
+            <header>
+              <span class="faixa-badge">2 · Monitorar — programar substituição</span>
+              <div class="form-group faixa-limite">
+                <label for="cfg-alerta">Até (mm)</label>
+                <input type="number" id="cfg-alerta" step="0.1" min="0" max="30" placeholder="8">
+              </div>
+            </header>
+            <p class="hint faixa-range" id="hint-faixa-monitorar">Do crítico até este valor</p>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="cfg-prazo-recap">Prazo para iniciar recap (dias)</label>
+                <input type="number" id="cfg-prazo-recap" min="1" max="90" step="1" placeholder="15">
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="cfg-acao-monitorar-label">Nome da ação</label>
+              <input type="text" id="cfg-acao-monitorar-label" maxlength="40" placeholder="Monitorar">
+            </div>
+            <div class="form-group">
+              <label for="cfg-acao-monitorar-instrucao">O que fazer nesta medição</label>
+              <textarea id="cfg-acao-monitorar-instrucao" rows="2" maxlength="240" placeholder="Ex: Programar substituição — iniciar processo de recap em até 15 dias"></textarea>
+            </div>
+          </article>
+
+          <article class="faixa-card faixa-rodizio">
+            <header>
+              <span class="faixa-badge">Mudança de posição no caminhão</span>
+            </header>
+            <p class="hint" style="margin-top:0">
+              Se as 4 medições tiverem diferença grande, o sistema sugere <strong>mudar de posição</strong> no mesmo caminhão.
+              Não faz balanceamento no eixo traseiro — não compensa.
+            </p>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="cfg-rodizio-desvio">Desvio entre pontos (mm)</label>
+                <input type="number" id="cfg-rodizio-desvio" step="0.1" min="0.5" max="20" placeholder="3">
+                <small class="field-hint">Maior − menor ≥ este valor → sugerir mudança de posição</small>
+              </div>
+              <div class="form-group">
+                <label for="cfg-rodizio-similaridade">Parecido até (mm)</label>
+                <input type="number" id="cfg-rodizio-similaridade" step="0.1" min="0.5" max="20" placeholder="2.5">
+                <small class="field-hint">Diferença máxima da média para achar o par</small>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="cfg-acao-rodizio-label">Nome da ação</label>
+              <input type="text" id="cfg-acao-rodizio-label" maxlength="40" placeholder="Mudar posição">
+            </div>
+            <div class="form-group">
+              <label for="cfg-acao-rodizio-instrucao">O que fazer</label>
+              <textarea id="cfg-acao-rodizio-instrucao" rows="2" maxlength="240" placeholder="Ex: Mudar de posição no caminhão"></textarea>
+            </div>
+          </article>
+
+          <article class="faixa-card faixa-ok">
+            <header>
+              <span class="faixa-badge">3 · OK</span>
+              <strong class="faixa-ok-hint" id="hint-faixa-ok">Acima do monitorar</strong>
+            </header>
+            <div class="form-group">
+              <label for="cfg-acao-ok-label">Nome da ação</label>
+              <input type="text" id="cfg-acao-ok-label" maxlength="40" placeholder="OK">
+            </div>
+            <div class="form-group">
+              <label for="cfg-acao-ok-instrucao">O que fazer nesta medição</label>
+              <textarea id="cfg-acao-ok-instrucao" rows="2" maxlength="240" placeholder="Ex: Manter em operação"></textarea>
+            </div>
+          </article>
+
+          <input type="hidden" id="cfg-recap" value="3">
+          <input type="hidden" id="cfg-acao-recap-label" value="Recapagem">
+          <input type="hidden" id="cfg-acao-recap-instrucao" value="Iniciar processo de recap em até 15 dias">
+          <details class="form-avancado">
+            <summary>Ajustes avançados</summary>
+            <div class="form-group">
+              <label for="cfg-novo">Sulco típico de pneu novo (mm)</label>
+              <input type="number" id="cfg-novo" step="0.1" min="0" max="30" placeholder="14">
+            </div>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="cfg-max-recaps">Máx. recaps</label>
+                <input type="number" id="cfg-max-recaps" min="0" max="10" step="1" placeholder="6">
+              </div>
+              <div class="form-group">
+                <label for="cfg-tolerancia">Tolerância diagnóstico (mm)</label>
+                <input type="number" id="cfg-tolerancia" step="0.1" min="0" max="5" placeholder="1.0">
+              </div>
+            </div>
+          </details>
+
+          <button class="btn btn-primary" id="btn-salvar-config">Salvar limites e ações</button>
+        </div>
+
+        <div class="card config-preview">
+          <h3>Como o sistema classifica</h3>
+          <div class="limite-bar" id="limite-bar">
+            <div class="limite-segment critico" id="bar-critico">
+              <span id="preview-label-troca">Trocar</span>
+              <strong id="preview-critico">&lt; 3 mm</strong>
+            </div>
+            <div class="limite-segment alerta" id="bar-alerta">
+              <span id="preview-label-monitorar">Monitorar</span>
+              <strong id="preview-alerta">3 – 8 mm</strong>
+            </div>
+            <div class="limite-segment ok" id="bar-ok">
+              <span id="preview-label-ok">OK</span>
+              <strong id="preview-ok">&gt; 8 mm</strong>
+            </div>
+          </div>
+          <ul class="config-legenda" id="config-legenda-acoes">
+            <li><span class="dot dot-critico"></span> <strong id="leg-troca-label">Trocar:</strong> <span id="leg-troca-instrucao">—</span></li>
+            <li><span class="dot dot-alerta"></span> <strong id="leg-monitorar-label">Monitorar:</strong> <span id="leg-monitorar-instrucao">—</span></li>
+            <li><span class="dot dot-ok"></span> <strong id="leg-ok-label">OK:</strong> <span id="leg-ok-instrucao">—</span></li>
+          </ul>
+          <h3 style="margin-top:1.25rem">Diagnóstico de perfil</h3>
+          <ul class="config-legenda">
+            <li>Perfil plano → OK</li>
+            <li>Cunha na dianteira → Alinhamento + balanceamento</li>
+            <li>Cunha no traseiro → Alinhamento (sem balanceamento — não compensa)</li>
+            <li>Centro baixo → Falta calibragem</li>
+            <li>Bordas baixas → Excesso calibragem</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <div class="wa-qr-wrap card hidden" id="wa-qr-wrap" style="margin:1rem auto;max-width:420px">
+      <h3 id="wa-qr-titulo">Escaneie o QR Code</h3>
+      <p class="hint">No celular do chip da filial: WhatsApp → Aparelhos conectados → Conectar um aparelho</p>
+      <img id="wa-qr-img" class="wa-qr-img" alt="QR Code WhatsApp">
+      <p class="hint" id="wa-qr-hint">O QR expira em poucos segundos — clique em Conectar de novo se precisar.</p>
+      <button type="button" class="btn btn-ghost btn-sm" id="btn-wa-qr-fechar">Fechar QR</button>
+    </div>
+  </main>
+
+  <dialog id="modal-veiculo" class="modal modal-wide modal-veiculo">
+    <form id="form-veiculo" method="dialog">
+      <h3 id="modal-veiculo-titulo">Novo Veículo</h3>
+      <p class="hint" style="margin-top:0">Informe a placa e a configuração dos eixos. Depois você coloca os pneus no diagrama.</p>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="v-placa">Placa *</label>
+          <input type="text" id="v-placa" required placeholder="ABC1D23" maxlength="8">
+        </div>
+        <div class="form-group">
+          <label for="v-apelido">Apelido / nome interno</label>
+          <input type="text" id="v-apelido" placeholder="Ex: Compactador 01">
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="v-tipo">Tipo do veículo *</label>
+        <select id="v-tipo"></select>
+      </div>
+
+      <div class="form-group">
+        <label for="v-layout">Quantos pneus / eixos?</label>
+        <select id="v-layout"></select>
+        <small class="field-hint" id="v-layout-desc"></small>
+      </div>
+      <div id="v-layout-diagram" class="v-layout-diagram"></div>
+      <div id="v-layout-preview" class="layout-preview"></div>
+
+      <details class="form-avancado">
+        <summary>Mais dados (opcional)</summary>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="v-marca">Marca</label>
+            <input type="text" id="v-marca" placeholder="Ex: Mercedes">
+          </div>
+          <div class="form-group">
+            <label for="v-modelo">Modelo</label>
+            <input type="text" id="v-modelo" placeholder="Ex: Atego">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="v-ano">Ano</label>
+            <input type="number" id="v-ano" min="1990" max="2030">
+          </div>
+          <div class="form-group">
+            <label for="v-km">KM atual</label>
+            <input type="number" id="v-km" min="0" value="0">
+          </div>
+          <div class="form-group">
+            <label for="v-hr">Horas atual</label>
+            <input type="number" id="v-hr" min="0" step="0.1" value="0">
+          </div>
+        </div>
+      </details>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="btn-cancelar-veiculo">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Salvar e abrir diagrama</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="modal-layout" class="modal modal-wide">
+    <form id="form-layout" method="dialog">
+      <h3>Configurar pneus do veículo</h3>
+      <p class="hint" id="layout-veiculo-nome"></p>
+      <div class="form-group">
+        <label for="layout-select">Layout de eixos</label>
+        <select id="layout-select"></select>
+        <small class="field-hint" id="layout-select-desc"></small>
+      </div>
+      <div id="layout-posicoes-preview" class="layout-posicoes-grid"></div>
+      <details class="layout-custom">
+        <summary>Personalizar posições manualmente</summary>
+        <div id="layout-custom-checkboxes" class="layout-checkboxes"></div>
+      </details>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="btn-cancelar-layout">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Aplicar configuração</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="modal-filial" class="modal">
+    <form id="form-filial" method="dialog">
+      <h3 id="modal-filial-titulo">Nova Filial</h3>
+      <input type="hidden" id="f-id" value="">
+      <div class="form-group">
+        <label for="f-nome">Nome *</label>
+        <input type="text" id="f-nome" required placeholder="Ex: Filial São Paulo">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="f-codigo">Código *</label>
+          <input type="text" id="f-codigo" required placeholder="Ex: SP01" maxlength="20">
+        </div>
+        <div class="form-group">
+          <label for="f-contrato">Contrato</label>
+          <input type="text" id="f-contrato" placeholder="Ex: Pref. XYZ 2026">
+        </div>
+      </div>
+      <div class="form-row" id="f-login-row">
+        <div class="form-group">
+          <label for="f-login">Login da filial *</label>
+          <input type="text" id="f-login" placeholder="Ex: filial.sp" autocomplete="off">
+        </div>
+        <div class="form-group">
+          <label for="f-senha">Senha *</label>
+          <input type="password" id="f-senha" placeholder="Mín. 4 caracteres" autocomplete="new-password">
+        </div>
+      </div>
+      <div class="form-group hidden" id="f-reset-row">
+        <label for="f-nova-senha">Nova senha (deixe em branco para não alterar)</label>
+        <input type="password" id="f-nova-senha" placeholder="Resetar senha" autocomplete="new-password">
+      </div>
+      <div class="form-group">
+        <label for="f-whatsapp">Número do chip (chatbot)</label>
+        <input type="text" id="f-whatsapp" placeholder="5511999999999" inputmode="tel">
+        <small class="field-hint">Chip conectado via QR. O grupo do chatbot é escolhido no painel WhatsApp após conectar.</small>
+      </div>
+      <div class="form-group">
+        <label for="f-whatsapp-alerta">Número para alertas</label>
+        <input type="text" id="f-whatsapp-alerta" placeholder="5511888888888" inputmode="tel">
+        <small class="field-hint">Para onde vão os avisos de pneu crítico / monitorar.</small>
+      </div>
+      <div class="form-group" id="f-wuzapi-token-wrap">
+        <label for="f-wuzapi-token">Token WuzAPI desta filial</label>
+        <input type="password" id="f-wuzapi-token" placeholder="Token do usuário WuzAPI" autocomplete="off">
+        <small class="field-hint">Crie um usuário no WuzAPI para este chip e cole o token aqui. Deixe em branco ao editar para não alterar.</small>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="btn-cancelar-filial">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Salvar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="modal-pneu" class="modal">
+    <form id="form-pneu" method="dialog">
+      <h3 id="modal-pneu-titulo">Novo pneu no estoque</h3>
+      <input type="hidden" id="pneu-edit-id" value="">
+      <div class="form-group">
+        <label for="pneu-fogo">Nº de fogo *</label>
+        <input type="text" id="pneu-fogo" required placeholder="Identificação única do pneu">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="pneu-tipo">Padrão *</label>
+          <select id="pneu-tipo">
+            <option value="direcional">Direcional</option>
+            <option value="misto" selected>Misto (tração)</option>
+            <option value="borrachudo">Borrachudo</option>
+          </select>
+          <small class="field-hint" id="pneu-tipo-hint">Direcional = dianteira · Misto/Borrachudo = tração</small>
+        </div>
+        <div class="form-group">
+          <label for="pneu-condicao">Condição *</label>
+          <select id="pneu-condicao">
+            <option value="novo">Novo</option>
+            <option value="recapado">Recapado</option>
+          </select>
+          <small class="field-hint" id="pneu-condicao-hint">Não muda depois (exceto via Registrar recap)</small>
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="pneu-marca">Marca</label>
+          <input type="text" id="pneu-marca" placeholder="Ex: Michelin">
+        </div>
+        <div class="form-group">
+          <label for="pneu-modelo">Modelo *</label>
+          <input type="text" id="pneu-modelo" required placeholder="Ex: X Multi D">
+        </div>
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="pneu-custo">Custo (R$)</label>
+          <input type="number" id="pneu-custo" step="0.01" min="0" placeholder="Ex: 1850.00">
+        </div>
+        <div class="form-group">
+          <label for="pneu-nota">Nota fiscal</label>
+          <input type="text" id="pneu-nota" placeholder="Nº da NF">
+        </div>
+      </div>
+      <details class="form-avancado" id="pneu-avancado">
+        <summary>Mais dados (opcional)</summary>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="pneu-dot">DOT</label>
+            <input type="text" id="pneu-dot" placeholder="Ex: 3522">
+          </div>
+          <div class="form-group">
+            <label for="pneu-medida">Medida</label>
+            <input type="text" id="pneu-medida" placeholder="Ex: 275/80R22.5">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="pneu-vida">Vida (recap)</label>
+            <select id="pneu-vida">
+              <option value="0">Novo (0)</option>
+              <option value="1">1ª recap</option>
+              <option value="2">2ª recap</option>
+              <option value="3">3ª recap</option>
+              <option value="4">4ª recap</option>
+              <option value="5">5ª recap</option>
+              <option value="6">6ª recap</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="pneu-sulco-inicial">Espessura inicial (mm)</label>
+            <input type="number" id="pneu-sulco-inicial" step="0.1" min="0" max="30" placeholder="Ex: 14">
+          </div>
+        </div>
+      </details>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="btn-cancelar-pneu">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Salvar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="modal-pneu-pos" class="modal">
+    <h3>Pneu cadastrado</h3>
+    <p class="hint" id="pneu-pos-label">O pneu está no estoque.</p>
+    <input type="hidden" id="pneu-pos-id" value="">
+    <input type="hidden" id="pneu-pos-fogo" value="">
+    <div class="modal-actions modal-actions-stack">
+      <button type="button" class="btn btn-primary" id="btn-pos-montar">Montar agora no veículo</button>
+      <button type="button" class="btn btn-ghost" id="btn-pos-estoque">Deixar no estoque</button>
+    </div>
+  </dialog>
+
+  <dialog id="modal-montar" class="modal">
+    <form id="form-montar" method="dialog">
+      <h3>Montar pneu no veículo</h3>
+      <p class="hint" id="montar-pneu-label">Pneu</p>
+      <input type="hidden" id="montar-pneu-id" value="">
+      <div class="form-group">
+        <label for="montar-veiculo">Veículo *</label>
+        <select id="montar-veiculo" required>
+          <option value="">Selecione...</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="montar-posicao">Posição *</label>
+        <select id="montar-posicao" required disabled>
+          <option value="">Selecione o veículo primeiro</option>
+        </select>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="btn-cancelar-montar">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Montar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="modal-usuario" class="modal">
+    <form id="form-usuario" method="dialog">
+      <h3 id="modal-usuario-titulo">Novo usuário</h3>
+      <input type="hidden" id="u-id" value="">
+      <div class="form-group">
+        <label for="u-login">Login *</label>
+        <input type="text" id="u-login" required autocomplete="off" placeholder="Ex: gerente.sp">
+      </div>
+      <div class="form-group" id="u-senha-wrap">
+        <label for="u-senha">Senha provisória *</label>
+        <input type="password" id="u-senha" minlength="4" autocomplete="new-password" placeholder="Mín. 4 caracteres">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="u-papel">Tipo de acesso *</label>
+          <select id="u-papel">
+            <option value="filial">Operador de filial — medições e frota</option>
+            <option value="gerente">Gerente de unidade — alertas e chatbot</option>
+            <option value="admin">Admin total — sistema inteiro</option>
+          </select>
+          <small class="field-hint" id="u-papel-hint">Operador usa o menu da frota. Gerente abre “Minha unidade” e conecta WhatsApp.</small>
+        </div>
+        <div class="form-group" id="u-filial-wrap">
+          <label for="u-filial">Filial</label>
+          <select id="u-filial">
+            <option value="">— (sem vínculo / multiunidade)</option>
+          </select>
+          <small class="field-hint">Operador e gerente de unidade precisam de filial.</small>
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="u-whatsapp">WhatsApp</label>
+        <input type="text" id="u-whatsapp" placeholder="5511999999999">
+      </div>
+      <p class="hint" id="u-senha-aviso"></p>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="btn-cancelar-usuario">Cancelar</button>
+        <button type="submit" class="btn btn-primary" id="btn-salvar-usuario">Criar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="modal-reset-senha" class="modal">
+    <form id="form-reset-senha" method="dialog">
+      <h3>Redefinir senha</h3>
+      <p class="hint" id="reset-senha-login-hint">Defina uma senha provisória. Anote — ela só aparece agora.</p>
+      <input type="hidden" id="reset-senha-user-id" value="">
+      <div class="form-group">
+        <label for="reset-senha-nova">Nova senha provisória *</label>
+        <input type="text" id="reset-senha-nova" required minlength="4" autocomplete="new-password" placeholder="Mín. 4 caracteres">
+      </div>
+      <div class="form-group hidden" id="reset-senha-resultado-wrap">
+        <label>Senha definida (copie agora)</label>
+        <input type="text" id="reset-senha-resultado" readonly class="mono">
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="btn-cancelar-reset-senha">Cancelar</button>
+        <button type="submit" class="btn btn-primary" id="btn-salvar-reset-senha">Salvar senha</button>
+        <button type="button" class="btn btn-primary hidden" id="btn-fechar-reset-senha">Fechar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="modal-wa-dest" class="modal">
+    <form id="form-wa-dest" method="dialog">
+      <h3 id="modal-wa-dest-titulo">Novo destinatário</h3>
+      <input type="hidden" id="wa-dest-id" value="">
+      <div class="form-group">
+        <label for="wa-dest-nome">Nome *</label>
+        <input type="text" id="wa-dest-nome" required placeholder="Ex: Compras · João">
+      </div>
+      <div class="form-group">
+        <label for="wa-dest-whatsapp">WhatsApp *</label>
+        <input type="text" id="wa-dest-whatsapp" required placeholder="5511999999999" inputmode="tel">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="wa-dest-escopo">Escopo</label>
+          <select id="wa-dest-escopo">
+            <option value="todas">Todas as filiais</option>
+            <option value="filial">Só uma filial</option>
+          </select>
+        </div>
+        <div class="form-group hidden" id="wa-dest-filial-wrap">
+          <label for="wa-dest-filial">Filial</label>
+          <select id="wa-dest-filial">
+            <option value="">—</option>
+          </select>
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="wa-dest-ativo">
+          <input type="checkbox" id="wa-dest-ativo" checked>
+          Ativo (receber alertas)
+        </label>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="btn-wa-dest-cancel">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Salvar</button>
+      </div>
+    </form>
+  </dialog>
+
+  <div id="toast" class="toast hidden"></div>
+  </div><!-- app-shell -->
+
+  <script type="module" src="/src/main.js"></script>
+</body>
+</html>
