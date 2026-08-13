@@ -2881,6 +2881,7 @@ function wireFilialChatbotPanel(filialId, nomeFilial) {
 let inspecaoDiagram = null;
 let inspecaoVeiculoCache = null;
 let inspecaoVeiculoIdAberto = null;
+let inspecaoFilialIdAberto = null;
 
 function textoOQueFazer(p) {
   const acao = (p.acao_sugerida || 'ok').toLowerCase();
@@ -2911,8 +2912,13 @@ function renderPainelPneuInspecao(p) {
       <p>Clique em um pneu no desenho (ou na lista) para ver o diagnóstico e a ação recomendada.</p>
     </div>`;
   }
+  const med = p.ultima_medicao;
+  const medId = med?.id || p.ult_medicao_id;
   const sulcos = [
-    p.ult_sulco_ext, p.ult_sulco_cent, p.ult_sulco_int, p.ult_sulco_aux,
+    p.ult_sulco_ext ?? med?.sulco_externo,
+    p.ult_sulco_cent ?? med?.sulco_central,
+    p.ult_sulco_int ?? med?.sulco_interno,
+    p.ult_sulco_aux ?? med?.sulco_auxiliar,
   ].map((v) => (v != null ? `${v} mm` : '—')).join(' · ');
 
   return `
@@ -2924,7 +2930,7 @@ function renderPainelPneuInspecao(p) {
           ${badgeAcao(p.acao_sugerida, p.acao_label)}
         </div>
       </div>
-      <p class="hint">${p.marca || '—'} · ${p.modelo || ''}${p.modelo ? ' · ' : ''}${p.vida_label || ''}${p.ult_medicao ? ` · medido em ${formatDate(p.ult_medicao)}` : ''}</p>
+      <p class="hint">${p.marca || '—'} · ${p.modelo || ''}${p.modelo ? ' · ' : ''}${p.vida_label || ''}${p.ult_medicao || med?.data ? ` · medido em ${formatDate(p.ult_medicao || med?.data)}` : ''}</p>
       <dl class="inspecao-dl">
         <div><dt>Menor sulco</dt><dd><strong>${p.menor_sulco != null ? `${p.menor_sulco} mm` : '—'}</strong></dd></div>
         <div><dt>4 pontos</dt><dd>${sulcos}</dd></div>
@@ -2935,7 +2941,149 @@ function renderPainelPneuInspecao(p) {
         <strong>O que fazer</strong>
         <p>${textoOQueFazer(p)}</p>
       </div>
+      ${medId ? `
+      <details class="form-avancado inspecao-corrigir">
+        <summary>Corrigir medição (admin)</summary>
+        <p class="hint">Use se o colaborador digitou sulco errado.</p>
+        <div class="form-row form-row-4">
+          <div class="form-group">
+            <label>1ª MED</label>
+            <input type="number" id="insp-sulco-ext" step="0.1" min="0" max="30" value="${med?.sulco_externo ?? p.ult_sulco_ext ?? ''}">
+          </div>
+          <div class="form-group">
+            <label>2ª MED</label>
+            <input type="number" id="insp-sulco-cent" step="0.1" min="0" max="30" value="${med?.sulco_central ?? p.ult_sulco_cent ?? ''}">
+          </div>
+          <div class="form-group">
+            <label>3ª MED</label>
+            <input type="number" id="insp-sulco-int" step="0.1" min="0" max="30" value="${med?.sulco_interno ?? p.ult_sulco_int ?? ''}">
+          </div>
+          <div class="form-group">
+            <label>4ª MED</label>
+            <input type="number" id="insp-sulco-aux" step="0.1" min="0" max="30" value="${med?.sulco_auxiliar ?? p.ult_sulco_aux ?? ''}">
+          </div>
+        </div>
+        <div class="form-group">
+          <label for="insp-med-data">Data da medição</label>
+          <input type="date" id="insp-med-data" value="${med?.data || p.ult_medicao || ''}">
+        </div>
+        <div class="wa-actions" style="margin-top:.5rem">
+          <button type="button" class="btn btn-primary btn-sm" id="btn-insp-salvar-medicao" data-medicao-id="${medId}" data-pneu-id="${p.id}">Salvar correção</button>
+          <button type="button" class="btn btn-ghost btn-sm btn-danger-text" id="btn-insp-apagar-medicao" data-medicao-id="${medId}">Apagar medição</button>
+        </div>
+      </details>` : `
+      <p class="hint">Sem medição registrada neste pneu — nada a corrigir.</p>`}
     </div>`;
+}
+
+function wirePainelInspecaoEdicao() {
+  document.getElementById('btn-insp-salvar-medicao')?.addEventListener('click', async (e) => {
+    const btn = e.currentTarget;
+    const medicaoId = btn.dataset.medicaoId;
+    const filialId = inspecaoFilialIdAberto;
+    const veiculoId = inspecaoVeiculoIdAberto;
+    if (!filialId || !medicaoId) return;
+    const payload = {
+      sulco_externo: numOrNull('insp-sulco-ext'),
+      sulco_central: numOrNull('insp-sulco-cent'),
+      sulco_interno: numOrNull('insp-sulco-int'),
+      sulco_auxiliar: numOrNull('insp-sulco-aux'),
+      data_medicao: document.getElementById('insp-med-data')?.value || null,
+    };
+    if ([payload.sulco_externo, payload.sulco_central, payload.sulco_interno, payload.sulco_auxiliar].every((v) => v == null)) {
+      return toast('Informe ao menos um sulco', 'error');
+    }
+    btn.disabled = true;
+    try {
+      await fetchJSON(`${API}/filiais/${filialId}/medicoes/${medicaoId}`, {
+        method: 'PUT',
+        body: JSON.stringify(payload),
+      });
+      toast('Medição corrigida', 'success');
+      await recarregarInspecaoVeiculoFilial(filialId, veiculoId, Number(btn.dataset.pneuId));
+    } catch (err) {
+      toast(err.message, 'error');
+    } finally {
+      btn.disabled = false;
+    }
+  });
+
+  document.getElementById('btn-insp-apagar-medicao')?.addEventListener('click', async (e) => {
+    const medicaoId = e.currentTarget.dataset.medicaoId;
+    const filialId = inspecaoFilialIdAberto;
+    const veiculoId = inspecaoVeiculoIdAberto;
+    if (!filialId || !medicaoId) return;
+    if (!confirm('Apagar esta medição? O pneu voltará a usar a medição anterior (se houver).')) return;
+    try {
+      await fetchJSON(`${API}/filiais/${filialId}/medicoes/${medicaoId}`, { method: 'DELETE' });
+      toast('Medição apagada', 'success');
+      await recarregarInspecaoVeiculoFilial(filialId, veiculoId);
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  });
+}
+
+function wireEdicaoVeiculoInspecao() {
+  document.getElementById('btn-insp-salvar-veiculo')?.addEventListener('click', async () => {
+    const filialId = inspecaoFilialIdAberto;
+    const veiculoId = inspecaoVeiculoIdAberto;
+    if (!filialId || !veiculoId) return;
+    const placa = document.getElementById('insp-v-placa')?.value?.trim();
+    if (!placa) return toast('Placa é obrigatória', 'error');
+    try {
+      await fetchJSON(`${API}/filiais/${filialId}/veiculos/${veiculoId}`, {
+        method: 'PUT',
+        body: JSON.stringify({
+          placa,
+          apelido: document.getElementById('insp-v-apelido')?.value || '',
+          tipo: document.getElementById('insp-v-tipo')?.value || null,
+          km_atual: numOrNull('insp-v-km'),
+          hr_atual: numOrNull('insp-v-hr'),
+          marca: document.getElementById('insp-v-marca')?.value || '',
+          modelo: document.getElementById('insp-v-modelo')?.value || '',
+        }),
+      });
+      toast('Veículo atualizado', 'success');
+      await recarregarInspecaoVeiculoFilial(filialId, veiculoId);
+      const card = document.querySelector(`#filial-detalhe .veiculo-card[data-id="${veiculoId}"]`);
+      if (card) {
+        const apelido = document.getElementById('insp-v-apelido')?.value?.trim()
+          || document.getElementById('insp-v-placa')?.value?.trim()
+          || '';
+        const placa = document.getElementById('insp-v-placa')?.value?.trim()?.toUpperCase() || '';
+        const tipo = document.getElementById('insp-v-tipo')?.value || '';
+        const km = document.getElementById('insp-v-km')?.value || '0';
+        const h4 = card.querySelector('.veiculo-info h4');
+        const p = card.querySelector('.veiculo-info p');
+        if (h4) h4.textContent = apelido || placa;
+        if (p) {
+          const totalMatch = p.textContent.match(/(\d+)\s*pneus/);
+          const total = totalMatch ? totalMatch[1] : '—';
+          p.textContent = `${placa} · ${tipo} · ${total} pneus · ${Number(km).toLocaleString('pt-BR')} km`;
+        }
+      }
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  });
+}
+
+async function recarregarInspecaoVeiculoFilial(filialId, veiculoId, pneuIdSelecionado = null) {
+  const keepPneu = pneuIdSelecionado;
+  inspecaoVeiculoIdAberto = null; // força reopen
+  await abrirInspecaoVeiculoFilial(filialId, veiculoId);
+  if (keepPneu && inspecaoVeiculoCache?.pneus) {
+    const pneu = inspecaoVeiculoCache.pneus.find((p) => p.id === keepPneu);
+    if (pneu) {
+      inspecaoDiagram?.setAtivo(keepPneu);
+      const painel = document.getElementById('filial-inspecao-painel');
+      if (painel) {
+        painel.innerHTML = renderPainelPneuInspecao(pneu);
+        wirePainelInspecaoEdicao();
+      }
+    }
+  }
 }
 
 function renderListaAnomalias(anomalias) {
@@ -2973,6 +3121,7 @@ function fecharInspecaoVeiculoFilial() {
   inspecaoDiagram = null;
   inspecaoVeiculoCache = null;
   inspecaoVeiculoIdAberto = null;
+  inspecaoFilialIdAberto = null;
   document.querySelectorAll('#filial-detalhe .veiculo-card.is-aberto').forEach((c) => {
     c.classList.remove('is-aberto');
   });
@@ -2993,6 +3142,7 @@ async function abrirInspecaoVeiculoFilial(filialId, veiculoId) {
     c.classList.toggle('is-aberto', Number(c.dataset.id) === idNum);
   });
 
+  inspecaoFilialIdAberto = Number(filialId);
   inspecaoVeiculoIdAberto = idNum;
   box.classList.remove('hidden');
   box.innerHTML = '<p class="hint">Carregando diagrama e diagnósticos…</p>';
@@ -3006,17 +3156,57 @@ async function abrirInspecaoVeiculoFilial(filialId, veiculoId) {
     const labels = v.posicoes_labels || {};
     const posicoes = v.posicoes_layout?.map((p) => p.codigo) || v.layout?.posicoes || [];
     const nAnom = v.anomalias?.length || 0;
+    const tiposOpts = (meta.tipos || ['Truck / Tração', 'Toco / Mini']).map((t) =>
+      `<option value="${escapeHtml(t)}" ${t === v.tipo ? 'selected' : ''}>${escapeHtml(t)}</option>`
+    ).join('');
 
     box.innerHTML = `
       <div class="inspecao-header">
         <div>
-          <h3>${v.apelido || v.placa}</h3>
-          <p class="hint">${v.placa} · ${v.tipo} · ${v.km_atual?.toLocaleString('pt-BR') || 0} km
-            · ${v.layout?.nome || 'Layout'}
-            · Filial ${v.filial?.nome || ''}</p>
+          <h3>${escapeHtml(v.apelido || v.placa)}</h3>
+          <p class="hint">${escapeHtml(v.placa)} · ${escapeHtml(v.tipo || '')} · ${(v.km_atual || 0).toLocaleString('pt-BR')} km
+            · ${escapeHtml(v.layout?.nome || 'Layout')}
+            · Filial ${escapeHtml(v.filial?.nome || '')}</p>
         </div>
         <button type="button" class="btn btn-ghost btn-sm" id="btn-fechar-inspecao">Fechar desenho</button>
       </div>
+      <details class="form-avancado inspecao-corrigir">
+        <summary>Corrigir dados do veículo (admin)</summary>
+        <p class="hint">Use se a placa, KM ou identificação foram cadastrados errados.</p>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="insp-v-placa">Placa *</label>
+            <input type="text" id="insp-v-placa" value="${escapeHtml(v.placa || '')}" maxlength="8">
+          </div>
+          <div class="form-group">
+            <label for="insp-v-apelido">Apelido</label>
+            <input type="text" id="insp-v-apelido" value="${escapeHtml(v.apelido || '')}">
+          </div>
+          <div class="form-group">
+            <label for="insp-v-tipo">Tipo</label>
+            <select id="insp-v-tipo">${tiposOpts}</select>
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label for="insp-v-km">KM atual</label>
+            <input type="number" id="insp-v-km" min="0" value="${v.km_atual ?? 0}">
+          </div>
+          <div class="form-group">
+            <label for="insp-v-hr">Horas</label>
+            <input type="number" id="insp-v-hr" min="0" step="0.1" value="${v.hr_atual ?? 0}">
+          </div>
+          <div class="form-group">
+            <label for="insp-v-marca">Marca</label>
+            <input type="text" id="insp-v-marca" value="${escapeHtml(v.marca || '')}">
+          </div>
+          <div class="form-group">
+            <label for="insp-v-modelo">Modelo</label>
+            <input type="text" id="insp-v-modelo" value="${escapeHtml(v.modelo || '')}">
+          </div>
+        </div>
+        <button type="button" class="btn btn-primary btn-sm" id="btn-insp-salvar-veiculo">Salvar veículo</button>
+      </details>
       <p class="inspecao-legenda hint">
         Cores no desenho: <span class="dot-inline ok"></span> OK ·
         <span class="dot-inline alerta"></span> Alerta ·
@@ -3034,13 +3224,18 @@ async function abrirInspecaoVeiculoFilial(filialId, veiculoId) {
       </div>`;
 
     document.getElementById('btn-fechar-inspecao').onclick = () => fecharInspecaoVeiculoFilial();
+    wireEdicaoVeiculoInspecao();
+
+    const setPainel = (pneu) => {
+      const painel = document.getElementById('filial-inspecao-painel');
+      if (!painel) return;
+      painel.innerHTML = renderPainelPneuInspecao(pneu);
+      wirePainelInspecaoEdicao();
+    };
 
     inspecaoDiagram = new TruckDiagram('filial-inspecao-diagram', {
       pickerHint: 'Clique no pneu colorido para ver a anomalia e o que fazer:',
-      onPneuClick: (pneu) => {
-        const painel = document.getElementById('filial-inspecao-painel');
-        if (painel) painel.innerHTML = renderPainelPneuInspecao(pneu);
-      },
+      onPneuClick: (pneu) => setPainel(pneu),
       onSlotClick: () => {
         const painel = document.getElementById('filial-inspecao-painel');
         if (painel) {
@@ -3056,16 +3251,15 @@ async function abrirInspecaoVeiculoFilial(filialId, veiculoId) {
         const pneu = v.pneus.find((p) => p.id === id);
         if (!pneu) return;
         inspecaoDiagram?.setAtivo(id);
-        const painel = document.getElementById('filial-inspecao-painel');
-        if (painel) painel.innerHTML = renderPainelPneuInspecao(pneu);
-        painel?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        setPainel(pneu);
+        document.getElementById('filial-inspecao-painel')?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
       });
     });
 
     if (v.anomalias?.length) {
       const primeiro = v.anomalias[0];
       inspecaoDiagram.setAtivo(primeiro.id);
-      document.getElementById('filial-inspecao-painel').innerHTML = renderPainelPneuInspecao(primeiro);
+      setPainel(primeiro);
     }
   } catch (err) {
     if (inspecaoVeiculoIdAberto === idNum) {
