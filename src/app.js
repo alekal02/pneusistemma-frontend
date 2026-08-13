@@ -2901,7 +2901,7 @@ function textoOQueFazer(p) {
         ? `Rodízio: mover para ${sug.posicao_label || sug.posicao_destino} (lado oposto do eixo).`
         : `Rodízio: trocar com ${sug.label || sug.posicao_destino} no lado oposto do eixo.`;
     }
-    return 'Rodízio para o lado oposto do eixo para equalizar o desgaste (não faz balanceamento no eixo traseiro).';
+    return 'Rodízio para o lado oposto do eixo para equalizar o desgaste.';
   }
   if (p.diagnostico === 'desgaste_progressivo') {
     return 'Desgaste progressivo do externo para o interno — consumo esperado enquanto o sulco estiver acima do crítico. Acompanhar; não fazer rodízio só por esse padrão. Retirar quando algum ponto ficar abaixo do crítico.';
