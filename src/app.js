@@ -2,7 +2,18 @@ import { TireMarker } from './tire-marker.js';
 import { TruckDiagram, renderLayoutPreview } from './truck-diagram.js';
 import { renderPerfilSulco } from './perfil-sulco.js';
 
-const API = import.meta.env.VITE_API_URL || '/api';
+/** Normaliza VITE_API_URL — em prod precisa terminar com /api */
+function resolveApiBase() {
+  let base = String(import.meta.env.VITE_API_URL || '/api').trim().replace(/\/+$/, '');
+  if (!base) base = '/api';
+  // Host absoluto do backend sem sufixo /api (erro comum na Vercel)
+  if (/^https?:\/\//i.test(base) && !/\/api$/i.test(base)) {
+    base = `${base}/api`;
+  }
+  return base;
+}
+
+const API = resolveApiBase();
 const AUTH_KEY = 'pneu_auth';
 
 let meta = { posicoes: {}, tipos: [], layouts: [], layout_padrao: 'truck_10' };
