@@ -93,6 +93,18 @@ function isGestao() {
   return isAdmin() || isGerente();
 }
 
+/** Diagnóstico e orientação de ação: só gerente/admin — filial só registra medição */
+function podeVerOrientacaoGestao() {
+  return isGestao();
+}
+
+function aplicarVisibilidadeOrientacaoGestao() {
+  const show = podeVerOrientacaoGestao();
+  ['truck-diagnostico', 'truck-acao-instrucao', 'truck-rodizio-sugestao', 'truck-pneu-acao'].forEach((id) => {
+    document.getElementById(id)?.classList.toggle('gestao-only-hidden', !show);
+  });
+}
+
 function escapeHtml(str) {
   return String(str ?? '')
     .replace(/&/g, '&amp;')
@@ -249,6 +261,11 @@ function hintLimites() {
 function mostrarAcaoInstrucao(pneuOuResult) {
   const el = document.getElementById('truck-acao-instrucao');
   if (!el) return;
+  if (!podeVerOrientacaoGestao()) {
+    el.classList.add('hidden');
+    el.textContent = '';
+    return;
+  }
   const texto = pneuOuResult?.acao_motivo
     || pneuOuResult?.acao_instrucao
     || limitesAtuais.acoes?.[pneuOuResult?.acao_sugerida]?.instrucao
@@ -271,6 +288,11 @@ function mostrarAcaoInstrucao(pneuOuResult) {
 function mostrarRodizioSugestao(pneuOuResult) {
   const el = document.getElementById('truck-rodizio-sugestao');
   if (!el) return;
+  if (!podeVerOrientacaoGestao()) {
+    el.classList.add('hidden');
+    el.innerHTML = '';
+    return;
+  }
   const sug = pneuOuResult?.rodizio_sugestao;
   if (!sug || pneuOuResult?.acao_sugerida !== 'rodizio') {
     el.classList.add('hidden');
@@ -322,7 +344,7 @@ function showAppShell() {
     const tit = document.getElementById('filiais-titulo');
     const hint = document.getElementById('filiais-hint');
     if (tit) tit.textContent = 'Filiais';
-    if (hint) hint.textContent = 'Clique numa filial para ver só os dados dela (alertas, frota e chatbot).';
+    if (hint) hint.textContent = 'Clique numa filial para ver só os dados dela (alertas e frota).';
   } else if (isGerente()) {
     navGerente?.classList.remove('hidden');
     const nome = currentUser.filial?.nome || 'Multiunidade';
@@ -333,7 +355,7 @@ function showAppShell() {
     const tit = document.getElementById('filiais-titulo');
     const hint = document.getElementById('filiais-hint');
     if (tit) tit.textContent = 'Minha unidade';
-    if (hint) hint.textContent = 'Clique na unidade para abrir o perfil (alertas, frota e chatbot).';
+    if (hint) hint.textContent = 'Clique na unidade para abrir o perfil (alertas e frota). Chatbot fica na aba WhatsApp.';
   } else {
     navFilial.classList.remove('hidden');
     const nomeFilial = currentUser.filial?.nome || currentUser.filial?.codigo || 'Filial';
@@ -341,6 +363,8 @@ function showAppShell() {
     subtitle.textContent = 'Medições semanais e alertas da sua frota';
     document.getElementById('btn-salvar-config')?.classList.add('hidden');
   }
+
+  aplicarVisibilidadeOrientacaoGestao();
 }
 
 function syncMarkersLimites() {
@@ -381,7 +405,14 @@ document.querySelectorAll('.tab').forEach((tab) => {
     if (view === 'medicao') initMedicao();
     if (view === 'alertas') loadAlertas();
     if (view === 'acoes') loadAcoes();
-    if (view === 'chatbot') loadChatbotOperador();
+    if (view === 'chatbot') {
+      if (!isGerente()) {
+        toast('Chatbot WhatsApp: só o gerente da unidade', 'error');
+        showView(isAdmin() ? 'relatorios' : isGestao() ? 'filiais' : 'dashboard');
+        return;
+      }
+      loadChatbotGerente();
+    }
     if (view === 'configuracoes') {
       if (!isAdmin()) {
         toast('Limites são definidos pelo administrador total', 'error');
@@ -756,7 +787,9 @@ function selecionarPneuTruck(pneu) {
   document.getElementById('truck-pneu-nome').textContent =
     `${nome}${pneu.numero_fogo ? ` · Fogo ${pneu.numero_fogo}` : ''}`;
   document.getElementById('truck-pneu-status').innerHTML = badge(pneu.status_sulco);
-  document.getElementById('truck-pneu-acao').innerHTML = badgeAcao(pneu.acao_sugerida, pneu.acao_label);
+  document.getElementById('truck-pneu-acao').innerHTML = podeVerOrientacaoGestao()
+    ? badgeAcao(pneu.acao_sugerida, pneu.acao_label)
+    : '';
   document.getElementById('truck-pneu-vida').innerHTML = pneu.vida_label
     ? `<span class="badge badge-vida">${pneu.vida_label}${pneu.vida_util_pct != null ? ` · ${pneu.vida_util_pct}%` : ''}</span>`
     : '';
@@ -770,9 +803,17 @@ function selecionarPneuTruck(pneu) {
   document.getElementById('truck-pressao').value = '';
   document.getElementById('truck-save-status').textContent = 'Preencha os sulcos — salva automaticamente';
   document.getElementById('truck-save-status').className = 'hint save-status';
-  document.getElementById('truck-diagnostico').textContent = pneu.diagnostico_label
-    ? `Diagnóstico: ${pneu.diagnostico_label}`
-    : '';
+
+  const diagEl = document.getElementById('truck-diagnostico');
+  if (podeVerOrientacaoGestao()) {
+    diagEl.textContent = pneu.diagnostico_label
+      ? `Diagnóstico: ${pneu.diagnostico_label}`
+      : '';
+    diagEl.classList.remove('gestao-only-hidden');
+  } else {
+    diagEl.textContent = '';
+    diagEl.classList.add('gestao-only-hidden');
+  }
   mostrarAcaoInstrucao(pneu);
   mostrarRodizioSugestao(pneu);
 
@@ -782,10 +823,9 @@ function selecionarPneuTruck(pneu) {
     interno: pneu.ult_sulco_int,
     auxiliar: pneu.ult_sulco_aux,
   };
-  atualizarPerfilLocal('truck-perfil', pontos, {
-    label: pneu.diagnostico_label,
-    desc: pneu.acao_motivo,
-  });
+  atualizarPerfilLocal('truck-perfil', pontos, podeVerOrientacaoGestao()
+    ? { label: pneu.diagnostico_label, desc: pneu.acao_motivo }
+    : null);
 
   if (!truckTireMarker) {
     truckTireMarker = new TireMarker('truck-mini-marker', {
@@ -1172,9 +1212,17 @@ async function salvarMedicaoTruck() {
 
     truckDiagram.atualizarPneu(pneuSelecionado, meta.posicoes);
     document.getElementById('truck-pneu-status').innerHTML = badge(result.status_sulco);
-    document.getElementById('truck-pneu-acao').innerHTML = badgeAcao(result.acao_sugerida, result.acao_label);
-    document.getElementById('truck-diagnostico').textContent =
-      result.diagnostico_label ? `Diagnóstico: ${result.diagnostico_label}` : '';
+    document.getElementById('truck-pneu-acao').innerHTML = podeVerOrientacaoGestao()
+      ? badgeAcao(result.acao_sugerida, result.acao_label)
+      : '';
+    if (podeVerOrientacaoGestao()) {
+      document.getElementById('truck-diagnostico').textContent =
+        result.diagnostico_label ? `Diagnóstico: ${result.diagnostico_label}` : '';
+      document.getElementById('truck-diagnostico').classList.remove('gestao-only-hidden');
+    } else {
+      document.getElementById('truck-diagnostico').textContent = '';
+      document.getElementById('truck-diagnostico').classList.add('gestao-only-hidden');
+    }
     mostrarAcaoInstrucao({
       acao_sugerida: result.acao_sugerida,
       acao_motivo: result.acao_motivo,
@@ -1185,12 +1233,13 @@ async function salvarMedicaoTruck() {
       rodizio_sugestao: result.rodizio_sugestao,
     });
     atualizarResumoPneuTruck(pneuSelecionado);
-    atualizarPerfilLocal('truck-perfil', pontos, {
-      label: result.diagnostico_label,
-      desc: result.acao_motivo,
-    });
+    atualizarPerfilLocal('truck-perfil', pontos, podeVerOrientacaoGestao()
+      ? { label: result.diagnostico_label, desc: result.acao_motivo }
+      : null);
 
-    const acaoTxt = result.acao_sugerida !== 'ok' ? ` · ${result.acao_label}` : '';
+    const acaoTxt = (podeVerOrientacaoGestao() && result.acao_sugerida !== 'ok')
+      ? ` · ${result.acao_label}`
+      : '';
     status.textContent = result.status_sulco === 'critico'
       ? `Salvo! Crítico — ${result.menor_sulco} mm${acaoTxt}`
       : `Salvo — menor sulco: ${result.menor_sulco ?? '-'} mm${acaoTxt}`;
@@ -2313,8 +2362,8 @@ function setModoListaFiliais(listaVisivel) {
     if (tit) tit.textContent = isGerente() && !isAdmin() ? 'Minha unidade' : 'Filiais';
     if (hint) {
       hint.textContent = isGerente() && !isAdmin()
-        ? 'Alertas, frota e chatbot WhatsApp da sua unidade.'
-        : 'Clique numa filial para ver só os dados dela (alertas, frota e chatbot).';
+        ? 'Alertas e frota da sua unidade. Configure o chatbot na aba WhatsApp.'
+        : 'Clique numa filial para ver só os dados dela (alertas e frota).';
     }
   }
 }
@@ -2514,45 +2563,9 @@ async function abrirDetalheFilial(id) {
       </div>
       <p class="hint">${escapeHtml(data.contrato || '')} · Login: ${escapeHtml(data.login || '—')}
         ${r.ultima_medicao ? ` · Última medição ${formatDate(r.ultima_medicao)}` : ''}</p>
-
-      <div class="filial-chatbot-panel">
-        <h4>Chatbot WhatsApp desta unidade</h4>
-        <p class="hint">
-          1) Conecte o chip · 2) Escolha o <strong>grupo</strong> · 3) Informe o <strong>número de alertas</strong>.
-        </p>
-        <div class="form-group">
-          <label for="fc-whatsapp">Número do chip (chatbot)</label>
-          <input type="text" id="fc-whatsapp" class="mono" value="${escapeHtml(valorCampoWa(data.whatsapp))}" placeholder="5511999999999" inputmode="tel">
-        </div>
-        <div class="form-group">
-          <label for="fc-whatsapp-grupo">Grupo do chatbot (placa → link)</label>
-          <div class="form-row" style="align-items:flex-end;gap:.5rem">
-            <select id="fc-whatsapp-grupo" style="flex:1">
-              <option value="">— Selecione o grupo —</option>
-              ${valorCampoWa(data.whatsapp_grupo) ? `<option value="${escapeHtml(valorCampoWa(data.whatsapp_grupo))}" selected>${escapeHtml(valorCampoWa(data.whatsapp_grupo))}</option>` : ''}
-            </select>
-            <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-grupos">Atualizar grupos</button>
-          </div>
-        </div>
-        <div class="form-group">
-          <label for="fc-whatsapp-alerta">Número para alertas</label>
-          <input type="text" id="fc-whatsapp-alerta" class="mono" value="${escapeHtml(valorCampoWa(data.whatsapp_alerta))}" placeholder="5511888888888" inputmode="tel">
-        </div>
-        <div class="form-group">
-          <label for="fc-wuzapi-token">Token WuzAPI</label>
-          <div class="form-row" style="align-items:flex-end;gap:.5rem">
-            <input type="password" id="fc-wuzapi-token" style="flex:1" placeholder="${data.tem_wuzapi_token ? '•••• (deixe em branco para manter)' : 'Gere o token ou cole aqui'}" autocomplete="off">
-            <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-gerar-token">Gerar token</button>
-          </div>
-          <small class="field-hint">WuzAPI no Docker: <code>npm run wuzapi:up</code>. Depois: Gerar token → Conectar / QR.</small>
-        </div>
-        <div class="wa-actions" style="margin-bottom:.75rem">
-          <span id="fc-status" class="badge badge-sem_dado">Status…</span>
-          <button type="button" class="btn btn-primary btn-sm" id="btn-fc-salvar">Salvar</button>
-          <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-conectar">Conectar / QR</button>
-          <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-desconectar">Desconectar</button>
-        </div>
-      </div>
+      ${isGerente()
+        ? '<p class="hint">Configuração do chatbot WhatsApp: use a aba <strong>WhatsApp</strong>.</p>'
+        : ''}
 
       <div class="compras-resumo-filial">
         <div class="compras-chip compra"><strong>${c.pneus_para_comprar ?? 0}</strong><span>Pneus a comprar</span></div>
@@ -2590,8 +2603,6 @@ async function abrirDetalheFilial(id) {
 
     document.getElementById('btn-fechar-detalhe-filial').onclick = () => fecharDetalheFilial();
     el.querySelector('.btn-editar-filial-detalhe')?.addEventListener('click', () => abrirModalFilial(id));
-
-    wireFilialChatbotPanel(id, data.nome);
 
     el.querySelectorAll('.veiculo-card[data-id]').forEach((card) => {
       const open = () => abrirInspecaoVeiculoFilial(id, card.dataset.id);
@@ -2682,19 +2693,23 @@ function renderChatbotPanelHtml(data) {
   `;
 }
 
-async function loadChatbotOperador() {
+async function loadChatbotGerente() {
   const box = document.getElementById('chatbot-filial-panel');
   if (!box) return;
+  if (!isGerente()) {
+    box.innerHTML = `<p class="hint login-erro">Somente o gerente da unidade configura o chatbot WhatsApp.</p>`;
+    return;
+  }
   let filialId = currentUser?.filial_id;
   // Gerente multiunidade: pega a primeira do escopo
-  if (!filialId && isGestao()) {
+  if (!filialId) {
     try {
       const filiais = await fetchJSON(`${API}/filiais`);
       filialId = filiais[0]?.id || null;
     } catch { /* ignore */ }
   }
   if (!filialId) {
-    box.innerHTML = `<p class="hint login-erro">Seu login não está vinculado a uma filial. Abra o perfil em Filiais / Minha unidade.</p>`;
+    box.innerHTML = `<p class="hint login-erro">Seu login não está vinculado a uma filial. Abra Minha unidade e peça ao admin para vincular.</p>`;
     return;
   }
   try {

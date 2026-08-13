@@ -58,7 +58,6 @@
       <button class="tab" data-view="medicao">Nova Medição</button>
       <button class="tab" data-view="alertas">Alertas</button>
       <button class="tab" data-view="acoes">Ações</button>
-      <button class="tab" data-view="chatbot">WhatsApp</button>
     </nav>
     <nav class="nav-tabs hidden" id="nav-tabs-gerente">
       <button class="tab active" data-view="filiais">Minha unidade</button>
@@ -119,7 +118,7 @@
         <h2 id="filiais-titulo">Filiais</h2>
         <button class="btn btn-primary" id="btn-nova-filial">+ Nova Filial</button>
       </div>
-      <p class="hint" id="filiais-hint">Clique numa filial para ver só os dados dela (alertas, frota e chatbot).</p>
+      <p class="hint" id="filiais-hint">Clique numa filial para ver só os dados dela (alertas e frota).</p>
       <div id="compras-consolidado" class="compras-banner"></div>
       <div id="filiais-lista" class="filiais-grid"></div>
       <div id="filial-detalhe" class="card hidden" style="margin-top:1.5rem"></div>
@@ -969,7 +968,7 @@
             <option value="gerente">Gerente de unidade — alertas e chatbot</option>
             <option value="admin">Admin total — sistema inteiro</option>
           </select>
-          <small class="field-hint" id="u-papel-hint">Operador usa o menu da frota. Gerente abre “Minha unidade” e conecta WhatsApp.</small>
+          <small class="field-hint" id="u-papel-hint">Operador usa o menu da frota. Gerente abre “Minha unidade” e configura WhatsApp na aba dedicada.</small>
         </div>
         <div class="form-group" id="u-filial-wrap">
           <label for="u-filial">Filial</label>
