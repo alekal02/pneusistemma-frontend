@@ -588,14 +588,14 @@
               <span class="faixa-badge">Mudança de posição no caminhão</span>
             </header>
             <p class="hint" style="margin-top:0">
-              Se as 4 medições tiverem diferença grande, o sistema sugere <strong>mudar de posição</strong> no mesmo caminhão.
+              Se as medições tiverem diferença <strong>maior que</strong> o limiar, o sistema sugere <strong>rodízio</strong> — de preferência para o <strong>lado oposto do mesmo eixo</strong> (ex.: 1E → 1D).
               Não faz balanceamento no eixo traseiro — não compensa.
             </p>
             <div class="form-row">
               <div class="form-group">
                 <label for="cfg-rodizio-desvio">Desvio entre pontos (mm)</label>
-                <input type="number" id="cfg-rodizio-desvio" step="0.1" min="0.5" max="20" placeholder="3">
-                <small class="field-hint">Maior − menor ≥ este valor → sugerir mudança de posição</small>
+                <input type="number" id="cfg-rodizio-desvio" step="0.1" min="0.5" max="20" placeholder="4">
+                <small class="field-hint">Rodízio quando desvio entre pontos &gt; N mm (padrão 4). Ex.: 10·10·6 (=4) OK; 12·10·7 (=5) rodízio</small>
               </div>
               <div class="form-group">
                 <label for="cfg-rodizio-similaridade">Parecido até (mm)</label>

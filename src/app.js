@@ -50,10 +50,10 @@ let limitesAtuais = {
     troca: { label: 'Trocar', instrucao: 'Crítico — retirar e trocar o pneu' },
     recap: { label: 'Recapagem', instrucao: 'Iniciar processo de recap em até 15 dias' },
     monitorar: { label: 'Monitorar', instrucao: 'Programar substituição — iniciar processo de recap em até 15 dias' },
-    rodizio: { label: 'Mudar posição', instrucao: 'Mudar de posição no caminhão (não faz balanceamento no eixo traseiro)' },
+    rodizio: { label: 'Mudar posição', instrucao: 'Rodízio para o lado oposto do eixo (ex.: 1E → 1D) para equalizar o desgaste' },
     ok: { label: 'OK', instrucao: 'Manter em operação — sulco adequado' },
   },
-  rodizio_desvio_mm: 3,
+  rodizio_desvio_mm: 4,
   rodizio_similaridade_mm: 2.5,
 };
 
@@ -278,7 +278,7 @@ function mostrarRodizioSugestao(pneuOuResult) {
     return;
   }
   el.innerHTML = `
-    <strong>Par sugerido para rodízio</strong>
+    <strong>${sug.slot_vazio ? 'Posição sugerida para rodízio' : 'Par sugerido para rodízio'}</strong>
     ${sug.label || 'Outro pneu'}
     ${sug.motivo ? `<br><span class="hint">${sug.motivo}</span>` : ''}
   `;
@@ -2151,7 +2151,7 @@ async function loadConfiguracoes() {
     document.getElementById('cfg-novo').value = config.sulco_novo_mm ?? 14;
     document.getElementById('cfg-max-recaps').value = config.max_recaps ?? 6;
     document.getElementById('cfg-tolerancia').value = config.diagnostico_tolerancia_mm ?? 1;
-    document.getElementById('cfg-rodizio-desvio').value = config.rodizio_desvio_mm ?? 3;
+    document.getElementById('cfg-rodizio-desvio').value = config.rodizio_desvio_mm ?? 4;
     document.getElementById('cfg-rodizio-similaridade').value = config.rodizio_similaridade_mm ?? 2.5;
 
     const a = config.acoes || {};
@@ -2895,7 +2895,13 @@ function textoOQueFazer(p) {
     return 'Programar substituição — iniciar processo de recap em até 15 dias e acompanhar o sulco.';
   }
   if (acao === 'rodizio') {
-    return 'Mudar de posição no caminhão para equalizar o desgaste (não faz balanceamento no eixo traseiro).';
+    const sug = p.rodizio_sugestao;
+    if (sug?.posicao_destino) {
+      return sug.slot_vazio
+        ? `Rodízio: mover para ${sug.posicao_label || sug.posicao_destino} (lado oposto do eixo).`
+        : `Rodízio: trocar com ${sug.label || sug.posicao_destino} no lado oposto do eixo.`;
+    }
+    return 'Rodízio para o lado oposto do eixo para equalizar o desgaste (não faz balanceamento no eixo traseiro).';
   }
   if (p.diagnostico && p.diagnostico !== 'ok' && p.diagnostico !== 'sem_dado') {
     return p.diagnostico_desc || `Corrigir causa: ${p.diagnostico_label}.`;
@@ -2934,8 +2940,10 @@ function renderPainelPneuInspecao(p) {
       <dl class="inspecao-dl">
         <div><dt>Menor sulco</dt><dd><strong>${p.menor_sulco != null ? `${p.menor_sulco} mm` : '—'}</strong></dd></div>
         <div><dt>4 pontos</dt><dd>${sulcos}</dd></div>
+        <div><dt>Desvio</dt><dd>${p.desvio_mm != null ? `<strong>${p.desvio_mm} mm</strong>` : '—'}</dd></div>
         <div><dt>Diagnóstico</dt><dd>${p.diagnostico_label || '—'}${p.diagnostico_desc ? `<br><span class="hint">${p.diagnostico_desc}</span>` : ''}</dd></div>
         <div><dt>Motivo</dt><dd>${p.acao_motivo || '—'}</dd></div>
+        ${p.rodizio_sugestao ? `<div><dt>Posição sugerida</dt><dd><strong>${escapeHtml(p.rodizio_sugestao.label || p.rodizio_sugestao.posicao_label || '—')}</strong>${p.rodizio_sugestao.motivo ? `<br><span class="hint">${escapeHtml(p.rodizio_sugestao.motivo)}</span>` : ''}</dd></div>` : ''}
       </dl>
       <div class="inspecao-acao-box inspecao-acao-${p.acao_sugerida || 'ok'}">
         <strong>O que fazer</strong>
