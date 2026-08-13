@@ -322,7 +322,7 @@ function showAppShell() {
     const tit = document.getElementById('filiais-titulo');
     const hint = document.getElementById('filiais-hint');
     if (tit) tit.textContent = 'Filiais';
-    if (hint) hint.textContent = 'Abra o perfil da filial para alertas, frota e chatbot WhatsApp.';
+    if (hint) hint.textContent = 'Clique numa filial para ver só os dados dela (alertas, frota e chatbot).';
   } else if (isGerente()) {
     navGerente?.classList.remove('hidden');
     const nome = currentUser.filial?.nome || 'Multiunidade';
@@ -333,7 +333,7 @@ function showAppShell() {
     const tit = document.getElementById('filiais-titulo');
     const hint = document.getElementById('filiais-hint');
     if (tit) tit.textContent = 'Minha unidade';
-    if (hint) hint.textContent = 'Abra o perfil da unidade para alertas, frota e configurar o chatbot WhatsApp.';
+    if (hint) hint.textContent = 'Clique na unidade para abrir o perfil (alertas, frota e chatbot).';
   } else {
     navFilial.classList.remove('hidden');
     const nomeFilial = currentUser.filial?.nome || currentUser.filial?.codigo || 'Filial';
@@ -2294,6 +2294,38 @@ document.getElementById('btn-wa-qr-fechar')?.addEventListener('click', () => {
 
 // ── Filiais (admin total + gerente de unidade) ──────────
 
+function setModoListaFiliais(listaVisivel) {
+  const lista = document.getElementById('filiais-lista');
+  const banner = document.getElementById('compras-consolidado');
+  const detalhe = document.getElementById('filial-detalhe');
+  const btnNova = document.getElementById('btn-nova-filial');
+  const tit = document.getElementById('filiais-titulo');
+  const hint = document.getElementById('filiais-hint');
+  const view = document.getElementById('view-filiais');
+
+  lista?.classList.toggle('hidden', !listaVisivel);
+  banner?.classList.toggle('hidden', !listaVisivel);
+  detalhe?.classList.toggle('hidden', listaVisivel);
+  btnNova?.classList.toggle('hidden', !listaVisivel || !isAdmin());
+  view?.classList.toggle('is-filial-aberta', !listaVisivel);
+
+  if (listaVisivel) {
+    if (tit) tit.textContent = isGerente() && !isAdmin() ? 'Minha unidade' : 'Filiais';
+    if (hint) {
+      hint.textContent = isGerente() && !isAdmin()
+        ? 'Alertas, frota e chatbot WhatsApp da sua unidade.'
+        : 'Clique numa filial para ver só os dados dela (alertas, frota e chatbot).';
+    }
+  }
+}
+
+function fecharDetalheFilial() {
+  fecharInspecaoVeiculoFilial();
+  document.getElementById('wa-qr-wrap')?.classList.add('hidden');
+  stopWaPoll();
+  setModoListaFiliais(true);
+}
+
 async function loadFiliais() {
   if (!isGestao()) return;
   try {
@@ -2303,7 +2335,7 @@ async function loadFiliais() {
     ]);
     filiaisCache = filiais;
     const lista = document.getElementById('filiais-lista');
-    document.getElementById('filial-detalhe').classList.add('hidden');
+    setModoListaFiliais(true);
 
     const banner = document.getElementById('compras-consolidado');
     const t = compras.totais || {};
@@ -2311,7 +2343,7 @@ async function loadFiliais() {
       <div class="compras-banner-inner">
         <div>
           <h3>Compras e recapagens — consolidado</h3>
-          <p class="hint">Baseado nas medições enviadas pelas filiais</p>
+          <p class="hint">Baseado nas medições enviadas pelas filiais · clique numa unidade para abrir</p>
         </div>
         <div class="compras-totais">
           <div class="compras-chip compra">
@@ -2355,12 +2387,12 @@ async function loadFiliais() {
       const urgente = (r.pneus_critico || 0) > 0 || (c.pneus_para_comprar || 0) > 0;
       const atrasado = r.precisa_medir_semana;
       return `
-        <div class="filial-card ${urgente ? 'is-urgente' : ''} ${atrasado ? 'is-atrasado' : ''}" data-id="${f.id}">
+        <div class="filial-card ${urgente ? 'is-urgente' : ''} ${atrasado ? 'is-atrasado' : ''}" data-id="${f.id}" role="button" tabindex="0">
           <div class="filial-card-head">
-            <h3>${f.nome}</h3>
-            <span class="badge badge-vida">${f.codigo}</span>
+            <h3>${escapeHtml(f.nome)}</h3>
+            <span class="badge badge-vida">${escapeHtml(f.codigo)}</span>
           </div>
-          <p class="hint">${f.contrato || 'Sem contrato'} · login: ${f.login || '—'}</p>
+          <p class="hint">${escapeHtml(f.contrato || 'Sem contrato')} · login: ${escapeHtml(f.login || '—')}</p>
           <p class="hint">
             Chatbot:
             ${f.whatsapp ? `<span class="mono">${escapeHtml(f.whatsapp)}</span>` : '<em>não cadastrado</em>'}
@@ -2381,18 +2413,37 @@ async function loadFiliais() {
             ${atrasado ? ' · <strong>Medir esta semana</strong>' : ''}
           </p>
           <div class="filial-card-actions">
-            <button type="button" class="btn btn-sm btn-primary btn-abrir-filial" data-id="${f.id}">Abrir perfil</button>
+            <button type="button" class="btn btn-sm btn-primary btn-abrir-filial" data-id="${f.id}">Abrir</button>
             <button type="button" class="btn btn-sm btn-ghost btn-editar-filial" data-id="${f.id}">Editar / senha</button>
           </div>
         </div>
       `;
     }).join('');
 
+    const abrir = (id) => abrirDetalheFilial(id);
+    lista.querySelectorAll('.filial-card[data-id]').forEach((card) => {
+      card.addEventListener('click', (e) => {
+        if (e.target.closest('.btn-editar-filial')) return;
+        abrir(card.dataset.id);
+      });
+      card.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          abrir(card.dataset.id);
+        }
+      });
+    });
     lista.querySelectorAll('.btn-abrir-filial').forEach((btn) => {
-      btn.addEventListener('click', () => abrirDetalheFilial(btn.dataset.id));
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        abrir(btn.dataset.id);
+      });
     });
     lista.querySelectorAll('.btn-editar-filial').forEach((btn) => {
-      btn.addEventListener('click', () => abrirModalFilial(btn.dataset.id));
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        abrirModalFilial(btn.dataset.id);
+      });
     });
   } catch (err) {
     toast(err.message, 'error');
@@ -2444,12 +2495,22 @@ async function abrirDetalheFilial(id) {
     const r = data.resumo || {};
     const c = data.compras || r.compras || {};
     const pend = data.pendencias || { troca: [], recap: [], monitorar: [] };
+    const tit = document.getElementById('filiais-titulo');
+    const hint = document.getElementById('filiais-hint');
 
-    el.classList.remove('hidden');
+    setModoListaFiliais(false);
+    if (tit) tit.textContent = data.nome || 'Filial';
+    if (hint) {
+      hint.textContent = `${data.codigo || ''} · só dados desta unidade. Use “Voltar” para ver todas as filiais.`;
+    }
+
     el.innerHTML = `
       <div class="section-header">
-        <h3>${escapeHtml(data.nome)} (${escapeHtml(data.codigo)})</h3>
-        <button type="button" class="btn btn-ghost btn-sm" id="btn-fechar-detalhe-filial">Fechar</button>
+        <div>
+          <button type="button" class="btn btn-ghost btn-sm" id="btn-fechar-detalhe-filial">← Voltar às filiais</button>
+          <h3 style="margin:.5rem 0 0">${escapeHtml(data.nome)} (${escapeHtml(data.codigo)})</h3>
+        </div>
+        <button type="button" class="btn btn-ghost btn-sm btn-editar-filial-detalhe" data-id="${data.id}">Editar / senha</button>
       </div>
       <p class="hint">${escapeHtml(data.contrato || '')} · Login: ${escapeHtml(data.login || '—')}
         ${r.ultima_medicao ? ` · Última medição ${formatDate(r.ultima_medicao)}` : ''}</p>
@@ -2527,12 +2588,8 @@ async function abrirDetalheFilial(id) {
       <div id="filial-veiculo-inspecao" class="filial-inspecao hidden"></div>
     `;
 
-    document.getElementById('btn-fechar-detalhe-filial').onclick = () => {
-      fecharInspecaoVeiculoFilial();
-      document.getElementById('wa-qr-wrap')?.classList.add('hidden');
-      stopWaPoll();
-      el.classList.add('hidden');
-    };
+    document.getElementById('btn-fechar-detalhe-filial').onclick = () => fecharDetalheFilial();
+    el.querySelector('.btn-editar-filial-detalhe')?.addEventListener('click', () => abrirModalFilial(id));
 
     wireFilialChatbotPanel(id, data.nome);
 
@@ -2546,9 +2603,10 @@ async function abrirDetalheFilial(id) {
         }
       });
     });
-    el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    window.scrollTo({ top: 0, behavior: 'smooth' });
   } catch (err) {
     toast(err.message, 'error');
+    setModoListaFiliais(true);
   }
 }
 

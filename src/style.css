@@ -947,10 +947,16 @@ h3 {
   gap: .5rem;
   box-shadow: var(--shadow);
   transition: border-color .15s, transform .15s;
+  cursor: pointer;
 }
 .filial-card:hover {
   border-color: var(--primary);
   transform: translateY(-1px);
+}
+#filial-detalhe { margin-top: 0; }
+#view-filiais.is-filial-aberta #filiais-lista,
+#view-filiais.is-filial-aberta #compras-consolidado {
+  display: none !important;
 }
 .filial-card.is-urgente { border-color: #fca5a5; box-shadow: 0 0 0 1px #fecaca; }
 .filial-card.is-atrasado { border-left: 4px solid #f59e0b; }
