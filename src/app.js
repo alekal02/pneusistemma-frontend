@@ -2904,7 +2904,7 @@ function textoOQueFazer(p) {
     return 'Rodízio para o lado oposto do eixo para equalizar o desgaste.';
   }
   if (p.diagnostico === 'desgaste_progressivo') {
-    return 'Desgaste progressivo do externo para o interno — consumo esperado enquanto o sulco estiver acima do crítico. Acompanhar; não fazer rodízio só por esse padrão. Retirar quando algum ponto ficar abaixo do crítico.';
+    return 'Desgaste progressivo do ombro externo para o interno — consumo esperado conforme o lado do caminhão (esquerdo: esq→dir; direito: dir→esq). Acompanhar; não fazer rodízio só por esse padrão. Retirar quando algum ponto ficar abaixo do crítico.';
   }
   if (p.diagnostico && p.diagnostico !== 'ok' && p.diagnostico !== 'sem_dado') {
     return p.diagnostico_desc || `Corrigir causa: ${p.diagnostico_label}.`;
