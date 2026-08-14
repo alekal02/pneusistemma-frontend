@@ -355,7 +355,7 @@ function showAppShell() {
     const tit = document.getElementById('filiais-titulo');
     const hint = document.getElementById('filiais-hint');
     if (tit) tit.textContent = 'Minha unidade';
-    if (hint) hint.textContent = 'Clique na unidade para abrir o perfil (alertas e frota). Chatbot fica na aba WhatsApp.';
+    if (hint) hint.textContent = 'Painel da sua unidade: indicadores, pendências e frota para análise.';
   } else {
     navFilial.classList.remove('hidden');
     const nomeFilial = currentUser.filial?.nome || currentUser.filial?.codigo || 'Filial';
@@ -2353,7 +2353,7 @@ function setModoListaFiliais(listaVisivel) {
   const view = document.getElementById('view-filiais');
 
   lista?.classList.toggle('hidden', !listaVisivel);
-  banner?.classList.toggle('hidden', !listaVisivel);
+  banner?.classList.toggle('hidden', !listaVisivel || (isGerente() && !isAdmin()));
   detalhe?.classList.toggle('hidden', listaVisivel);
   btnNova?.classList.toggle('hidden', !listaVisivel || !isAdmin());
   view?.classList.toggle('is-filial-aberta', !listaVisivel);
@@ -2362,7 +2362,7 @@ function setModoListaFiliais(listaVisivel) {
     if (tit) tit.textContent = isGerente() && !isAdmin() ? 'Minha unidade' : 'Filiais';
     if (hint) {
       hint.textContent = isGerente() && !isAdmin()
-        ? 'Alertas e frota da sua unidade. Configure o chatbot na aba WhatsApp.'
+        ? 'Painel da sua unidade: indicadores, pendências e frota para análise.'
         : 'Clique numa filial para ver só os dados dela (alertas e frota).';
     }
   }
@@ -2383,6 +2383,10 @@ async function loadFiliais() {
       fetchJSON(`${API}/filiais/compras/consolidado`),
     ]);
     filiaisCache = filiais;
+    if (isGerente() && !isAdmin() && filiais.length === 1) {
+      await abrirDetalheFilial(filiais[0].id);
+      return;
+    }
     const lista = document.getElementById('filiais-lista');
     setModoListaFiliais(true);
 
@@ -2499,33 +2503,258 @@ async function loadFiliais() {
   }
 }
 
+function urgenciaVeiculo(v) {
+  if (v.pendencias_troca) return 0;
+  if (v.status_sulco === 'critico') return 1;
+  if (v.pendencias_recap) return 2;
+  if (v.pendencias_monitorar) return 3;
+  if (v.status_sulco === 'alerta') return 4;
+  if (v.status_sulco === 'sem_dado') return 5;
+  return 6;
+}
+
+function pctBar(n, total) {
+  if (!total) return 0;
+  return Math.max(0, Math.round((Number(n || 0) / total) * 100));
+}
+
+function setUnidadeTab(tab) {
+  const el = document.getElementById('filial-detalhe');
+  if (!el) return;
+  el.querySelectorAll('[data-unidade-panel]').forEach((p) => {
+    p.classList.toggle('hidden', p.dataset.unidadePanel !== tab);
+  });
+  el.querySelectorAll('.unidade-tab').forEach((b) => {
+    b.classList.toggle('ativo', b.dataset.unidadeTab === tab);
+  });
+}
+
+function filtrarPendenciasUnidade(filtro) {
+  const el = document.getElementById('filial-detalhe');
+  el?.querySelectorAll('.pendencia-grupo').forEach((g) => {
+    const tipo = g.classList.contains('pendencia-troca')
+      ? 'troca'
+      : g.classList.contains('pendencia-recap')
+        ? 'recap'
+        : 'monitorar';
+    g.classList.toggle('hidden', Boolean(filtro) && tipo !== filtro);
+  });
+  el?.querySelectorAll('.unidade-chip[data-pend-filtro]').forEach((btn) => {
+    const val = btn.dataset.pendFiltro || '';
+    btn.classList.toggle('ativo', val === (filtro || ''));
+  });
+}
+
+function filtrarFrotaUnidade() {
+  const busca = (document.getElementById('unidade-frota-busca')?.value || '').trim().toLowerCase();
+  const filtro = document.getElementById('unidade-frota-filtro')?.value || 'todos';
+  document.querySelectorAll('#unidade-frota-tbody tr.veiculo-item').forEach((row) => {
+    const hay = (row.dataset.busca || '');
+    const matchBusca = !busca || hay.includes(busca);
+    let matchFiltro = true;
+    if (filtro === 'critico') matchFiltro = row.dataset.status === 'critico';
+    else if (filtro === 'comprar') matchFiltro = Number(row.dataset.troca || 0) > 0;
+    else if (filtro === 'recap') matchFiltro = Number(row.dataset.recap || 0) > 0;
+    else if (filtro === 'monitorar') matchFiltro = Number(row.dataset.monitorar || 0) > 0;
+    else if (filtro === 'sem_dado') matchFiltro = row.dataset.status === 'sem_dado';
+    else if (filtro === 'atencao') {
+      matchFiltro = Number(row.dataset.troca || 0) > 0
+        || Number(row.dataset.recap || 0) > 0
+        || Number(row.dataset.monitorar || 0) > 0
+        || row.dataset.status === 'critico'
+        || row.dataset.status === 'sem_dado';
+    }
+    row.classList.toggle('hidden', !(matchBusca && matchFiltro));
+  });
+}
+
+function abrirVeiculoNaUnidade(filialId, veiculoId) {
+  setUnidadeTab('frota');
+  abrirInspecaoVeiculoFilial(filialId, veiculoId);
+}
+
 function renderPendenciaRows(itens, tipo) {
   if (!itens?.length) return '';
+  const titulo = tipo === 'troca' ? 'Comprar / Trocar' : tipo === 'recap' ? 'Recapagem' : 'Monitorar';
   return `
     <div class="pendencia-grupo pendencia-${tipo}">
-      <h4>${tipo === 'troca' ? 'Comprar / Trocar' : tipo === 'recap' ? 'Recapagem' : 'Monitorar'} (${itens.length})</h4>
-      <table class="historico-table">
+      <h4>${titulo} (${itens.length})</h4>
+      <div class="unidade-table-wrap">
+      <table class="historico-table unidade-table">
         <thead>
           <tr>
             <th>Veículo</th><th>Posição</th><th>Fogo</th><th>Sulco</th>
-            <th>Status</th><th>Diagnóstico</th><th>Motivo</th><th>Medição</th>
+            <th>Status</th><th>Diagnóstico</th><th>O que fazer</th><th>Medição</th>
           </tr>
         </thead>
         <tbody>
           ${itens.map((p) => `
-            <tr>
-              <td><strong>${p.apelido || p.placa}</strong><br><span class="hint">${p.placa}</span></td>
-              <td>${p.posicao_label || p.posicao}</td>
-              <td>${p.numero_fogo || '—'}</td>
+            <tr class="unidade-pend-row" data-pend-tipo="${tipo}" data-veiculo-id="${p.veiculo_id}" title="Abrir o veículo para análise">
+              <td><strong>${escapeHtml(p.apelido || p.placa)}</strong><br><span class="hint">${escapeHtml(p.placa)}</span></td>
+              <td>${escapeHtml(p.posicao_label || p.posicao || '—')}</td>
+              <td>${escapeHtml(p.numero_fogo || '—')}</td>
               <td><strong>${p.menor_sulco ?? '—'} mm</strong></td>
               <td>${badge(p.status_sulco)}</td>
-              <td>${p.diagnostico_label || '—'}</td>
-              <td>${p.acao_motivo || '—'}</td>
+              <td>${escapeHtml(p.diagnostico_label || '—')}</td>
+              <td class="unidade-td-motivo" title="${escapeHtml(p.acao_motivo || textoOQueFazer(p))}">${escapeHtml(p.acao_motivo || textoOQueFazer(p))}</td>
               <td>${formatDate(p.data_medicao)}</td>
             </tr>
           `).join('')}
         </tbody>
       </table>
+      </div>
+    </div>
+  `;
+}
+
+function renderUnidadeKpis(data) {
+  const r = data.resumo || {};
+  const c = data.compras || r.compras || {};
+  const total = r.pneus_total || 0;
+  const w = (n) => `${pctBar(n, total)}%`;
+  return `
+    <div class="unidade-kpis">
+      <button type="button" class="unidade-kpi is-critico" data-unidade-tab="pendencias" data-pend-filtro="troca">
+        <strong>${r.pneus_critico ?? 0}</strong>
+        <span>Críticos</span>
+      </button>
+      <button type="button" class="unidade-kpi is-compra" data-unidade-tab="pendencias" data-pend-filtro="troca">
+        <strong>${c.pneus_para_comprar ?? 0}</strong>
+        <span>Comprar</span>
+      </button>
+      <button type="button" class="unidade-kpi is-recap" data-unidade-tab="pendencias" data-pend-filtro="recap">
+        <strong>${c.pneus_para_recap ?? 0}</strong>
+        <span>Recap</span>
+      </button>
+      <button type="button" class="unidade-kpi is-mon" data-unidade-tab="pendencias" data-pend-filtro="monitorar">
+        <strong>${c.pneus_monitorar ?? 0}</strong>
+        <span>Monitorar</span>
+      </button>
+      <button type="button" class="unidade-kpi" data-unidade-tab="frota">
+        <strong>${r.pneus_ok ?? 0}</strong>
+        <span>OK</span>
+      </button>
+      <button type="button" class="unidade-kpi" data-unidade-tab="frota" data-frota-filtro="sem_dado">
+        <strong>${r.pneus_sem_dado ?? 0}</strong>
+        <span>Sem medição</span>
+      </button>
+      <div class="unidade-kpi is-static">
+        <strong>${r.veiculos_ativos ?? 0}</strong>
+        <span>Veículos</span>
+      </div>
+    </div>
+    <div class="unidade-health" aria-label="Composição da frota">
+      <span class="h-crit" style="width:${w(r.pneus_critico)}"></span>
+      <span class="h-alerta" style="width:${w(r.pneus_alerta)}"></span>
+      <span class="h-ok" style="width:${w(r.pneus_ok)}"></span>
+      <span class="h-sem" style="width:${w(r.pneus_sem_dado)}"></span>
+    </div>
+    <p class="unidade-health-legend hint">
+      <span class="dot-inline critico"></span> Crítico
+      <span class="dot-inline alerta"></span> Monitorar
+      <span class="dot-inline ok"></span> OK
+      · ${total} pneus montados
+      ${r.ultima_medicao ? ` · última medição ${formatDate(r.ultima_medicao)}${r.dias_sem_medicao != null ? ` (${r.dias_sem_medicao}d)` : ''}` : ' · nunca mediu'}
+      ${r.precisa_medir_semana ? ' · <strong class="text-critico">medir esta semana</strong>' : ''}
+    </p>
+  `;
+}
+
+function renderUnidadeResumo(data) {
+  const veiculos = [...(data.veiculos || [])].sort((a, b) => urgenciaVeiculo(a) - urgenciaVeiculo(b)
+    || (a.menor_sulco ?? 99) - (b.menor_sulco ?? 99));
+  const atencao = veiculos.filter((v) => urgenciaVeiculo(v) < 6).slice(0, 8);
+  const pend = data.pendencias || {};
+  const nPend = pend.todos?.length || 0;
+  return `
+    <div class="unidade-resumo-grid">
+      <div class="unidade-resumo-card">
+        <h4>Prioridade agora</h4>
+        ${atencao.length ? `
+          <ul class="unidade-prio-list">
+            ${atencao.map((v) => `
+              <li>
+                <button type="button" class="unidade-prio-btn" data-veiculo-id="${v.id}">
+                  <span>
+                    <strong>${escapeHtml(v.apelido || v.placa)}</strong>
+                    <span class="hint">${escapeHtml(v.placa)}${v.menor_sulco != null ? ` · ${v.menor_sulco} mm` : ''}</span>
+                  </span>
+                  <span class="unidade-prio-badges">
+                    ${badge(v.status_sulco)}
+                    ${v.pendencias_troca ? badgeAcao('troca', `${v.pendencias_troca}`) : ''}
+                    ${v.pendencias_recap ? badgeAcao('recap', `${v.pendencias_recap}`) : ''}
+                    ${v.pendencias_monitorar ? badgeAcao('monitorar', `${v.pendencias_monitorar}`) : ''}
+                  </span>
+                </button>
+              </li>
+            `).join('')}
+          </ul>` : '<p class="hint">Nenhum veículo exige ação agora.</p>'}
+      </div>
+      <div class="unidade-resumo-card">
+        <h4>Como ler esta tela</h4>
+        <ol class="unidade-howto">
+          <li>Os cartões do topo mostram o volume da unidade. Clique para filtrar.</li>
+          <li><strong>Pendências</strong> lista cada pneu a comprar, recapar ou acompanhar.</li>
+          <li><strong>Frota</strong> abre o desenho do caminhão ao lado da lista para cruzar sulco e diagnóstico.</li>
+        </ol>
+        <p class="hint" style="margin-top:.75rem">${nPend} pneu(s) com ação pendente nesta unidade.</p>
+      </div>
+    </div>
+  `;
+}
+
+function renderUnidadeFrota(data) {
+  const veiculos = [...(data.veiculos || [])].sort((a, b) => urgenciaVeiculo(a) - urgenciaVeiculo(b)
+    || String(a.apelido || a.placa).localeCompare(String(b.apelido || b.placa), 'pt-BR'));
+  if (!veiculos.length) return '<p class="hint">Nenhum veículo nesta unidade.</p>';
+  return `
+    <div class="unidade-frota-toolbar">
+      <input type="search" id="unidade-frota-busca" placeholder="Buscar placa ou apelido…">
+      <select id="unidade-frota-filtro">
+        <option value="todos">Todos</option>
+        <option value="atencao">Só com atenção</option>
+        <option value="critico">Críticos</option>
+        <option value="comprar">A comprar</option>
+        <option value="recap">Recap</option>
+        <option value="monitorar">Monitorar</option>
+        <option value="sem_dado">Sem medição</option>
+      </select>
+    </div>
+    <div class="unidade-frota-split" id="unidade-frota-split">
+      <div class="unidade-table-wrap unidade-frota-lista">
+        <table class="historico-table unidade-table">
+          <thead>
+            <tr>
+              <th>Veículo</th><th>KM</th><th>Menor sulco</th><th>Status</th>
+              <th>Troca</th><th>Recap</th><th>Mon.</th><th>Última medição</th>
+            </tr>
+          </thead>
+          <tbody id="unidade-frota-tbody">
+            ${veiculos.map((v) => `
+              <tr class="veiculo-item unidade-veiculo-row" data-id="${v.id}"
+                  data-status="${v.status_sulco || ''}"
+                  data-troca="${v.pendencias_troca || 0}"
+                  data-recap="${v.pendencias_recap || 0}"
+                  data-monitorar="${v.pendencias_monitorar || 0}"
+                  data-busca="${escapeHtml(`${v.apelido || ''} ${v.placa || ''}`.toLowerCase())}"
+                  tabindex="0" role="button">
+                <td>
+                  <strong>${escapeHtml(v.apelido || v.placa)}</strong>
+                  <br><span class="hint">${escapeHtml(v.placa)} · ${escapeHtml(v.tipo || '')} · ${v.total_pneus || 0} pneus</span>
+                </td>
+                <td>${(v.km_atual || 0).toLocaleString('pt-BR')}</td>
+                <td><strong>${v.menor_sulco != null ? `${v.menor_sulco} mm` : '—'}</strong></td>
+                <td>${badge(v.status_sulco)}</td>
+                <td>${v.pendencias_troca || '—'}</td>
+                <td>${v.pendencias_recap || '—'}</td>
+                <td>${v.pendencias_monitorar || '—'}</td>
+                <td>${v.ultima_medicao ? formatDate(v.ultima_medicao) : '—'}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>
+      <div id="filial-veiculo-inspecao" class="filial-inspecao hidden"></div>
     </div>
   `;
 }
@@ -2540,74 +2769,100 @@ function valorCampoWa(v) {
 async function abrirDetalheFilial(id) {
   try {
     const data = await fetchJSON(`${API}/filiais/${id}`);
+    filialDetalheCache = data;
     const el = document.getElementById('filial-detalhe');
-    const r = data.resumo || {};
-    const c = data.compras || r.compras || {};
     const pend = data.pendencias || { troca: [], recap: [], monitorar: [] };
     const tit = document.getElementById('filiais-titulo');
     const hint = document.getElementById('filiais-hint');
 
+    const gerenteUnidade = isGerente() && !isAdmin();
     setModoListaFiliais(false);
-    if (tit) tit.textContent = data.nome || 'Filial';
+    if (tit) tit.textContent = gerenteUnidade ? 'Minha unidade' : (data.nome || 'Filial');
     if (hint) {
-      hint.textContent = `${data.codigo || ''} · só dados desta unidade. Use “Voltar” para ver todas as filiais.`;
+      hint.textContent = gerenteUnidade
+        ? `${data.codigo || ''} · indicadores, pendências e frota da sua unidade.`
+        : `${data.codigo || ''} · só dados desta unidade. Use “Voltar” para ver todas as filiais.`;
     }
 
+    const nPend = pend.todos?.length || 0;
+    const nFrota = data.veiculos?.length || 0;
+
     el.innerHTML = `
-      <div class="section-header">
-        <div>
-          <button type="button" class="btn btn-ghost btn-sm" id="btn-fechar-detalhe-filial">← Voltar às filiais</button>
-          <h3 style="margin:.5rem 0 0">${escapeHtml(data.nome)} (${escapeHtml(data.codigo)})</h3>
+      <div class="unidade-shell">
+        <div class="unidade-head">
+          <div>
+            ${gerenteUnidade
+              ? ''
+              : '<button type="button" class="btn btn-ghost btn-sm" id="btn-fechar-detalhe-filial">← Voltar às filiais</button>'}
+            <h3>${escapeHtml(data.nome)} <span class="hint">(${escapeHtml(data.codigo || '')})</span></h3>
+            <p class="hint">${escapeHtml(data.contrato || '')}${data.login ? ` · login ${escapeHtml(data.login)}` : ''}
+              ${gerenteUnidade ? ' · chatbot na aba WhatsApp' : ''}</p>
+          </div>
+          ${isAdmin()
+            ? `<button type="button" class="btn btn-ghost btn-sm btn-editar-filial-detalhe" data-id="${data.id}">Editar / senha</button>`
+            : ''}
         </div>
-        <button type="button" class="btn btn-ghost btn-sm btn-editar-filial-detalhe" data-id="${data.id}">Editar / senha</button>
+        ${renderUnidadeKpis(data)}
+        <nav class="unidade-tabs" aria-label="Seções da unidade">
+          <button type="button" class="unidade-tab ativo" data-unidade-tab="resumo">Visão geral</button>
+          <button type="button" class="unidade-tab" data-unidade-tab="pendencias">Pendências (${nPend})</button>
+          <button type="button" class="unidade-tab" data-unidade-tab="frota">Frota (${nFrota})</button>
+        </nav>
+        <div data-unidade-panel="resumo">${renderUnidadeResumo(data)}</div>
+        <div data-unidade-panel="pendencias" class="hidden">
+          <div class="unidade-pend-filtros">
+            <button type="button" class="unidade-chip ativo" data-pend-filtro="">Todas (${nPend})</button>
+            <button type="button" class="unidade-chip" data-pend-filtro="troca">Comprar (${pend.troca?.length || 0})</button>
+            <button type="button" class="unidade-chip" data-pend-filtro="recap">Recap (${pend.recap?.length || 0})</button>
+            <button type="button" class="unidade-chip" data-pend-filtro="monitorar">Monitorar (${pend.monitorar?.length || 0})</button>
+          </div>
+          ${nPend
+            ? `${renderPendenciaRows(pend.troca, 'troca')}
+               ${renderPendenciaRows(pend.recap, 'recap')}
+               ${renderPendenciaRows(pend.monitorar, 'monitorar')}`
+            : '<p class="hint">Nenhum alerta pendente nesta unidade — frota dentro dos parâmetros.</p>'}
+        </div>
+        <div data-unidade-panel="frota" class="hidden">
+          <p class="hint">Clique num veículo para abrir o desenho e o diagnóstico ao lado. Clique de novo para recolher.</p>
+          ${renderUnidadeFrota(data)}
+        </div>
       </div>
-      <p class="hint">${escapeHtml(data.contrato || '')} · Login: ${escapeHtml(data.login || '—')}
-        ${r.ultima_medicao ? ` · Última medição ${formatDate(r.ultima_medicao)}` : ''}</p>
-      ${isGerente()
-        ? '<p class="hint">Configuração do chatbot WhatsApp: use a aba <strong>WhatsApp</strong>.</p>'
-        : ''}
-
-      <div class="compras-resumo-filial">
-        <div class="compras-chip compra"><strong>${c.pneus_para_comprar ?? 0}</strong><span>Pneus a comprar</span></div>
-        <div class="compras-chip recap"><strong>${c.pneus_para_recap ?? 0}</strong><span>Enviar a recap</span></div>
-        <div class="compras-chip monitorar"><strong>${c.pneus_monitorar ?? 0}</strong><span>Monitorar</span></div>
-        <div class="compras-chip"><strong>${r.pneus_sem_dado ?? 0}</strong><span>Sem medição</span></div>
-      </div>
-
-      <h4 style="margin-top:1.25rem">Alertas para adiantar compras</h4>
-      ${pend.todos?.length
-        ? `${renderPendenciaRows(pend.troca, 'troca')}
-           ${renderPendenciaRows(pend.recap, 'recap')}
-           ${renderPendenciaRows(pend.monitorar, 'monitorar')}`
-        : '<p class="hint">Nenhum alerta pendente nesta filial — frota dentro dos parâmetros.</p>'}
-
-      <h4 style="margin-top:1.5rem">Frota (${data.veiculos?.length || 0})</h4>
-      <p class="hint">Clique em um veículo para ver o desenho dos pneus. Clique de novo no mesmo card para recolher.</p>
-      ${data.veiculos?.length
-        ? `<div class="card-list">${data.veiculos.map((v) => `
-            <div class="veiculo-card" data-id="${v.id}" role="button" tabindex="0">
-              <div class="veiculo-info">
-                <h4>${escapeHtml(v.apelido || v.placa)}</h4>
-                <p>${escapeHtml(v.placa)} · ${escapeHtml(v.tipo)} · ${v.total_pneus} pneus · ${v.km_atual?.toLocaleString('pt-BR') || 0} km
-                  ${v.menor_sulco != null ? ` · menor sulco ${v.menor_sulco} mm` : ''}</p>
-              </div>
-              <div class="veiculo-meta">
-                ${badge(v.status_sulco)}
-                ${v.pendencias_troca ? badgeAcao('troca', `${v.pendencias_troca} troca`) : ''}
-                ${v.pendencias_recap ? badgeAcao('recap', `${v.pendencias_recap} recap`) : ''}
-              </div>
-            </div>`).join('')}</div>`
-        : '<p class="hint">Nenhum veículo nesta filial</p>'}
-      <div id="filial-veiculo-inspecao" class="filial-inspecao hidden"></div>
     `;
 
-    document.getElementById('btn-fechar-detalhe-filial').onclick = () => fecharDetalheFilial();
+    document.getElementById('btn-fechar-detalhe-filial')?.addEventListener('click', () => fecharDetalheFilial());
     el.querySelector('.btn-editar-filial-detalhe')?.addEventListener('click', () => abrirModalFilial(id));
 
-    el.querySelectorAll('.veiculo-card[data-id]').forEach((card) => {
-      const open = () => abrirInspecaoVeiculoFilial(id, card.dataset.id);
-      card.addEventListener('click', open);
-      card.addEventListener('keydown', (e) => {
+    el.querySelectorAll('[data-unidade-tab]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const tab = btn.dataset.unidadeTab;
+        setUnidadeTab(tab);
+        const pendFiltro = btn.dataset.pendFiltro;
+        if (tab === 'pendencias' && pendFiltro != null) filtrarPendenciasUnidade(pendFiltro);
+        const frotaFiltro = btn.dataset.frotaFiltro;
+        if (tab === 'frota' && frotaFiltro) {
+          const sel = document.getElementById('unidade-frota-filtro');
+          if (sel) sel.value = frotaFiltro;
+          filtrarFrotaUnidade();
+        }
+      });
+    });
+    el.querySelectorAll('[data-pend-filtro]').forEach((btn) => {
+      if (btn.dataset.unidadeTab) return;
+      btn.addEventListener('click', () => filtrarPendenciasUnidade(btn.dataset.pendFiltro || ''));
+    });
+    document.getElementById('unidade-frota-busca')?.addEventListener('input', filtrarFrotaUnidade);
+    document.getElementById('unidade-frota-filtro')?.addEventListener('change', filtrarFrotaUnidade);
+
+    el.querySelectorAll('.unidade-pend-row').forEach((row) => {
+      row.addEventListener('click', () => abrirVeiculoNaUnidade(id, row.dataset.veiculoId));
+    });
+    el.querySelectorAll('.unidade-prio-btn').forEach((btn) => {
+      btn.addEventListener('click', () => abrirVeiculoNaUnidade(id, btn.dataset.veiculoId));
+    });
+    el.querySelectorAll('.veiculo-item[data-id]').forEach((row) => {
+      const open = () => abrirInspecaoVeiculoFilial(id, row.dataset.id);
+      row.addEventListener('click', open);
+      row.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
           open();
@@ -2955,6 +3210,7 @@ let inspecaoDiagram = null;
 let inspecaoVeiculoCache = null;
 let inspecaoVeiculoIdAberto = null;
 let inspecaoFilialIdAberto = null;
+let filialDetalheCache = null;
 
 function textoOQueFazer(p) {
   const acao = (p.acao_sugerida || 'ok').toLowerCase();
@@ -3130,7 +3386,7 @@ function wireEdicaoVeiculoInspecao() {
       });
       toast('Veículo atualizado', 'success');
       await recarregarInspecaoVeiculoFilial(filialId, veiculoId);
-      const card = document.querySelector(`#filial-detalhe .veiculo-card[data-id="${veiculoId}"]`);
+      const card = document.querySelector(`#filial-detalhe .veiculo-item[data-id="${veiculoId}"]`);
       if (card) {
         const apelido = document.getElementById('insp-v-apelido')?.value?.trim()
           || document.getElementById('insp-v-placa')?.value?.trim()
@@ -3138,14 +3394,16 @@ function wireEdicaoVeiculoInspecao() {
         const placa = document.getElementById('insp-v-placa')?.value?.trim()?.toUpperCase() || '';
         const tipo = document.getElementById('insp-v-tipo')?.value || '';
         const km = document.getElementById('insp-v-km')?.value || '0';
-        const h4 = card.querySelector('.veiculo-info h4');
-        const p = card.querySelector('.veiculo-info p');
-        if (h4) h4.textContent = apelido || placa;
-        if (p) {
-          const totalMatch = p.textContent.match(/(\d+)\s*pneus/);
+        const strong = card.querySelector('td strong');
+        const hintEl = card.querySelector('td .hint');
+        if (strong) strong.textContent = apelido || placa;
+        if (hintEl) {
+          const totalMatch = hintEl.textContent.match(/(\d+)\s*pneus/);
           const total = totalMatch ? totalMatch[1] : '—';
-          p.textContent = `${placa} · ${tipo} · ${total} pneus · ${Number(km).toLocaleString('pt-BR')} km`;
+          hintEl.textContent = `${placa} · ${tipo} · ${total} pneus`;
         }
+        const kmCell = card.children[1];
+        if (kmCell) kmCell.textContent = Number(km).toLocaleString('pt-BR');
       }
     } catch (err) {
       toast(err.message, 'error');
@@ -3206,9 +3464,10 @@ function fecharInspecaoVeiculoFilial() {
   inspecaoVeiculoCache = null;
   inspecaoVeiculoIdAberto = null;
   inspecaoFilialIdAberto = null;
-  document.querySelectorAll('#filial-detalhe .veiculo-card.is-aberto').forEach((c) => {
+  document.querySelectorAll('#filial-detalhe .veiculo-item.is-aberto').forEach((c) => {
     c.classList.remove('is-aberto');
   });
+  document.getElementById('unidade-frota-split')?.classList.remove('has-inspecao');
 }
 
 async function abrirInspecaoVeiculoFilial(filialId, veiculoId) {
@@ -3222,9 +3481,10 @@ async function abrirInspecaoVeiculoFilial(filialId, veiculoId) {
     return;
   }
 
-  document.querySelectorAll('#filial-detalhe .veiculo-card').forEach((c) => {
+  document.querySelectorAll('#filial-detalhe .veiculo-item').forEach((c) => {
     c.classList.toggle('is-aberto', Number(c.dataset.id) === idNum);
   });
+  document.getElementById('unidade-frota-split')?.classList.add('has-inspecao');
 
   inspecaoFilialIdAberto = Number(filialId);
   inspecaoVeiculoIdAberto = idNum;
