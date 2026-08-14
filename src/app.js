@@ -1256,7 +1256,9 @@ async function salvarMedicaoTruck() {
 
 async function registrarEventoPneu(tipo) {
   if (!pneuSelecionado || !veiculoAtual) return;
-  const label = tipo === 'recap' ? 'recapagem (volta ao estoque)' : 'descarte';
+  const label = tipo === 'recap'
+    ? 'recapagem (volta ao estoque)'
+    : 'descarte (envia ao estoque de descarte para definir o tratamento)';
   if (!confirm(`Registrar ${label} deste pneu?`)) return;
 
   try {
@@ -1277,7 +1279,14 @@ async function registrarEventoPneu(tipo) {
     });
 
     toast(result.mensagem, 'success');
-    openVeiculoDetalhe(veiculoAtual.id, voltarPara);
+    await openVeiculoDetalhe(veiculoAtual.id, voltarPara);
+
+    if (tipo === 'descarte' && confirm('Abrir o estoque de descarte para definir o tratamento deste pneu?')) {
+      showView('pneus');
+      const filtro = document.getElementById('pneus-filtro-status');
+      if (filtro) filtro.value = 'descarte';
+      await loadPneus();
+    }
   } catch (err) {
     toast(err.message, 'error');
   }
@@ -1318,33 +1327,64 @@ async function loadPneus() {
     if (q) params.set('q', q);
     const pneus = await fetchJSON(`${API}/pneus?${params}`);
     if (!pneus.length) {
+      const vazioDescarte = status === 'descarte';
       lista.innerHTML = `
         <div class="empty-state">
           <h3>Nenhum pneu encontrado</h3>
-          <p>Cadastre pneus no estoque e depois monte no caminhão para medir.</p>
+          <p>${vazioDescarte
+            ? 'Ainda não há pneus registrados como descarte nesta filial.'
+            : 'Cadastre pneus no estoque e depois monte no caminhão para medir.'}</p>
         </div>`;
       return;
     }
     lista.innerHTML = pneus.map((p) => {
       const onde = p.status_pneu === 'montado'
         ? `${p.veiculo_placa || 'Veículo'}${p.posicao ? ` · ${p.posicao}` : ''}`
-        : 'Estoque';
+        : p.status_pneu === 'descarte'
+          ? 'Descarte'
+          : p.status_pneu === 'recapagem'
+            ? 'Recapagem'
+            : 'Estoque';
+      const labelStatus = p.status_pneu === 'descarte' ? 'descarte'
+        : p.status_pneu === 'recapagem' ? 'recapagem'
+          : p.status_pneu;
+      const tratamento = p.status_pneu === 'descarte'
+        ? (p.tratamento_descarte_label || 'Aguardando destino')
+        : null;
+      const tratamentoPendente = p.status_pneu === 'descarte'
+        && (!p.tratamento_descarte || p.tratamento_descarte === 'pendente');
       return `
-        <article class="pneu-card card">
+        <article class="pneu-card card${p.status_pneu === 'descarte' ? ' pneu-card-descarte' : ''}">
           <div class="pneu-card-main">
             <h3>Fogo ${p.numero_fogo || '—'}</h3>
             <p class="hint">${[p.marca, p.dot ? `DOT ${p.dot}` : null, p.vida_label].filter(Boolean).join(' · ')}</p>
             <p class="hint">${onde} · ${p.padrao_label || labelPadraoPneu(p.tipo_pneu)}
               ${p.menor_sulco != null ? ` · sulco ${p.menor_sulco} mm` : ' · sem medição'}
               ${p.ultima_medicao?.data ? ` · ${formatDate(p.ultima_medicao.data)}` : ''}</p>
+            ${tratamento
+              ? `<p class="hint"><strong>Tratamento:</strong> ${escapeHtml(tratamento)}${
+                p.tratamento_descarte_obs ? ` — ${escapeHtml(p.tratamento_descarte_obs)}` : ''
+              }</p>`
+              : ''}
           </div>
           <div class="pneu-card-actions">
-            ${badge(p.status_sulco)}
-            <span class="badge badge-vida">${p.status_pneu}</span>
+            ${p.status_pneu === 'descarte' ? '' : badge(p.status_sulco)}
+            <span class="badge ${p.status_pneu === 'descarte' ? 'badge-critico' : 'badge-vida'}">${labelStatus}</span>
+            ${tratamentoPendente
+              ? '<span class="badge badge-alerta">aguardando destino</span>'
+              : ''}
             ${p.status_pneu === 'estoque'
               ? `<button type="button" class="btn btn-primary btn-sm" data-montar-pneu="${p.id}" data-fogo="${p.numero_fogo || ''}">Montar</button>`
               : ''}
-            <button type="button" class="btn btn-ghost btn-sm" data-edit-pneu="${p.id}">Editar</button>
+            ${p.status_pneu === 'descarte'
+              ? `<button type="button" class="btn btn-primary btn-sm" data-tratamento-descarte="${p.id}"
+                   data-fogo="${escapeHtml(p.numero_fogo || '')}"
+                   data-tratamento="${escapeHtml(p.tratamento_descarte || 'pendente')}"
+                   data-obs="${escapeHtml(p.tratamento_descarte_obs || '')}">Definir tratamento</button>`
+              : ''}
+            ${p.status_pneu !== 'descarte'
+              ? `<button type="button" class="btn btn-ghost btn-sm" data-edit-pneu="${p.id}">Editar</button>`
+              : ''}
             ${p.status_pneu === 'montado'
               ? `<button type="button" class="btn btn-ghost btn-sm" data-desmontar-pneu="${p.id}">Desmontar</button>`
               : ''}
@@ -1356,6 +1396,16 @@ async function loadPneus() {
     lista.querySelectorAll('[data-montar-pneu]').forEach((btn) => {
       btn.addEventListener('click', () => {
         abrirModalMontar(parseInt(btn.dataset.montarPneu, 10), btn.dataset.fogo || '');
+      });
+    });
+    lista.querySelectorAll('[data-tratamento-descarte]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        abrirModalTratamentoDescarte({
+          id: parseInt(btn.dataset.tratamentoDescarte, 10),
+          fogo: btn.dataset.fogo || '',
+          tratamento: btn.dataset.tratamento || 'pendente',
+          obs: btn.dataset.obs || '',
+        });
       });
     });
     lista.querySelectorAll('[data-edit-pneu]').forEach((btn) => {
@@ -1379,6 +1429,18 @@ async function loadPneus() {
   } catch (err) {
     lista.innerHTML = `<p class="hint erro">${err.message}</p>`;
   }
+}
+
+function abrirModalTratamentoDescarte({ id, fogo, tratamento, obs }) {
+  const modal = document.getElementById('modal-tratamento-descarte');
+  if (!modal) return;
+  document.getElementById('tratamento-descarte-pneu-id').value = String(id);
+  document.getElementById('tratamento-descarte-label').textContent = fogo
+    ? `Fogo ${fogo} — escolha o destino deste pneu descartado.`
+    : 'Escolha o destino deste pneu descartado.';
+  document.getElementById('tratamento-descarte-tipo').value = tratamento || 'pendente';
+  document.getElementById('tratamento-descarte-obs').value = obs || '';
+  modal.showModal();
 }
 
 function setTipoCondicaoEditaveis(editavel) {
@@ -1542,6 +1604,29 @@ async function abrirModalMontar(pneuId, fogo = '') {
 
 document.getElementById('btn-cancelar-montar')?.addEventListener('click', () => {
   document.getElementById('modal-montar').close();
+});
+
+document.getElementById('btn-cancelar-tratamento-descarte')?.addEventListener('click', () => {
+  document.getElementById('modal-tratamento-descarte')?.close();
+});
+
+document.getElementById('form-tratamento-descarte')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const pneuId = parseInt(document.getElementById('tratamento-descarte-pneu-id').value, 10);
+  const tratamento = document.getElementById('tratamento-descarte-tipo').value;
+  const observacoes = document.getElementById('tratamento-descarte-obs').value?.trim() || null;
+  if (!pneuId || !tratamento) return toast('Informe o destino', 'error');
+  try {
+    const result = await fetchJSON(`${API}/pneus/${pneuId}/tratamento-descarte`, {
+      method: 'PUT',
+      body: JSON.stringify({ tratamento, observacoes }),
+    });
+    document.getElementById('modal-tratamento-descarte')?.close();
+    toast(result.mensagem || 'Tratamento salvo', 'success');
+    loadPneus();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
 });
 
 document.getElementById('montar-veiculo')?.addEventListener('change', async (e) => {

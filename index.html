@@ -231,7 +231,7 @@
         <li class="ativo"><strong>Estoque</strong> — cadastre pneus avulsos aqui</li>
         <li><strong>Atalho</strong> — no veículo, clique no slot vazio e crie o pneu na hora</li>
       </ol>
-      <p class="hint">Use esta aba para estoque e histórico. Para montar rápido, prefira o diagrama do veículo.</p>
+      <p class="hint">Use esta aba para estoque, histórico e pneus em descarte (tratamento do destino). Para montar rápido, prefira o diagrama do veículo.</p>
       <details class="import-hint-details">
         <summary>Dica para importação CSV de pneus</summary>
         <p class="hint import-hint">Campos: nº de fogo, padrão (<code>direcional</code>, <code>misto</code>, <code>borrachudo</code>), condição.</p>
@@ -244,6 +244,7 @@
             <option value="todos">Todos</option>
             <option value="estoque" selected>Estoque</option>
             <option value="montado">Montados</option>
+            <option value="descarte">Descarte</option>
           </select>
         </div>
         <div class="form-group" style="margin:0;flex:1">
@@ -922,6 +923,32 @@
       <button type="button" class="btn btn-primary" id="btn-pos-montar">Montar agora no veículo</button>
       <button type="button" class="btn btn-ghost" id="btn-pos-estoque">Deixar no estoque</button>
     </div>
+  </dialog>
+
+  <dialog id="modal-tratamento-descarte" class="modal">
+    <form id="form-tratamento-descarte" method="dialog">
+      <h3>Tratamento do descarte</h3>
+      <p class="hint" id="tratamento-descarte-label">Defina o destino deste pneu.</p>
+      <input type="hidden" id="tratamento-descarte-pneu-id" value="">
+      <div class="form-group">
+        <label for="tratamento-descarte-tipo">Destino *</label>
+        <select id="tratamento-descarte-tipo" required>
+          <option value="pendente">Aguardando destino</option>
+          <option value="reciclagem">Reciclagem / coleta</option>
+          <option value="sucata">Sucata / trituração</option>
+          <option value="fabricante">Devolução fabricante</option>
+          <option value="outro">Outro</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="tratamento-descarte-obs">Observação</label>
+        <textarea id="tratamento-descarte-obs" rows="3" placeholder="Ex.: coletado pela empresa X, NF 123..."></textarea>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="btn-cancelar-tratamento-descarte">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Salvar tratamento</button>
+      </div>
+    </form>
   </dialog>
 
   <dialog id="modal-montar" class="modal">
