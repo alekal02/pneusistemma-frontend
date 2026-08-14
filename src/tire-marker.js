@@ -174,7 +174,7 @@ class TireMarker {
 
   _cor(mm) {
     if (mm == null) return '#64748b';
-    if (mm < this.limites.sulco_critico_mm) return '#dc2626';
+    if (mm <= this.limites.sulco_critico_mm) return '#dc2626';
     if (mm <= this.limites.sulco_alerta_mm) return '#d97706';
     return '#166534';
   }
@@ -189,7 +189,7 @@ class TireMarker {
     const ponto = this.svg?.querySelector(`[data-sulco="${sulco}"] .ponto-circulo`);
     if (ponto && mm != null) {
       const base = { externo: '#145223', central: '#2d8a3e', interno: '#4caf50', auxiliar: '#81c784' }[sulco];
-      if (mm < this.limites.sulco_critico_mm) ponto.setAttribute('fill', '#dc2626');
+      if (mm <= this.limites.sulco_critico_mm) ponto.setAttribute('fill', '#dc2626');
       else if (mm <= this.limites.sulco_alerta_mm) ponto.setAttribute('fill', '#d97706');
       else ponto.setAttribute('fill', base || '#2d8a3e');
     }

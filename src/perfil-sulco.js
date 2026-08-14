@@ -11,7 +11,7 @@ const CORES = {
 
 function corPonto(mm, limites) {
   if (mm == null) return CORES.sem_dado;
-  if (mm < limites.sulco_critico_mm) return CORES.critico;
+  if (mm <= limites.sulco_critico_mm) return CORES.critico;
   if (mm <= limites.sulco_alerta_mm) return CORES.alerta;
   return CORES.ok;
 }

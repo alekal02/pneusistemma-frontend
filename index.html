@@ -541,7 +541,7 @@
             <header>
               <span class="faixa-badge">1 · Crítico — trocar</span>
               <div class="form-group faixa-limite">
-                <label for="cfg-critico">Quando menor que (mm)</label>
+                <label for="cfg-critico">Até (mm) — inclusive</label>
                 <input type="number" id="cfg-critico" step="0.1" min="0" max="30" placeholder="3">
               </div>
             </header>
@@ -588,7 +588,7 @@
             </header>
             <p class="hint" style="margin-top:0">
               Se as medições tiverem diferença <strong>maior que</strong> o limiar <em>e</em> o perfil <strong>não</strong> for desgaste Ext→Int (interno mais gasto), o sistema sugere <strong>rodízio</strong> (lado oposto do eixo).
-              Desgaste Ext→Int com sulco ≥ crítico é tratado como consumo esperado — acompanhar, sem rodízio.
+              Desgaste Ext→Int com sulco acima do crítico é tratado como consumo esperado — acompanhar, sem rodízio.
             </p>
             <div class="form-row">
               <div class="form-group">
@@ -656,11 +656,11 @@
           <div class="limite-bar" id="limite-bar">
             <div class="limite-segment critico" id="bar-critico">
               <span id="preview-label-troca">Trocar</span>
-              <strong id="preview-critico">&lt; 3 mm</strong>
+              <strong id="preview-critico">≤ 3 mm</strong>
             </div>
             <div class="limite-segment alerta" id="bar-alerta">
               <span id="preview-label-monitorar">Monitorar</span>
-              <strong id="preview-alerta">3 – 8 mm</strong>
+              <strong id="preview-alerta">&gt; 3 – 8 mm</strong>
             </div>
             <div class="limite-segment ok" id="bar-ok">
               <span id="preview-label-ok">OK</span>

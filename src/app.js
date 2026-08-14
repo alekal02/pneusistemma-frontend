@@ -215,13 +215,13 @@ function atualizarPreviewLimites() {
   const elCritico = document.getElementById('preview-critico');
   const elAlerta = document.getElementById('preview-alerta');
   const elOk = document.getElementById('preview-ok');
-  if (elCritico) elCritico.textContent = `< ${critico} mm`;
-  if (elAlerta) elAlerta.textContent = `${critico} – ${monitorar} mm`;
+  if (elCritico) elCritico.textContent = `≤ ${critico} mm`;
+  if (elAlerta) elAlerta.textContent = `> ${critico} – ${monitorar} mm`;
   if (elOk) elOk.textContent = `> ${monitorar} mm`;
 
   const hintMon = document.getElementById('hint-faixa-monitorar');
   const hintOk = document.getElementById('hint-faixa-ok');
-  if (hintMon) hintMon.textContent = `De ${critico} mm até ${monitorar} mm · recap em até ${prazo} dias`;
+  if (hintMon) hintMon.textContent = `Acima de ${critico} mm até ${monitorar} mm · recap em até ${prazo} dias`;
   if (hintOk) hintOk.textContent = `Acima de ${monitorar} mm`;
 
   // Mantém cfg-recap alinhado ao crítico (sem banda intermediária)
@@ -255,7 +255,7 @@ function hintLimites() {
   const t = acoes?.troca?.label || 'Trocar';
   const m = acoes?.monitorar?.label || 'Monitorar';
   const o = acoes?.ok?.label || 'OK';
-  return `< ${c} mm → ${t} · ${c}–${a} mm → ${m} (recap ${p || 15}d) · > ${a} mm → ${o}`;
+  return `≤ ${c} mm → ${t} · > ${c}–${a} mm → ${m} (recap ${p || 15}d) · > ${a} mm → ${o}`;
 }
 
 function mostrarAcaoInstrucao(pneuOuResult) {
@@ -2977,7 +2977,7 @@ function textoOQueFazer(p) {
     return 'Rodízio para o lado oposto do eixo para equalizar o desgaste.';
   }
   if (p.diagnostico === 'desgaste_progressivo') {
-    return 'Desgaste progressivo do ombro externo para o interno — consumo esperado conforme o lado do caminhão (esquerdo: esq→dir; direito: dir→esq). Acompanhar; não fazer rodízio só por esse padrão. Retirar quando algum ponto ficar abaixo do crítico.';
+    return 'Desgaste progressivo do ombro externo para o interno — consumo esperado conforme o lado do caminhão (esquerdo: esq→dir; direito: dir→esq). Acompanhar; não fazer rodízio só por esse padrão. Retirar quando algum ponto atingir o crítico.';
   }
   if (p.diagnostico && p.diagnostico !== 'ok' && p.diagnostico !== 'sem_dado') {
     return p.diagnostico_desc || `Corrigir causa: ${p.diagnostico_label}.`;
