@@ -2883,9 +2883,14 @@ async function abrirDetalheFilial(id) {
             <p class="hint">${escapeHtml(data.contrato || '')}${data.login ? ` · login ${escapeHtml(data.login)}` : ''}
               ${gerenteUnidade ? ' · chatbot na aba WhatsApp' : ''}</p>
           </div>
-          ${isAdmin()
-            ? `<button type="button" class="btn btn-ghost btn-sm btn-editar-filial-detalhe" data-id="${data.id}">Editar / senha</button>`
-            : ''}
+          <div class="unidade-head-actions" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-start">
+            <button type="button" class="btn btn-primary btn-sm" id="btn-pdf-semanal" data-filial-id="${data.id}">
+              Baixar PDF semanal
+            </button>
+            ${isAdmin()
+              ? `<button type="button" class="btn btn-ghost btn-sm btn-editar-filial-detalhe" data-id="${data.id}">Editar / senha</button>`
+              : ''}
+          </div>
         </div>
         ${renderUnidadeKpis(data)}
         <nav class="unidade-tabs" aria-label="Seções da unidade">
@@ -2916,6 +2921,9 @@ async function abrirDetalheFilial(id) {
 
     document.getElementById('btn-fechar-detalhe-filial')?.addEventListener('click', () => fecharDetalheFilial());
     el.querySelector('.btn-editar-filial-detalhe')?.addEventListener('click', () => abrirModalFilial(id));
+    document.getElementById('btn-pdf-semanal')?.addEventListener('click', () => {
+      baixarPdfSemanalUnidade(id);
+    });
 
     el.querySelectorAll('[data-unidade-tab]').forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -4089,6 +4097,38 @@ document.getElementById('form-usuario')?.addEventListener('submit', async (e) =>
 });
 
 // ── Relatórios diretoria ───────────────────────────────
+
+async function baixarPdfSemanalUnidade(filialId) {
+  if (!isGestao()) return toast('Acesso restrito ao gerente', 'error');
+  if (!filialId) return toast('Filial não informada', 'error');
+  try {
+    toast('Gerando PDF semanal…');
+    const resp = await fetch(`${API}/relatorios/unidade/semanal.pdf?filial_id=${encodeURIComponent(filialId)}`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    });
+    if (!resp.ok) {
+      let msg = 'Falha ao gerar PDF';
+      try {
+        const err = await resp.json();
+        if (err?.erro) msg = err.erro;
+      } catch { /* ignore */ }
+      throw new Error(msg);
+    }
+    const blob = await resp.blob();
+    const cd = resp.headers.get('Content-Disposition') || '';
+    const match = cd.match(/filename="?([^"]+)"?/i);
+    const filename = match?.[1] || `relatorio-semanal-${filialId}.pdf`;
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast('PDF semanal baixado', 'success');
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
 
 async function loadRelatorioDiretoria() {
   if (!isAdmin()) return;
