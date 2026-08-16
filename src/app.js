@@ -3498,16 +3498,19 @@ function wireFilialChatbotPanel(filialId, nomeFilial) {
   });
 
   document.getElementById('btn-fc-desconectar')?.addEventListener('click', async () => {
+    if (!confirm('Desconectar o chip e limpar número, grupo da medição e destinatários de alerta?')) return;
     try {
-      await fetchJSON(`${API}/whatsapp/filial/${filialId}/disconnect`, {
+      const data = await fetchJSON(`${API}/whatsapp/filial/${filialId}/disconnect`, {
         method: 'POST',
         body: '{}',
       });
-      toast('Chatbot desconectado');
+      toast(data.mensagem || 'Chatbot desconectado — vínculos limpos', 'success');
+      if (data.aviso) toast(data.aviso, 'warning');
       document.getElementById('fc-qr-wrap')?.classList.add('hidden');
       document.getElementById('wa-qr-wrap')?.classList.add('hidden');
       stopWaPoll();
-      refreshStatus();
+      filiaisCache = [];
+      await loadChatbotGerente();
     } catch (err) {
       toast(err.message, 'error');
     }
