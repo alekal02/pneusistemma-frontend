@@ -2384,13 +2384,14 @@ function stopWaPoll() {
 }
 
 function mostrarQrFilial(data, nomeFilial) {
-  const qrWrap = document.getElementById('wa-qr-wrap');
-  const qrImg = document.getElementById('wa-qr-img');
-  const titulo = document.getElementById('wa-qr-titulo');
-  if (titulo) titulo.textContent = `QR — chatbot ${nomeFilial || ''}`.trim();
+  const qrWrap = document.getElementById('fc-qr-wrap') || document.getElementById('wa-qr-wrap');
+  const qrImg = document.getElementById('fc-qr-img') || document.getElementById('wa-qr-img');
+  const titulo = document.getElementById('fc-qr-titulo') || document.getElementById('wa-qr-titulo');
+  if (titulo) titulo.textContent = `Escaneie com o chip da unidade${nomeFilial ? ` (${nomeFilial})` : ''}`;
   if (data.qrcode && qrImg) {
     qrImg.src = data.qrcode;
     qrWrap?.classList.remove('hidden');
+    qrWrap?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
   }
   if (data.loggedIn) {
     qrWrap?.classList.add('hidden');
@@ -2407,6 +2408,7 @@ function startWaPollFilial(filialId, nome) {
       if (data.qrcode) mostrarQrFilial(data, nome);
       if (data.loggedIn) {
         toast(`Chatbot ${nome} conectado!`, 'success');
+        document.getElementById('fc-qr-wrap')?.classList.add('hidden');
         document.getElementById('wa-qr-wrap')?.classList.add('hidden');
         stopWaPoll();
         const statusEl = document.getElementById('fc-status');
@@ -2414,6 +2416,10 @@ function startWaPollFilial(filialId, nome) {
           statusEl.className = 'badge badge-ok';
           statusEl.textContent = 'Online';
         }
+        const detail = document.getElementById('fc-status-detail');
+        if (detail) detail.textContent = 'Chatbot conectado — escolha o grupo abaixo.';
+        document.getElementById('fc-step-connect')?.classList.add('is-done');
+        document.getElementById('fc-step-group')?.classList.add('is-active');
       }
     } catch {
       // ignore
@@ -2971,60 +2977,107 @@ async function abrirDetalheFilial(id) {
 
 function renderChatbotPanelHtml(data) {
   const grupoAtual = valorCampoWa(data.whatsapp_grupo);
+  const chip = valorCampoWa(data.whatsapp);
+  const alerta = valorCampoWa(data.whatsapp_alerta);
+  const temToken = Boolean(data.tem_wuzapi_token);
+  const temGrupo = Boolean(grupoAtual);
   return `
-    <div class="filial-chatbot-panel" style="margin:0;border:none;padding:0;background:transparent">
-      <h3 style="margin-top:0">${escapeHtml(data.nome || 'Unidade')} ${data.codigo ? `(${escapeHtml(data.codigo)})` : ''}</h3>
-      <p class="hint">
-        1) Conecte o chip · 2) Escolha o <strong>grupo</strong> e clique em <strong>Salvar</strong> ·
-        3) Informe o <strong>número de alertas</strong> (quem recebe crítico/monitorar).
-        Sem salvar o grupo, a placa no WhatsApp <strong>não gera link</strong>.
-      </p>
-      <p class="hint" id="fc-wuzapi-hint">
-        WuzAPI precisa estar no ar (<code>http://localhost:8080</code>). Depois de conectar, clique em “Atualizar grupos”.
-      </p>
-
-      <div class="form-group">
-        <label for="fc-whatsapp">Número do chip (chatbot)</label>
-        <input type="text" id="fc-whatsapp" class="mono" value="${escapeHtml(valorCampoWa(data.whatsapp))}" placeholder="5511999999999" inputmode="tel">
-        <small class="field-hint">Número do WhatsApp conectado via QR nesta unidade.</small>
-      </div>
-
-      <div class="form-group">
-        <label for="fc-whatsapp-grupo">Grupo do chatbot (placa → link)</label>
-        <div class="form-row" style="align-items:flex-end;gap:.5rem">
-          <select id="fc-whatsapp-grupo" style="flex:1">
-            <option value="">— Selecione o grupo —</option>
-            ${grupoAtual ? `<option value="${escapeHtml(grupoAtual)}" selected>${escapeHtml(grupoAtual)}</option>` : ''}
-          </select>
-          <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-grupos">Atualizar grupos</button>
+    <div class="filial-chatbot-panel cb-setup">
+      <header class="cb-hero">
+        <div class="cb-hero-text">
+          <p class="cb-kicker">Chatbot da unidade</p>
+          <h3>${escapeHtml(data.nome || 'Unidade')}${data.codigo ? ` <span class="cb-code">${escapeHtml(data.codigo)}</span>` : ''}</h3>
+          <p class="hint cb-hero-hint">Placa no grupo → link de medição no celular do borracheiro.</p>
         </div>
-        <small class="field-hint">O bot precisa estar no grupo. A lista vem do WuzAPI após conectar.</small>
-      </div>
-
-      <div class="form-group">
-        <label for="fc-whatsapp-alerta">Número para alertas</label>
-        <input type="text" id="fc-whatsapp-alerta" class="mono" value="${escapeHtml(valorCampoWa(data.whatsapp_alerta))}" placeholder="5511888888888" inputmode="tel">
-        <small class="field-hint">Para onde vão os avisos de pneu crítico / monitorar (gerente, compras, etc.).</small>
-      </div>
-
-      <div class="form-group">
-        <label for="fc-wuzapi-token">Token WuzAPI</label>
-        <div class="form-row" style="align-items:flex-end;gap:.5rem">
-          <input type="password" id="fc-wuzapi-token" style="flex:1" placeholder="${data.tem_wuzapi_token ? '•••• (deixe em branco para manter)' : 'Gere o token ou cole aqui'}" autocomplete="off">
-          <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-gerar-token">Gerar token</button>
+        <div class="cb-status-card">
+          <span id="fc-status" class="badge badge-sem_dado">Status…</span>
+          <p class="hint" id="fc-status-detail">Verificando conexão…</p>
+          <div class="cb-status-actions">
+            <button type="button" class="btn btn-primary" id="btn-fc-conectar">Conectar / QR</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-desconectar">Desconectar</button>
+          </div>
         </div>
-        <small class="field-hint">WuzAPI precisa estar no Docker (<code>npm run wuzapi:up</code>). Depois: Gerar token → Conectar / QR.</small>
-      </div>
-      <div class="wa-actions" style="margin-bottom:.75rem">
-        <span id="fc-status" class="badge badge-sem_dado">Status…</span>
-        <button type="button" class="btn btn-primary btn-sm" id="btn-fc-salvar">Salvar</button>
-        <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-conectar">Conectar / QR</button>
-        <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-desconectar">Desconectar</button>
+      </header>
+
+      <ol class="cb-steps">
+        <li class="cb-step is-active" id="fc-step-connect">
+          <div class="cb-step-head">
+            <span class="cb-step-num">1</span>
+            <div>
+              <h4>Conectar o chip</h4>
+              <p class="hint">Gere o token (se precisar) e escaneie o QR com o WhatsApp do chip da unidade.</p>
+            </div>
+          </div>
+          <div class="cb-step-body">
+            <div class="form-row cb-token-row">
+              <div class="form-group" style="flex:1;margin:0">
+                <label for="fc-wuzapi-token">Token WuzAPI</label>
+                <input type="password" id="fc-wuzapi-token" placeholder="${temToken ? '•••• token já cadastrado — deixe em branco' : 'Clique em Gerar token'}" autocomplete="off">
+              </div>
+              <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-gerar-token">${temToken ? 'Gerar de novo' : 'Gerar token'}</button>
+            </div>
+            <div class="form-group">
+              <label for="fc-whatsapp">Número do chip (opcional)</label>
+              <input type="text" id="fc-whatsapp" class="mono" value="${escapeHtml(chip)}" placeholder="5511999999999" inputmode="tel">
+              <small class="field-hint">Só para referência — a conexão real é pelo QR.</small>
+            </div>
+            <p class="hint" id="fc-wuzapi-hint">Servidor do chatbot precisa estar no ar. Depois: Gerar token → Conectar / QR.</p>
+            <div class="cb-qr-panel hidden" id="fc-qr-wrap">
+              <h4 id="fc-qr-titulo">Escaneie o QR Code</h4>
+              <p class="hint">No celular do chip: WhatsApp → Aparelhos conectados → Conectar um aparelho</p>
+              <img id="fc-qr-img" class="wa-qr-img" alt="QR Code WhatsApp">
+              <p class="hint">O QR expira em poucos segundos — clique em Conectar de novo se precisar.</p>
+              <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-qr-fechar">Fechar QR</button>
+            </div>
+          </div>
+        </li>
+
+        <li class="cb-step${temGrupo ? ' is-done' : ''}" id="fc-step-group">
+          <div class="cb-step-head">
+            <span class="cb-step-num">2</span>
+            <div>
+              <h4>Grupo da medição</h4>
+              <p class="hint">Grupo onde o borracheiro manda a placa. Ao selecionar, salva automaticamente.</p>
+            </div>
+          </div>
+          <div class="cb-step-body">
+            <div class="form-row" style="align-items:flex-end;gap:.5rem">
+              <div class="form-group" style="flex:1;margin:0">
+                <label for="fc-whatsapp-grupo">Grupo WhatsApp</label>
+                <select id="fc-whatsapp-grupo">
+                  <option value="">— Selecione o grupo —</option>
+                  ${grupoAtual ? `<option value="${escapeHtml(grupoAtual)}" selected>${escapeHtml(grupoAtual)}</option>` : ''}
+                </select>
+              </div>
+              <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-grupos">Atualizar lista</button>
+            </div>
+            <small class="field-hint">O chip precisa estar no grupo. Conecte primeiro (passo 1), depois atualize a lista.</small>
+          </div>
+        </li>
+        <li class="cb-step cb-step-muted" id="fc-step-alerta">
+          <div class="cb-step-head">
+            <span class="cb-step-num">3</span>
+            <div>
+              <h4>Número de alertas <span class="cb-pill">pausado</span></h4>
+              <p class="hint">Avisos de crítico/monitorar estão desligados até segunda ordem. O cadastro fica guardado.</p>
+            </div>
+          </div>
+          <div class="cb-step-body">
+            <div class="form-group" style="margin:0">
+              <label for="fc-whatsapp-alerta">WhatsApp para alertas</label>
+              <input type="text" id="fc-whatsapp-alerta" class="mono" value="${escapeHtml(alerta)}" placeholder="5511888888888" inputmode="tel">
+            </div>
+          </div>
+        </li>
+      </ol>
+
+      <div class="cb-footer-actions">
+        <button type="button" class="btn btn-primary" id="btn-fc-salvar">Salvar configuração</button>
       </div>
 
       <div class="wa-envios-panel" id="fc-envios-panel">
-        <div class="section-header" style="margin:1rem 0 .5rem;align-items:center">
-          <h4 style="margin:0">Envios WhatsApp</h4>
+        <div class="section-header" style="margin:0 0 .5rem;align-items:center">
+          <h4 style="margin:0">Envios recentes</h4>
           <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-envios">Atualizar</button>
         </div>
         <div class="compras-resumo-filial" style="margin-bottom:.75rem">
@@ -3075,24 +3128,39 @@ function wireFilialChatbotPanel(filialId, nomeFilial) {
 
   const refreshStatus = async () => {
     if (!statusEl) return;
+    const detail = document.getElementById('fc-status-detail');
+    const stepConnect = document.getElementById('fc-step-connect');
+    const stepGroup = document.getElementById('fc-step-group');
     try {
       const st = await fetchJSON(`${API}/whatsapp/filial/${filialId}/status`);
       if (st.loggedIn) {
         statusEl.className = 'badge badge-ok';
         statusEl.textContent = 'Online';
+        if (detail) detail.textContent = 'Conectado. Atualize e escolha o grupo da medição.';
+        stepConnect?.classList.add('is-done');
+        stepConnect?.classList.remove('is-active');
+        stepGroup?.classList.add('is-active');
       } else if (st.connected) {
         statusEl.className = 'badge badge-alerta';
         statusEl.textContent = 'Aguardando QR';
+        if (detail) detail.textContent = 'Escaneie o QR com o WhatsApp do chip.';
+        stepConnect?.classList.add('is-active');
       } else if (!st.configurado) {
         statusEl.className = 'badge badge-sem_dado';
         statusEl.textContent = 'Sem token';
+        if (detail) detail.textContent = 'Clique em Gerar token e depois em Conectar / QR.';
+        stepConnect?.classList.add('is-active');
       } else {
         statusEl.className = 'badge badge-sem_dado';
         statusEl.textContent = 'Desconectado';
+        if (detail) detail.textContent = 'Servidor no ar? Clique em Conectar / QR.';
+        stepConnect?.classList.add('is-active');
+        stepConnect?.classList.remove('is-done');
       }
     } catch (err) {
       statusEl.className = 'badge badge-critico';
       statusEl.textContent = 'Erro status';
+      if (detail) detail.textContent = err?.message || 'Falha ao consultar o chatbot.';
       const hint = document.getElementById('fc-wuzapi-hint');
       if (hint && err?.message) {
         hint.textContent = err.message;
@@ -3147,7 +3215,7 @@ function wireFilialChatbotPanel(filialId, nomeFilial) {
               ${i.placa ? ` · ${escapeHtml(i.placa)}` : ''}
               ${i.erro ? ` · <span class="login-erro">${escapeHtml(i.erro)}</span>` : ''}
             </div>
-            <pre class="wa-log-msg">${escapeHtml(i.mensagem || '')}</pre>
+            <pre class="wa-log-msg">${escapeHtml(String(i.mensagem || '').slice(0, 280))}${String(i.mensagem || '').length > 280 ? '…' : ''}</pre>
           </div>
         `).join('') || '<p class="hint">Sem logs.</p>';
       }
@@ -3255,6 +3323,7 @@ function wireFilialChatbotPanel(filialId, nomeFilial) {
     try {
       toast('Salvando grupo do chatbot…');
       await salvarChatbotFilial({ silencioso: true });
+      document.getElementById('fc-step-group')?.classList.add('is-done');
       toast('Grupo salvo — envie a placa no WhatsApp', 'success');
     } catch (err) {
       toast(err.message || 'Falha ao salvar grupo', 'error');
@@ -3317,12 +3386,18 @@ function wireFilialChatbotPanel(filialId, nomeFilial) {
         body: '{}',
       });
       toast('Chatbot desconectado');
+      document.getElementById('fc-qr-wrap')?.classList.add('hidden');
       document.getElementById('wa-qr-wrap')?.classList.add('hidden');
       stopWaPoll();
       refreshStatus();
     } catch (err) {
       toast(err.message, 'error');
     }
+  });
+
+  document.getElementById('btn-fc-qr-fechar')?.addEventListener('click', () => {
+    document.getElementById('fc-qr-wrap')?.classList.add('hidden');
+    stopWaPoll();
   });
 }
 
