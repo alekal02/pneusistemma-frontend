@@ -3096,7 +3096,10 @@ function renderChatbotPanelHtml(data) {
       <div class="wa-envios-panel" id="fc-envios-panel">
         <div class="section-header" style="margin:0 0 .5rem;align-items:center">
           <h4 style="margin:0">Envios recentes</h4>
-          <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-envios">Atualizar</button>
+          <div style="display:flex;gap:.4rem;flex-wrap:wrap">
+            <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-envios">Atualizar</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-limpar-pendentes">Limpar pendentes</button>
+          </div>
         </div>
         <div class="compras-resumo-filial" style="margin-bottom:.75rem">
           <div class="compras-chip monitorar"><strong id="fc-env-pendentes">—</strong><span>Pendentes / falha</span></div>
@@ -3298,6 +3301,18 @@ function wireFilialChatbotPanel(filialId, nomeFilial) {
   };
 
   document.getElementById('btn-fc-envios')?.addEventListener('click', () => carregarEnvios(false));
+  document.getElementById('btn-fc-limpar-pendentes')?.addEventListener('click', async () => {
+    if (!confirm('Limpar todos os envios pendentes / com falha desta unidade?')) return;
+    try {
+      const data = await fetchJSON(`${API}/whatsapp/filial/${filialId}/envios/pendentes`, {
+        method: 'DELETE',
+      });
+      toast(data.mensagem || `Removidos: ${data.removidos || 0}`, 'success');
+      carregarEnvios(true);
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  });
   carregarEnvios(true);
 
   const carregarGrupos = async (silencioso = false) => {
