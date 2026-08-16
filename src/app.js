@@ -2420,6 +2420,20 @@ function startWaPollFilial(filialId, nome) {
         if (detail) detail.textContent = 'Chatbot conectado — escolha o grupo abaixo.';
         document.getElementById('fc-step-connect')?.classList.add('is-done');
         document.getElementById('fc-step-group')?.classList.add('is-active');
+        const phone = data.phone || String(data.jid || '').split('@')[0]?.split(':')[0]?.replace(/\D/g, '');
+        const chipInput = document.getElementById('fc-whatsapp');
+        if (phone && phone.length >= 10 && chipInput && valorCampoWa(chipInput.value) !== phone) {
+          chipInput.value = phone;
+          fetchJSON(`${API}/whatsapp/filiais-chatbot/${filialId}`, {
+            method: 'PUT',
+            body: JSON.stringify({
+              whatsapp: phone,
+              whatsapp_grupo: document.getElementById('fc-whatsapp-grupo')?.value || null,
+              whatsapp_alerta: (document.getElementById('fc-whatsapp-alerta')?.value || '')
+                .split(/[,;\n]+/).map((s) => s.trim()).filter(Boolean),
+            }),
+          }).catch(() => {});
+        }
       }
     } catch {
       // ignore
@@ -3017,9 +3031,9 @@ function renderChatbotPanelHtml(data) {
               <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-gerar-token">${temToken ? 'Gerar de novo' : 'Gerar token'}</button>
             </div>
             <div class="form-group">
-              <label for="fc-whatsapp">Número do chip (opcional)</label>
-              <input type="text" id="fc-whatsapp" class="mono" value="${escapeHtml(chip)}" placeholder="5511999999999" inputmode="tel">
-              <small class="field-hint">Só para referência — a conexão real é pelo QR.</small>
+              <label for="fc-whatsapp">Número do chip</label>
+              <input type="text" id="fc-whatsapp" class="mono" value="${escapeHtml(chip)}" placeholder="Preenchido ao conectar" inputmode="tel" readonly>
+              <small class="field-hint">Preenchido automaticamente quando o QR conectar.</small>
             </div>
             <p class="hint" id="fc-wuzapi-hint">Servidor do chatbot precisa estar no ar. Depois: Gerar token → Conectar / QR.</p>
             <div class="cb-qr-panel hidden" id="fc-qr-wrap">
@@ -3054,19 +3068,23 @@ function renderChatbotPanelHtml(data) {
             <small class="field-hint">O chip precisa estar no grupo. Conecte primeiro (passo 1), depois atualize a lista.</small>
           </div>
         </li>
-        <li class="cb-step cb-step-muted" id="fc-step-alerta">
+        <li class="cb-step cb-step-muted${alerta ? ' is-done' : ''}" id="fc-step-alerta">
           <div class="cb-step-head">
             <span class="cb-step-num">3</span>
             <div>
-              <h4>Número de alertas <span class="cb-pill">pausado</span></h4>
-              <p class="hint">Avisos de crítico/monitorar estão desligados até segunda ordem. O cadastro fica guardado.</p>
+              <h4>Quem recebe alertas <span class="cb-pill">pausado</span></h4>
+              <p class="hint">Marque usuários ou grupos. Os envios estão pausados até segunda ordem — a seleção já fica salva.</p>
             </div>
           </div>
           <div class="cb-step-body">
-            <div class="form-group" style="margin:0">
-              <label for="fc-whatsapp-alerta">WhatsApp para alertas</label>
-              <input type="text" id="fc-whatsapp-alerta" class="mono" value="${escapeHtml(alerta)}" placeholder="5511888888888" inputmode="tel">
+            <div class="form-row" style="align-items:center;gap:.5rem;margin-bottom:.55rem">
+              <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-alerta-opcoes">Atualizar lista</button>
+              <small class="field-hint" style="margin:0">Usuários com WhatsApp + grupos do chip.</small>
             </div>
+            <div class="cb-check-list" id="fc-alerta-lista">
+              <p class="hint">Clique em “Atualizar lista” para carregar as opções.</p>
+            </div>
+            <input type="hidden" id="fc-whatsapp-alerta" value="${escapeHtml(alerta)}">
           </div>
         </li>
       </ol>
@@ -3125,6 +3143,40 @@ async function loadChatbotGerente() {
 
 function wireFilialChatbotPanel(filialId, nomeFilial) {
   const statusEl = document.getElementById('fc-status');
+  let salvandoChipAuto = false;
+
+  const lerAlertasSelecionados = () => {
+    const todos = [...document.querySelectorAll('#fc-alerta-lista input[type="checkbox"][data-valor]')];
+    if (todos.length) {
+      return todos.filter((c) => c.checked).map((c) => c.dataset.valor).filter(Boolean);
+    }
+    const hidden = valorCampoWa(document.getElementById('fc-whatsapp-alerta')?.value);
+    return hidden ? hidden.split(/[,;\n]+/).map((s) => s.trim()).filter(Boolean) : [];
+  };
+
+  const syncHiddenAlertas = () => {
+    const hidden = document.getElementById('fc-whatsapp-alerta');
+    if (!hidden) return;
+    hidden.value = lerAlertasSelecionados().join(',');
+  };
+
+  const aplicarNumeroChip = async (phone, { salvar = true } = {}) => {
+    const digits = String(phone || '').replace(/\D/g, '');
+    if (digits.length < 10) return;
+    const input = document.getElementById('fc-whatsapp');
+    if (!input) return;
+    if (valorCampoWa(input.value) === digits) return;
+    input.value = digits;
+    if (!salvar || salvandoChipAuto) return;
+    salvandoChipAuto = true;
+    try {
+      await salvarChatbotFilial({ silencioso: true });
+    } catch {
+      // ignore — número já aparece na tela
+    } finally {
+      salvandoChipAuto = false;
+    }
+  };
 
   const refreshStatus = async () => {
     if (!statusEl) return;
@@ -3133,6 +3185,7 @@ function wireFilialChatbotPanel(filialId, nomeFilial) {
     const stepGroup = document.getElementById('fc-step-group');
     try {
       const st = await fetchJSON(`${API}/whatsapp/filial/${filialId}/status`);
+      if (st.phone) await aplicarNumeroChip(st.phone, { salvar: true });
       if (st.loggedIn) {
         statusEl.className = 'badge badge-ok';
         statusEl.textContent = 'Online';
@@ -3286,10 +3339,12 @@ function wireFilialChatbotPanel(filialId, nomeFilial) {
   setTimeout(() => carregarGrupos(true), 400);
 
   const salvarChatbotFilial = async ({ silencioso = false } = {}) => {
+    syncHiddenAlertas();
+    const alertas = lerAlertasSelecionados();
     const body = {
       whatsapp: document.getElementById('fc-whatsapp')?.value || null,
       whatsapp_grupo: document.getElementById('fc-whatsapp-grupo')?.value || null,
-      whatsapp_alerta: document.getElementById('fc-whatsapp-alerta')?.value || null,
+      whatsapp_alerta: alertas,
     };
     const tok = document.getElementById('fc-wuzapi-token')?.value?.trim();
     if (tok) body.wuzapi_token = tok;
@@ -3317,6 +3372,52 @@ function wireFilialChatbotPanel(filialId, nomeFilial) {
     return data;
   };
 
+  const carregarAlertaOpcoes = async (silencioso = false) => {
+    const box = document.getElementById('fc-alerta-lista');
+    if (!box) return;
+    try {
+      if (!silencioso) toast('Carregando destinatários de alerta…');
+      const data = await fetchJSON(`${API}/whatsapp/filial/${filialId}/alerta-opcoes`);
+      const selecionados = new Set((data.selecionados || []).map((s) => String(s)));
+      const opcoes = data.opcoes || [];
+      if (!opcoes.length) {
+        box.innerHTML = '<p class="hint">Nenhuma opção — cadastre WhatsApp nos usuários ou conecte e atualize os grupos.</p>';
+        return;
+      }
+      box.innerHTML = opcoes.map((o) => {
+        const valor = valorCampoWa(o.valor);
+        const checked = selecionados.has(valor) ? 'checked' : '';
+        const tipo = o.tipo === 'grupo' ? 'Grupo' : (o.tipo === 'usuario' ? 'Usuário' : 'Número');
+        return `
+          <label class="cb-check-item">
+            <input type="checkbox" data-valor="${escapeHtml(valor)}" ${checked}>
+            <span class="cb-check-main">
+              <strong>${escapeHtml(o.nome || valor)}</strong>
+              <span class="hint">${escapeHtml(tipo)}${o.detalhe ? ` · ${escapeHtml(o.detalhe)}` : ''} · <span class="mono">${escapeHtml(valor)}</span></span>
+            </span>
+          </label>
+        `;
+      }).join('');
+      syncHiddenAlertas();
+      box.querySelectorAll('input[type="checkbox"]').forEach((el) => {
+        el.addEventListener('change', async () => {
+          syncHiddenAlertas();
+          try {
+            await salvarChatbotFilial({ silencioso: true });
+            document.getElementById('fc-step-alerta')?.classList.toggle('is-done', lerAlertasSelecionados().length > 0);
+            toast('Destinatários de alerta salvos', 'success');
+          } catch (err) {
+            toast(err.message || 'Falha ao salvar alertas', 'error');
+          }
+        });
+      });
+      if (!silencioso) toast(`${opcoes.length} opção(ões) carregada(s)`, 'success');
+    } catch (err) {
+      if (!silencioso) toast(err.message, 'error');
+      box.innerHTML = `<p class="hint login-erro">${escapeHtml(err.message)}</p>`;
+    }
+  };
+
   document.getElementById('fc-whatsapp-grupo')?.addEventListener('change', async () => {
     const grupo = document.getElementById('fc-whatsapp-grupo')?.value;
     if (!grupo) return;
@@ -3330,6 +3431,8 @@ function wireFilialChatbotPanel(filialId, nomeFilial) {
     }
   });
 
+  document.getElementById('btn-fc-alerta-opcoes')?.addEventListener('click', () => carregarAlertaOpcoes(false));
+  setTimeout(() => carregarAlertaOpcoes(true), 600);
   document.getElementById('btn-fc-gerar-token')?.addEventListener('click', async () => {
     try {
       toast('Gerando token no WuzAPI…');
