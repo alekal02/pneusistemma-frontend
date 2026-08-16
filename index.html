@@ -8,8 +8,57 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='42' fill='%23145223'/><circle cx='50' cy='50' r='18' fill='%232d8a3e'/><circle cx='50' cy='50' r='8' fill='%23e8f5e9'/></svg>">
+  <style>
+    /* Evita flash do login enquanto restaura sessão do localStorage */
+    html.session-pending #app-login { display: none !important; }
+    html.session-pending:not(.app-ready) #app-boot { display: grid; }
+    #app-boot {
+      display: none;
+      place-items: center;
+      min-height: 100vh;
+      margin: 0;
+      padding: 1.5rem;
+      background:
+        radial-gradient(900px 420px at 15% 10%, rgba(76, 175, 80, .18), transparent 55%),
+        linear-gradient(160deg, #0f3d1a 0%, #145223 50%, #1e6b30 100%);
+      color: #e8f5e9;
+      font-family: "IBM Plex Sans", system-ui, sans-serif;
+    }
+    #app-boot .boot-card {
+      text-align: center;
+      max-width: 16rem;
+    }
+    #app-boot .boot-spinner {
+      width: 2rem;
+      height: 2rem;
+      margin: 0 auto .85rem;
+      border: 3px solid rgba(232, 245, 233, .25);
+      border-top-color: #81c784;
+      border-radius: 50%;
+      animation: app-boot-spin .7s linear infinite;
+    }
+    #app-boot p { margin: 0; font-size: .95rem; opacity: .9; }
+    @keyframes app-boot-spin { to { transform: rotate(360deg); } }
+  </style>
+  <script>
+    (function () {
+      try {
+        var raw = localStorage.getItem('pneu_auth');
+        if (!raw) return;
+        var data = JSON.parse(raw);
+        if (data && data.token) document.documentElement.classList.add('session-pending');
+      } catch (e) { /* ignore */ }
+    })();
+  </script>
 </head>
 <body>
+  <div id="app-boot" aria-live="polite" aria-busy="true">
+    <div class="boot-card">
+      <div class="boot-spinner" role="presentation"></div>
+      <p>Carregando…</p>
+    </div>
+  </div>
+
   <div id="app-login" class="login-screen">
     <div class="login-card">
       <div class="login-brand">
