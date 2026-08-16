@@ -2975,8 +2975,9 @@ function renderChatbotPanelHtml(data) {
     <div class="filial-chatbot-panel" style="margin:0;border:none;padding:0;background:transparent">
       <h3 style="margin-top:0">${escapeHtml(data.nome || 'Unidade')} ${data.codigo ? `(${escapeHtml(data.codigo)})` : ''}</h3>
       <p class="hint">
-        1) Conecte o chip · 2) Escolha o <strong>grupo</strong> onde o borracheiro manda a placa ·
+        1) Conecte o chip · 2) Escolha o <strong>grupo</strong> e clique em <strong>Salvar</strong> ·
         3) Informe o <strong>número de alertas</strong> (quem recebe crítico/monitorar).
+        Sem salvar o grupo, a placa no WhatsApp <strong>não gera link</strong>.
       </p>
       <p class="hint" id="fc-wuzapi-hint">
         WuzAPI precisa estar no ar (<code>http://localhost:8080</code>). Depois de conectar, clique em “Atualizar grupos”.
@@ -3216,6 +3217,50 @@ function wireFilialChatbotPanel(filialId, nomeFilial) {
   // Tenta carregar silenciosamente se já estiver conectado
   setTimeout(() => carregarGrupos(true), 400);
 
+  const salvarChatbotFilial = async ({ silencioso = false } = {}) => {
+    const body = {
+      whatsapp: document.getElementById('fc-whatsapp')?.value || null,
+      whatsapp_grupo: document.getElementById('fc-whatsapp-grupo')?.value || null,
+      whatsapp_alerta: document.getElementById('fc-whatsapp-alerta')?.value || null,
+    };
+    const tok = document.getElementById('fc-wuzapi-token')?.value?.trim();
+    if (tok) body.wuzapi_token = tok;
+    const data = await fetchJSON(`${API}/whatsapp/filiais-chatbot/${filialId}`, {
+      method: 'PUT',
+      body: JSON.stringify(body),
+    });
+    const tokenInput = document.getElementById('fc-wuzapi-token');
+    if (tokenInput) {
+      tokenInput.value = '';
+      tokenInput.placeholder = '•••• (deixe em branco para manter)';
+    }
+    filiaisCache = [];
+    if (!silencioso) toast(data.mensagem || 'Chatbot da filial salvo', 'success');
+    // Reaplica webhook (placa → link) após salvar grupo
+    try {
+      await fetchJSON(`${API}/whatsapp/filial/${filialId}/reconnect-webhook`, {
+        method: 'POST',
+        body: '{}',
+      });
+    } catch {
+      // endpoint opcional — connect já configura; ignore se 404
+    }
+    refreshStatus();
+    return data;
+  };
+
+  document.getElementById('fc-whatsapp-grupo')?.addEventListener('change', async () => {
+    const grupo = document.getElementById('fc-whatsapp-grupo')?.value;
+    if (!grupo) return;
+    try {
+      toast('Salvando grupo do chatbot…');
+      await salvarChatbotFilial({ silencioso: true });
+      toast('Grupo salvo — envie a placa no WhatsApp', 'success');
+    } catch (err) {
+      toast(err.message || 'Falha ao salvar grupo', 'error');
+    }
+  });
+
   document.getElementById('btn-fc-gerar-token')?.addEventListener('click', async () => {
     try {
       toast('Gerando token no WuzAPI…');
@@ -3241,26 +3286,8 @@ function wireFilialChatbotPanel(filialId, nomeFilial) {
   });
 
   document.getElementById('btn-fc-salvar')?.addEventListener('click', async () => {
-    const body = {
-      whatsapp: document.getElementById('fc-whatsapp')?.value || null,
-      whatsapp_grupo: document.getElementById('fc-whatsapp-grupo')?.value || null,
-      whatsapp_alerta: document.getElementById('fc-whatsapp-alerta')?.value || null,
-    };
-    const tok = document.getElementById('fc-wuzapi-token')?.value?.trim();
-    if (tok) body.wuzapi_token = tok;
     try {
-      await fetchJSON(`${API}/whatsapp/filiais-chatbot/${filialId}`, {
-        method: 'PUT',
-        body: JSON.stringify(body),
-      });
-      toast('Chatbot da filial salvo', 'success');
-      const tokenInput = document.getElementById('fc-wuzapi-token');
-      if (tokenInput) {
-        tokenInput.value = '';
-        tokenInput.placeholder = '•••• (deixe em branco para manter)';
-      }
-      refreshStatus();
-      filiaisCache = [];
+      await salvarChatbotFilial();
     } catch (err) {
       toast(err.message, 'error');
     }
