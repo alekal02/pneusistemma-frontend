@@ -660,6 +660,7 @@ async function openVeiculoDetalhe(id, origem = 'dashboard', dadosPreload = null)
     document.getElementById('truck-hr').value = v.hr_atual || '';
     document.getElementById('btn-truck-config').onclick = () => {
       if (modoAcessoRapido) return toast('Indisponível no acesso rápido', 'error');
+      if (!isGestao()) return toast('Só o gerente configura o layout do veículo', 'error');
       abrirConfigLayout(
         v.id,
         v.apelido || v.placa,
@@ -670,8 +671,10 @@ async function openVeiculoDetalhe(id, origem = 'dashboard', dadosPreload = null)
 
     const btnWa = document.getElementById('btn-truck-whatsapp');
     if (btnWa) {
-      btnWa.classList.toggle('hidden', modoAcessoRapido);
-      btnWa.onclick = () => gerarLinkWhatsApp(v.id, v.placa);
+      btnWa.onclick = () => {
+        if (!isGestao()) return toast('Só o gerente compartilha o link WhatsApp', 'error');
+        gerarLinkWhatsApp(v.id, v.placa);
+      };
     }
 
     aplicarVisibilidadeAcessoRapido();
@@ -728,12 +731,18 @@ function aplicarVisibilidadeAcessoRapido() {
     'btn-truck-reposicionar',
     'btn-truck-recap',
     'btn-truck-troca',
-    'btn-truck-config',
   ];
   idsOps.forEach((id) => {
     const el = document.getElementById(id);
     if (el) el.classList.toggle('hidden', modoAcessoRapido);
   });
+  // Gestão (layout / histórico / WhatsApp): só gerente/admin — operador não vê
+  const gestao = document.getElementById('truck-panel-acoes-gestao');
+  if (gestao) {
+    gestao.classList.toggle('gestao-only-hidden', !isGestao() || modoAcessoRapido);
+  }
+  const btnWa = document.getElementById('btn-truck-whatsapp');
+  if (btnWa) btnWa.classList.toggle('hidden', modoAcessoRapido || !isGestao());
   // No acesso rápido permite montar pneu novo; estoque fica oculto
   const tabEstoque = document.querySelector('.montar-tab[data-montar-tab="estoque"]');
   if (tabEstoque) tabEstoque.classList.toggle('hidden', modoAcessoRapido);
@@ -2059,8 +2068,15 @@ document.getElementById('form-layout')?.addEventListener('submit', async (e) => 
     });
     document.getElementById('modal-layout').close();
     toast(result.mensagem, 'success');
-    openVeiculoDetalhe(veiculoLayoutId, voltarPara);
-    loadVeiculos();
+    if (
+      inspecaoFilialIdAberto
+      && Number(inspecaoVeiculoIdAberto) === Number(veiculoLayoutId)
+    ) {
+      await abrirInspecaoVeiculoFilial(inspecaoFilialIdAberto, veiculoLayoutId);
+    } else if (!isGestao()) {
+      openVeiculoDetalhe(veiculoLayoutId, voltarPara);
+      loadVeiculos();
+    }
   } catch (err) {
     toast(err.message, 'error');
   }
@@ -3828,7 +3844,10 @@ async function abrirInspecaoVeiculoFilial(filialId, veiculoId) {
             · ${escapeHtml(v.layout?.nome || 'Layout')}
             · Filial ${escapeHtml(v.filial?.nome || '')}</p>
         </div>
-        <button type="button" class="btn btn-ghost btn-sm" id="btn-fechar-inspecao">Fechar desenho</button>
+        <div class="inspecao-header-actions">
+          <button type="button" class="btn btn-ghost btn-sm" id="btn-insp-config-layout">Configurar layout</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="btn-fechar-inspecao">Fechar desenho</button>
+        </div>
       </div>
       <details class="form-avancado inspecao-corrigir">
         <summary>Corrigir dados do veículo (admin)</summary>
@@ -3884,6 +3903,14 @@ async function abrirInspecaoVeiculoFilial(filialId, veiculoId) {
       </div>`;
 
     document.getElementById('btn-fechar-inspecao').onclick = () => fecharInspecaoVeiculoFilial();
+    document.getElementById('btn-insp-config-layout').onclick = () => {
+      abrirConfigLayout(
+        v.id,
+        v.apelido || v.placa,
+        v.layout_pneus,
+        posicoes
+      );
+    };
     wireEdicaoVeiculoInspecao();
 
     const setPainel = (pneu) => {

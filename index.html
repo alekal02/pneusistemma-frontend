@@ -419,14 +419,34 @@
               <p class="hint save-status" id="truck-save-status">Preencha os sulcos — salva automaticamente</p>
               <button type="button" class="btn btn-primary" id="btn-truck-salvar-sulco">Salvar medição de sulco</button>
               <div id="truck-mini-marker" class="tire-container" style="min-height:240px"></div>
-              <div class="panel-actions">
-                <button class="btn btn-ghost btn-sm" id="btn-truck-historico">Histórico</button>
-                <button class="btn btn-ghost btn-sm" id="btn-truck-desmontar">Retirar → estoque</button>
-                <button class="btn btn-ghost btn-sm" id="btn-truck-reposicionar">Mudar posição</button>
-                <button class="btn btn-ghost btn-sm" id="btn-truck-recap">Registrar recap</button>
-                <button class="btn btn-ghost btn-sm btn-danger-text" id="btn-truck-troca">Registrar descarte</button>
-                <button class="btn btn-ghost btn-sm" id="btn-truck-config">Configurar layout</button>
-                <button class="btn btn-primary btn-sm" id="btn-truck-whatsapp">Compartilhar WhatsApp</button>
+              <div class="panel-actions" id="truck-panel-acoes">
+                <p class="panel-actions-label">Ações no pneu</p>
+                <div class="panel-actions-grid" id="truck-panel-acoes-ops">
+                  <button type="button" class="btn btn-ghost btn-sm" id="btn-truck-desmontar" title="Tira o pneu do caminhão e manda para o estoque">
+                    <strong>Enviar ao estoque</strong>
+                    <span>Retirar desta posição</span>
+                  </button>
+                  <button type="button" class="btn btn-ghost btn-sm" id="btn-truck-reposicionar" title="Troca o pneu de posição no mesmo veículo">
+                    <strong>Mudar posição</strong>
+                    <span>Rodízio no caminhão</span>
+                  </button>
+                  <button type="button" class="btn btn-ghost btn-sm" id="btn-truck-recap" title="Registra que o pneu foi recapado">
+                    <strong>Registrar recap</strong>
+                    <span>Vida / condição</span>
+                  </button>
+                  <button type="button" class="btn btn-ghost btn-sm btn-danger-text" id="btn-truck-troca" title="Registra descarte do pneu">
+                    <strong>Registrar descarte</strong>
+                    <span>Baixa definitiva</span>
+                  </button>
+                </div>
+                <div class="panel-actions-gestao gestao-only-hidden" id="truck-panel-acoes-gestao">
+                  <p class="panel-actions-label">Gestão (gerente)</p>
+                  <div class="panel-actions-gestao-btns">
+                    <button type="button" class="btn btn-ghost btn-sm" id="btn-truck-historico">Histórico</button>
+                    <button type="button" class="btn btn-ghost btn-sm" id="btn-truck-config">Configurar layout</button>
+                    <button type="button" class="btn btn-primary btn-sm" id="btn-truck-whatsapp">Compartilhar WhatsApp</button>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
