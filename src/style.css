@@ -1980,11 +1980,8 @@ h3 {
   margin: 0 0 .35rem;
   font-family: var(--font-display);
 }
-.cb-footer-actions {
-  display: flex;
-  justify-content: flex-end;
-  gap: .5rem;
-  padding: .85rem 1.25rem 1.1rem;
+.cb-autosave-hint {
+  margin: 0 1.25rem .85rem;
 }
 .filial-chatbot-panel .form-group {
   margin-bottom: .75rem;

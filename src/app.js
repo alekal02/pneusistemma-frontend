@@ -3088,7 +3088,7 @@ function renderChatbotPanelHtml(data) {
             <div class="form-group">
               <label for="fc-whatsapp">Número do chip</label>
               <input type="tel" id="fc-whatsapp" class="mono" value="${escapeHtml(chip)}" placeholder="Com DDI, ex.: 5562999999999" inputmode="tel" autocomplete="tel">
-              <small class="field-hint">Pode editar e salvar. Se o QR conectar, o número do chip entra sozinho.</small>
+              <small class="field-hint">Salva sozinho ao sair do campo. Se o QR conectar, o número do chip entra sozinho.</small>
             </div>
             <p class="hint" id="fc-wuzapi-hint">Servidor do chatbot precisa estar no ar. Depois: Gerar token → Conectar / QR.</p>
             <div class="cb-qr-panel hidden" id="fc-qr-wrap">
@@ -3147,9 +3147,7 @@ function renderChatbotPanelHtml(data) {
         </li>
       </ol>
 
-      <div class="cb-footer-actions">
-        <button type="button" class="btn btn-primary" id="btn-fc-salvar">Salvar configuração</button>
-      </div>
+      <p class="hint cb-autosave-hint">Número, grupo e alertas salvam automaticamente — não precisa clicar em salvar.</p>
 
       <div class="wa-envios-panel" id="fc-envios-panel">
         <div class="section-header" style="margin:0 0 .5rem;align-items:center">
@@ -3449,38 +3447,25 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
 
   document.getElementById('btn-fc-grupos')?.addEventListener('click', () => carregarGrupos(false));
 
-  const salvarChatbotFilial = async ({ silencioso = false } = {}) => {
-    syncHiddenAlertas();
-    const alertas = lerAlertasSelecionados();
-    const body = {
-      whatsapp: document.getElementById('fc-whatsapp')?.value || null,
-      whatsapp_grupo: document.getElementById('fc-whatsapp-grupo')?.value || null,
-      whatsapp_alerta: alertas,
-    };
-    const tok = document.getElementById('fc-wuzapi-token')?.value?.trim();
-    if (tok) body.wuzapi_token = tok;
+  const salvarCamposChatbot = async (body, { silencioso = false, mensagem } = {}) => {
     const data = await fetchJSON(`${API}/whatsapp/filiais-chatbot/${filialId}`, {
       method: 'PUT',
       body: JSON.stringify(body),
     });
-    const tokenInput = document.getElementById('fc-wuzapi-token');
-    if (tokenInput) {
-      tokenInput.value = '';
-      tokenInput.placeholder = '•••• (deixe em branco para manter)';
-    }
     filiaisCache = [];
-    if (!silencioso) toast(data.mensagem || 'Chatbot da filial salvo', 'success');
-    // Reaplica webhook (placa → link) após salvar grupo
-    try {
-      await fetchJSON(`${API}/whatsapp/filial/${filialId}/reconnect-webhook`, {
-        method: 'POST',
-        body: '{}',
-      });
-    } catch {
-      // endpoint opcional — connect já configura; ignore se 404
-    }
-    refreshStatus();
+    if (!silencioso) toast(mensagem || data.mensagem || 'Salvo', 'success');
     return data;
+  };
+
+  const salvarTokenDigitado = async () => {
+    const tokenInput = document.getElementById('fc-wuzapi-token');
+    const tok = tokenInput?.value?.trim();
+    if (!tok) return;
+    await salvarCamposChatbot({ wuzapi_token: tok }, { silencioso: true });
+    tokenInput.value = '';
+    tokenInput.placeholder = '•••• (deixe em branco para manter)';
+    toast('Token WuzAPI salvo', 'success');
+    refreshStatus();
   };
 
   const carregarAlertaOpcoes = async (silencioso = false) => {
@@ -3514,7 +3499,10 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
         el.addEventListener('change', async () => {
           syncHiddenAlertas();
           try {
-            await salvarChatbotFilial({ silencioso: true });
+            await salvarCamposChatbot(
+              { whatsapp_alerta: lerAlertasSelecionados() },
+              { silencioso: true }
+            );
             document.getElementById('fc-step-alerta')?.classList.toggle('is-done', lerAlertasSelecionados().length > 0);
             toast('Destinatários de alerta salvos', 'success');
           } catch (err) {
@@ -3544,15 +3532,31 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
   });
 
   document.getElementById('fc-whatsapp-grupo')?.addEventListener('change', async () => {
-    const grupo = document.getElementById('fc-whatsapp-grupo')?.value;
-    if (!grupo) return;
+    const grupo = document.getElementById('fc-whatsapp-grupo')?.value || null;
     try {
-      toast('Salvando grupo do chatbot…');
-      await salvarChatbotFilial({ silencioso: true });
-      document.getElementById('fc-step-group')?.classList.add('is-done');
-      toast('Grupo salvo — envie a placa no WhatsApp', 'success');
+      toast(grupo ? 'Salvando grupo do chatbot…' : 'Removendo grupo…');
+      await salvarCamposChatbot({ whatsapp_grupo: grupo }, { silencioso: true });
+      document.getElementById('fc-step-group')?.classList.toggle('is-done', Boolean(grupo));
+      toast(
+        grupo ? 'Grupo salvo — envie a placa no WhatsApp' : 'Grupo removido',
+        'success'
+      );
     } catch (err) {
       toast(err.message || 'Falha ao salvar grupo', 'error');
+    }
+  });
+
+  document.getElementById('fc-wuzapi-token')?.addEventListener('change', async () => {
+    try {
+      await salvarTokenDigitado();
+    } catch (err) {
+      toast(err.message || 'Falha ao salvar o token', 'error');
+    }
+  });
+  document.getElementById('fc-wuzapi-token')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      document.getElementById('fc-wuzapi-token')?.blur();
     }
   });
 
@@ -3577,14 +3581,6 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
         hint.classList.remove('login-erro');
       }
       refreshStatus();
-    } catch (err) {
-      toast(err.message, 'error');
-    }
-  });
-
-  document.getElementById('btn-fc-salvar')?.addEventListener('click', async () => {
-    try {
-      await salvarChatbotFilial();
     } catch (err) {
       toast(err.message, 'error');
     }
