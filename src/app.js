@@ -2408,19 +2408,54 @@ function stopWaPoll() {
   waPollFilialId = null;
 }
 
-function mostrarQrFilial(data, nomeFilial) {
-  const qrWrap = document.getElementById('fc-qr-wrap') || document.getElementById('wa-qr-wrap');
-  const qrImg = document.getElementById('fc-qr-img') || document.getElementById('wa-qr-img');
-  const titulo = document.getElementById('fc-qr-titulo') || document.getElementById('wa-qr-titulo');
+function painelQrEls() {
+  return {
+    wrap: document.getElementById('fc-qr-wrap') || document.getElementById('wa-qr-wrap'),
+    img: document.getElementById('fc-qr-img') || document.getElementById('wa-qr-img'),
+    titulo: document.getElementById('fc-qr-titulo') || document.getElementById('wa-qr-titulo'),
+    status: document.getElementById('fc-qr-status'),
+  };
+}
+
+function abrirPainelQr(mensagem, nomeFilial) {
+  const { wrap, img, titulo, status } = painelQrEls();
   if (titulo) titulo.textContent = `Escaneie com o chip da unidade${nomeFilial ? ` (${nomeFilial})` : ''}`;
-  if (data.qrcode && qrImg) {
-    qrImg.src = data.qrcode;
-    qrWrap?.classList.remove('hidden');
-    qrWrap?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  if (status) {
+    status.textContent = mensagem || 'Gerando QR Code…';
+    status.classList.remove('login-erro', 'hidden');
   }
-  if (data.loggedIn) {
-    qrWrap?.classList.add('hidden');
+  img?.classList.add('hidden');
+  wrap?.classList.remove('hidden');
+  wrap?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function mostrarQrFilial(data, nomeFilial) {
+  const { wrap, img, titulo, status } = painelQrEls();
+  if (titulo) titulo.textContent = `Escaneie com o chip da unidade${nomeFilial ? ` (${nomeFilial})` : ''}`;
+
+  if (data?.loggedIn) {
+    wrap?.classList.add('hidden');
     stopWaPoll();
+    return;
+  }
+
+  if (data?.qrcode && img) {
+    img.src = data.qrcode;
+    img.classList.remove('hidden');
+    if (status) {
+      status.textContent = 'QR pronto — escaneie no celular do chip.';
+      status.classList.remove('login-erro');
+    }
+    wrap?.classList.remove('hidden');
+    wrap?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    return;
+  }
+
+  if (data?.qr_erro && status) {
+    wrap?.classList.remove('hidden');
+    img?.classList.add('hidden');
+    status.textContent = data.qr_erro;
+    status.classList.add('login-erro');
   }
 }
 
@@ -2430,7 +2465,7 @@ function startWaPollFilial(filialId, nome) {
   waPollTimer = setInterval(async () => {
     try {
       const data = await fetchJSON(`${API}/whatsapp/filial/${filialId}/status`);
-      if (data.qrcode) mostrarQrFilial(data, nome);
+      if (data.qrcode || data.qr_erro) mostrarQrFilial(data, nome);
       if (data.loggedIn) {
         toast(`Chatbot ${nome} conectado!`, 'success');
         document.getElementById('fc-qr-wrap')?.classList.add('hidden');
@@ -2463,7 +2498,7 @@ function startWaPollFilial(filialId, nome) {
     } catch {
       // ignore
     }
-  }, 3000);
+  }, 1500);
 }
 
 document.getElementById('btn-wa-qr-fechar')?.addEventListener('click', () => {
@@ -3064,7 +3099,8 @@ function renderChatbotPanelHtml(data) {
             <div class="cb-qr-panel hidden" id="fc-qr-wrap">
               <h4 id="fc-qr-titulo">Escaneie o QR Code</h4>
               <p class="hint">No celular do chip: WhatsApp → Aparelhos conectados → Conectar um aparelho</p>
-              <img id="fc-qr-img" class="wa-qr-img" alt="QR Code WhatsApp">
+              <p class="hint" id="fc-qr-status">Gerando QR Code…</p>
+              <img id="fc-qr-img" class="wa-qr-img hidden" alt="QR Code WhatsApp">
               <p class="hint">O QR expira em poucos segundos — clique em Conectar de novo se precisar.</p>
               <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-qr-fechar">Fechar QR</button>
             </div>
@@ -3097,8 +3133,10 @@ function renderChatbotPanelHtml(data) {
           <div class="cb-step-head">
             <span class="cb-step-num">3</span>
             <div>
-              <h4>Quem recebe alertas <span class="cb-pill">pausado</span></h4>
-              <p class="hint">Marque usuários ou grupos. Os envios estão pausados até segunda ordem — a seleção já fica salva.</p>
+              <h4>Quem recebe alertas ${data.alertas_enabled ? '' : '<span class="cb-pill">pausado</span>'}</h4>
+              <p class="hint">${data.alertas_enabled
+                ? 'Marque usuários ou grupos que recebem alerta depois de medição crítica/monitorar.'
+                : 'Alertas depois da medição estão pausados. O chatbot do grupo (placa, limite, relatório) continua respondendo.'}</p>
             </div>
           </div>
           <div class="cb-step-body">
@@ -3126,6 +3164,11 @@ function renderChatbotPanelHtml(data) {
             <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-limpar-pendentes">Limpar pendentes</button>
           </div>
         </div>
+        <p class="hint" id="fc-envios-hint" style="margin:0 0 .65rem">
+          ${data.alertas_enabled
+            ? 'Inclui respostas do chatbot no grupo e alertas de pneu.'
+            : 'Aqui entram as respostas do chatbot no grupo (placa, aguarde, relatório). Alertas de pneu após medição estão pausados e não disparam.'}
+        </p>
         <div class="compras-resumo-filial" style="margin-bottom:.75rem">
           <div class="compras-chip monitorar"><strong id="fc-env-pendentes">—</strong><span>Pendentes / falha</span></div>
           <div class="compras-chip"><strong id="fc-env-enviados">—</strong><span>Enviados</span></div>
@@ -3163,13 +3206,13 @@ async function loadChatbotGerente() {
   try {
     const data = await fetchJSON(`${API}/whatsapp/filial/${filialId}/config`);
     box.innerHTML = renderChatbotPanelHtml(data);
-    wireFilialChatbotPanel(filialId, data.nome);
+    wireFilialChatbotPanel(filialId, data.nome, { alertasEnabled: Boolean(data.alertas_enabled) });
   } catch (err) {
     box.innerHTML = `<p class="hint login-erro">${escapeHtml(err.message)}</p>`;
   }
 }
 
-function wireFilialChatbotPanel(filialId, nomeFilial) {
+function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false } = {}) {
   const statusEl = document.getElementById('fc-status');
   let salvandoChipAuto = false;
 
@@ -3256,12 +3299,13 @@ function wireFilialChatbotPanel(filialId, nomeFilial) {
       <div class="wa-envio-meta">
         <span class="badge ${item.status === 'erro' ? 'badge-critico' : 'badge-ok'}">${escapeHtml(item.status_label)}</span>
         <strong>${escapeHtml(item.tipo_label)}</strong>
+        ${item.eh_alerta ? '<span class="cb-pill">alerta</span>' : ''}
         ${item.placa ? `<span class="mono">${escapeHtml(item.placa)}</span>` : ''}
         <span class="hint">${escapeHtml(formatDateTime(item.criado_em))}</span>
       </div>
       <div class="hint">Para: <span class="mono">${escapeHtml(item.destinatario || '—')}</span></div>
       <div class="hint">${escapeHtml(item.preview || '')}${item.erro ? ` · <span class="login-erro">${escapeHtml(item.erro)}</span>` : ''}</div>
-      ${reenviar ? `<button type="button" class="btn btn-ghost btn-sm btn-fc-reenviar" data-id="${item.id}">Reenviar</button>` : ''}
+      ${reenviar && item.pode_reenviar !== false ? `<button type="button" class="btn btn-ghost btn-sm btn-fc-reenviar" data-id="${item.id}">Reenviar</button>` : ''}
     </div>
   `;
 
@@ -3506,19 +3550,34 @@ function wireFilialChatbotPanel(filialId, nomeFilial) {
   });
 
   document.getElementById('btn-fc-conectar')?.addEventListener('click', async () => {
+    const btn = document.getElementById('btn-fc-conectar');
     try {
+      if (btn) btn.disabled = true;
+      abrirPainelQr('Gerando QR Code… isso pode levar alguns segundos.', nomeFilial);
       toast(`Conectando chatbot ${nomeFilial}…`);
       const data = await fetchJSON(`${API}/whatsapp/filial/${filialId}/connect`, {
         method: 'POST',
         body: '{}',
       });
       mostrarQrFilial(data, nomeFilial);
-      toast(data.mensagem || 'Escaneie o QR', 'success');
-      startWaPollFilial(filialId, nomeFilial);
+      if (data.loggedIn) {
+        toast(data.mensagem || `Chatbot ${nomeFilial} já está conectado`, 'success');
+      } else if (data.qrcode) {
+        toast('Escaneie o QR com o WhatsApp do chip', 'success');
+        startWaPollFilial(filialId, nomeFilial);
+      } else {
+        toast(data.mensagem || 'Não foi possível gerar o QR', 'error');
+        startWaPollFilial(filialId, nomeFilial);
+      }
       refreshStatus();
-      setTimeout(() => carregarGrupos(true), 2000);
+      if (data.loggedIn) setTimeout(() => carregarGrupos(true), 1200);
     } catch (err) {
+      abrirPainelQr(err.message || 'Falha ao gerar o QR', nomeFilial);
+      const { status } = painelQrEls();
+      status?.classList.add('login-erro');
       toast(err.message, 'error');
+    } finally {
+      if (btn) btn.disabled = false;
     }
   });
 
@@ -4468,7 +4527,6 @@ function isRotaAcessoRapido() {
 function mostrarErroToken(msg) {
   document.getElementById('app-login')?.classList.add('hidden');
   document.getElementById('app-shell')?.classList.remove('hidden');
-  finalizarBootVisual();
   document.getElementById('nav-tabs-filial')?.classList.add('hidden');
   document.getElementById('nav-tabs-admin')?.classList.add('hidden');
   document.getElementById('nav-tabs-gerente')?.classList.add('hidden');
@@ -4487,7 +4545,6 @@ async function bootAcessoRapido(token) {
   tokenAcessoRapido = token;
   document.getElementById('app-login')?.classList.add('hidden');
   document.getElementById('app-shell')?.classList.remove('hidden');
-  finalizarBootVisual();
   document.getElementById('nav-tabs-filial')?.classList.add('hidden');
   document.getElementById('nav-tabs-admin')?.classList.add('hidden');
   document.getElementById('nav-tabs-gerente')?.classList.add('hidden');
