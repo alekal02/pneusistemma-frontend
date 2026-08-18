@@ -2480,18 +2480,13 @@ function startWaPollFilial(filialId, nome) {
         if (detail) detail.textContent = 'Chatbot conectado — escolha o grupo abaixo.';
         document.getElementById('fc-step-connect')?.classList.add('is-done');
         document.getElementById('fc-step-group')?.classList.add('is-active');
-        const phone = data.phone || String(data.jid || '').split('@')[0]?.split(':')[0]?.replace(/\D/g, '');
+        const phone = data.phone || '';
         const chipInput = document.getElementById('fc-whatsapp');
-        if (phone && phone.length >= 10 && chipInput && valorCampoWa(chipInput.value) !== phone) {
+        if (phone && phone.length >= 10 && phone.length <= 15 && chipInput && valorCampoWa(chipInput.value) !== phone) {
           chipInput.value = phone;
           fetchJSON(`${API}/whatsapp/filiais-chatbot/${filialId}`, {
             method: 'PUT',
-            body: JSON.stringify({
-              whatsapp: phone,
-              whatsapp_grupo: document.getElementById('fc-whatsapp-grupo')?.value || null,
-              whatsapp_alerta: (document.getElementById('fc-whatsapp-alerta')?.value || '')
-                .split(/[,;\n]+/).map((s) => s.trim()).filter(Boolean),
-            }),
+            body: JSON.stringify({ whatsapp: phone }),
           }).catch(() => {});
         }
       }
@@ -3233,7 +3228,8 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
 
   const aplicarNumeroChip = async (phone, { salvar = true } = {}) => {
     const digits = String(phone || '').replace(/\D/g, '');
-    if (digits.length < 10) return;
+    if (digits.length < 10 || digits.length > 15) return;
+    if (digits.length >= 15 && digits.startsWith('120')) return;
     const input = document.getElementById('fc-whatsapp');
     if (!input) return;
     if (valorCampoWa(input.value) === digits) return;
@@ -3241,7 +3237,10 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
     if (!salvar || salvandoChipAuto) return;
     salvandoChipAuto = true;
     try {
-      await salvarChatbotFilial({ silencioso: true });
+      await fetchJSON(`${API}/whatsapp/filiais-chatbot/${filialId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ whatsapp: digits }),
+      });
     } catch {
       // ignore — número já aparece na tela
     } finally {
@@ -3256,7 +3255,7 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
     const stepGroup = document.getElementById('fc-step-group');
     try {
       const st = await fetchJSON(`${API}/whatsapp/filial/${filialId}/status`);
-      if (st.phone) await aplicarNumeroChip(st.phone, { salvar: true });
+      if (st.loggedIn && st.phone) await aplicarNumeroChip(st.phone, { salvar: true });
       if (st.loggedIn) {
         statusEl.className = 'badge badge-ok';
         statusEl.textContent = 'Online';
@@ -3264,6 +3263,7 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
         stepConnect?.classList.add('is-done');
         stepConnect?.classList.remove('is-active');
         stepGroup?.classList.add('is-active');
+        carregarGrupos(true);
       } else if (st.connected) {
         statusEl.className = 'badge badge-alerta';
         statusEl.textContent = 'Aguardando QR';
@@ -3419,8 +3419,6 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
   };
 
   document.getElementById('btn-fc-grupos')?.addEventListener('click', () => carregarGrupos(false));
-  // Tenta carregar silenciosamente se já estiver conectado
-  setTimeout(() => carregarGrupos(true), 400);
 
   const salvarChatbotFilial = async ({ silencioso = false } = {}) => {
     syncHiddenAlertas();
@@ -3582,21 +3580,34 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
   });
 
   document.getElementById('btn-fc-desconectar')?.addEventListener('click', async () => {
-    if (!confirm('Desconectar o chip e limpar número, grupo da medição e destinatários de alerta?')) return;
+    if (!confirm('Desconectar o chip, apagar número e grupo salvos, e deixar limpo para conectar outro celular?')) return;
+    const btn = document.getElementById('btn-fc-desconectar');
     try {
+      if (btn) btn.disabled = true;
+      stopWaPoll();
+      const chip = document.getElementById('fc-whatsapp');
+      if (chip) chip.value = '';
+      const sel = document.getElementById('fc-whatsapp-grupo');
+      if (sel) sel.innerHTML = '<option value="">— Selecione o grupo —</option>';
+      const alertaHidden = document.getElementById('fc-whatsapp-alerta');
+      if (alertaHidden) alertaHidden.value = '';
+      document.getElementById('fc-alerta-lista')?.querySelectorAll('input[type="checkbox"]')
+        .forEach((c) => { c.checked = false; });
+      document.getElementById('fc-qr-wrap')?.classList.add('hidden');
+      document.getElementById('wa-qr-wrap')?.classList.add('hidden');
+
       const data = await fetchJSON(`${API}/whatsapp/filial/${filialId}/disconnect`, {
         method: 'POST',
         body: '{}',
       });
-      toast(data.mensagem || 'Chatbot desconectado — vínculos limpos', 'success');
+      toast(data.mensagem || 'Número e grupo apagados — conecte o próximo chip', 'success');
       if (data.aviso) toast(data.aviso, 'warning');
-      document.getElementById('fc-qr-wrap')?.classList.add('hidden');
-      document.getElementById('wa-qr-wrap')?.classList.add('hidden');
-      stopWaPoll();
       filiaisCache = [];
       await loadChatbotGerente();
     } catch (err) {
       toast(err.message, 'error');
+    } finally {
+      if (btn) btn.disabled = false;
     }
   });
 
