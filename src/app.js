@@ -3160,9 +3160,7 @@ function renderChatbotPanelHtml(data) {
           </div>
         </div>
         <p class="hint" id="fc-envios-hint" style="margin:0 0 .65rem">
-          ${data.alertas_enabled
-            ? 'Inclui respostas do chatbot no grupo e alertas de pneu.'
-            : 'Aqui entram as respostas do chatbot no grupo (placa, aguarde, relatório). Alertas de pneu após medição estão pausados e não disparam.'}
+          Só o grupo selecionado na etapa 2. Aparecem link de medição, relatório PDF e falha real — sem “aguarde”, placa errada ou conversa.
         </p>
         <div class="compras-resumo-filial" style="margin-bottom:.75rem">
           <div class="compras-chip monitorar"><strong id="fc-env-pendentes">—</strong><span>Pendentes / falha</span></div>
@@ -3325,12 +3323,12 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
       if (pendEl) {
         pendEl.innerHTML = data.pendentes?.length
           ? `<h5 style="margin:.25rem 0">Pendentes / falha</h5>${data.pendentes.map((i) => renderEnvioItem(i, { reenviar: true })).join('')}`
-          : '<p class="hint">Nenhum envio pendente.</p>';
+          : `<p class="hint">${escapeHtml(data.mensagem || 'Nenhum envio pendente neste grupo.')}</p>`;
       }
       if (envEl) {
         envEl.innerHTML = data.enviados?.length
           ? `<h5 style="margin:.25rem 0">Últimos enviados</h5>${data.enviados.slice(0, 8).map((i) => renderEnvioItem(i)).join('')}`
-          : '<p class="hint">Nenhum envio registrado ainda.</p>';
+          : `<p class="hint">${escapeHtml(data.mensagem || 'Nenhum envio neste grupo ainda. Só entra link de medição ou relatório.')}</p>`;
       }
       if (logsEl) {
         logsEl.innerHTML = (data.logs || []).map((i) => `
