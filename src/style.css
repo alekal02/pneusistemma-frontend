@@ -1706,6 +1706,61 @@ h3 {
   color: #145223;
   font-size: .9rem;
   font-weight: 600;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  flex-wrap: wrap;
+}
+.truck-campo-nav {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: .75rem;
+  flex-wrap: wrap;
+  margin: 0 0 .85rem;
+  padding-bottom: .65rem;
+  border-bottom: 1px solid var(--border);
+}
+.truck-svg .pneu-sessao-ok .pneu-status-ring {
+  stroke: #16a34a;
+  stroke-width: 3;
+}
+.tire-pick.is-sessao-ok {
+  outline: 2px solid #16a34a;
+  outline-offset: 1px;
+}
+
+#view-veiculo-detalhe.campo-medindo .truck-diagram-wrap,
+#view-veiculo-detalhe.campo-medindo #truck-fluxo-banner,
+#view-veiculo-detalhe.campo-medindo #historico-pneu,
+#view-veiculo-detalhe.campo-medindo .pneu-info-fixa,
+#view-veiculo-detalhe.campo-medindo #truck-panel-acoes {
+  display: none;
+}
+#view-veiculo-detalhe.campo-medindo .truck-layout {
+  grid-template-columns: 1fr;
+}
+#view-veiculo-detalhe.campo-medindo .truck-panel {
+  min-height: auto;
+}
+#view-veiculo-detalhe.campo-medindo #truck-medicao-box .form-row-4 input {
+  font-size: 1.35rem;
+  min-height: 3rem;
+  text-align: center;
+  font-weight: 700;
+}
+#view-veiculo-detalhe.campo-medindo #btn-truck-salvar-sulco {
+  position: sticky;
+  bottom: 12px;
+  z-index: 5;
+  width: 100%;
+  padding: .95rem 1rem;
+  font-size: 1.05rem;
+  margin-top: .75rem;
+}
+#view-veiculo-detalhe.campo-medindo #truck-mini-marker {
+  min-height: 200px;
 }
 .erro-token-container {
   max-width: 420px;

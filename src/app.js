@@ -29,6 +29,8 @@ let authToken = null;
 let slotPosicaoSelecionada = null;
 let modoAcessoRapido = false;
 let tokenAcessoRapido = null;
+let pneusMedidosSessao = new Set();
+let sessaoCampoVeiculoId = null;
 
 const LAYOUT_POR_TIPO = {
   'Truck / Tração': 'truck_10',
@@ -594,12 +596,89 @@ async function loadVeiculos() {
   }
 }
 
+function garantirSessaoCampo(veiculoId) {
+  const id = Number(veiculoId);
+  if (sessaoCampoVeiculoId !== id) {
+    sessaoCampoVeiculoId = id;
+    pneusMedidosSessao = new Set();
+  }
+}
+
+function resumoSessaoCampo() {
+  const total = veiculoAtual?.pneus?.length || 0;
+  if (!total) return '';
+  const feitos = pneusMedidosSessao.size;
+  const falta = Math.max(0, total - feitos);
+  if (!feitos) return `${total} pneu(s) para medir`;
+  if (!falta) return `Todos os ${total} pneus desta visita já foram medidos`;
+  return `${feitos} de ${total} medidos nesta visita · faltam ${falta}`;
+}
+
+function atualizarProgressoCampo() {
+  const texto = resumoSessaoCampo();
+  const nav = document.getElementById('truck-campo-progresso');
+  if (nav) nav.textContent = texto;
+  const resumo = document.getElementById('truck-campo-resumo');
+  if (resumo) resumo.textContent = texto;
+}
+
+function marcarPneusMedidosSessao() {
+  truckDiagram?.container?.querySelectorAll('.pneu-click').forEach((g) => {
+    g.classList.toggle('pneu-sessao-ok', pneusMedidosSessao.has(Number(g.dataset.pneuId)));
+  });
+  truckDiagram?.container?.querySelectorAll('.tire-pick').forEach((btn) => {
+    btn.classList.toggle('is-sessao-ok', pneusMedidosSessao.has(Number(btn.dataset.pneuId)));
+  });
+  atualizarProgressoCampo();
+}
+
+function entrarMedicaoCampo() {
+  if (!modoAcessoRapido) {
+    document.getElementById('truck-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    return;
+  }
+  document.getElementById('view-veiculo-detalhe')?.classList.add('campo-medindo');
+  document.getElementById('truck-campo-nav')?.classList.remove('hidden');
+  atualizarProgressoCampo();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  const primeiroVazio = ['truck-sulco-ext', 'truck-sulco-cent', 'truck-sulco-int', 'truck-sulco-aux']
+    .map((id) => document.getElementById(id))
+    .find((el) => el && String(el.value).trim() === '');
+  setTimeout(() => {
+    (primeiroVazio || document.getElementById('truck-sulco-ext'))?.focus({ preventScroll: true });
+  }, 200);
+}
+
+function voltarDesenhoCampo({ toastProx = false } = {}) {
+  document.getElementById('view-veiculo-detalhe')?.classList.remove('campo-medindo');
+  document.getElementById('truck-campo-nav')?.classList.add('hidden');
+  document.getElementById('truck-panel-form')?.classList.add('hidden');
+  document.querySelector('.truck-panel-empty')?.classList.remove('hidden');
+  pneuSelecionado = null;
+  slotPosicaoSelecionada = null;
+  truckDiagram?.setAtivo(null);
+  marcarPneusMedidosSessao();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+  if (toastProx) {
+    const falta = (veiculoAtual?.pneus || []).filter((p) => !pneusMedidosSessao.has(p.id)).length;
+    toast(
+      falta
+        ? `Medição salva. Toque no próximo pneu (${falta} restante${falta > 1 ? 's' : ''}).`
+        : 'Todos os pneus desta visita foram medidos.',
+      'success'
+    );
+  }
+}
+
 async function openVeiculoDetalhe(id, origem = 'dashboard', dadosPreload = null) {
   voltarPara = origem;
   try {
     const v = dadosPreload || await fetchJSON(`${API}/veiculos/${id}`);
     veiculoAtual = v;
     veiculoLayoutId = v.id;
+    garantirSessaoCampo(v.id);
+    document.getElementById('view-veiculo-detalhe')?.classList.remove('campo-medindo');
+    document.getElementById('truck-campo-nav')?.classList.add('hidden');
 
     if (v.posicoes) meta = { ...meta, posicoes: v.posicoes };
     if (v.limites) {
@@ -629,7 +708,8 @@ async function openVeiculoDetalhe(id, origem = 'dashboard', dadosPreload = null)
         banner.classList.remove('hidden');
         banner.innerHTML = `
           <strong>Modo campo (WhatsApp)</strong>
-          <span>1) Toque no pneu para medir o sulco · 2) Toque no slot vazio (+) para informar pneu novo · 3) Os sulcos salvam sozinhos</span>`;
+          <span>Toque no pneu para medir · ao concluir, volta ao desenho para o próximo</span>
+          <span id="truck-campo-resumo">${resumoSessaoCampo()}</span>`;
       } else if (v.pneus.length === 0) {
         banner.classList.remove('hidden');
         banner.innerHTML = `
@@ -663,7 +743,11 @@ async function openVeiculoDetalhe(id, origem = 'dashboard', dadosPreload = null)
         onSlotClick: (posicao) => selecionarSlotVazio(posicao),
       });
     }
+    truckDiagram.pickerHint = modoAcessoRapido
+      ? 'Toque no pneu para abrir a medição. Ao concluir, volta para o próximo.'
+      : 'Clique no pneu para medir ou no slot vazio para montar:';
     truckDiagram.render(v.pneus, meta.posicoes, posicoesLayout);
+    marcarPneusMedidosSessao();
 
     document.getElementById('truck-km').value = v.km_atual || '';
     document.getElementById('truck-hr').value = v.hr_atual || '';
@@ -761,6 +845,16 @@ function aplicarVisibilidadeAcessoRapido() {
   const nota = document.getElementById('truck-novo-nota')?.closest('.form-group');
   if (custo) custo.classList.toggle('hidden', modoAcessoRapido);
   if (nota) nota.classList.toggle('hidden', modoAcessoRapido);
+  const btnSulco = document.getElementById('btn-truck-salvar-sulco');
+  if (btnSulco) {
+    btnSulco.textContent = modoAcessoRapido ? 'Concluir medição e voltar' : 'Salvar medição de sulco';
+  }
+  const empty = document.querySelector('.truck-panel-empty');
+  if (empty) {
+    empty.innerHTML = modoAcessoRapido
+      ? '<p>Toque em um pneu no desenho</p><p class="hint">Abre a medição na hora. Ao concluir, volta para o próximo.</p>'
+      : '<p>Clique em uma posição</p><p class="hint">Slot vazio (+) = colocar pneu · Pneu montado = medir sulco</p>';
+  }
   const bar = document.getElementById('acesso-rapido-bar');
   if (bar && modoAcessoRapido) {
     bar.innerHTML = `
@@ -898,6 +992,7 @@ function selecionarPneuTruck(pneu) {
     elPrazo.textContent = '';
     elPrazo.classList.add('hidden');
   }
+  entrarMedicaoCampo();
 }
 
 async function selecionarSlotVazio(posicao) {
@@ -928,6 +1023,7 @@ async function selecionarSlotVazio(posicao) {
       ? 'Preencha fogo, padrão e modelo e toque em “Criar e montar”.'
       : 'Posição vazia — coloque um pneu aqui.';
   }
+  entrarMedicaoCampo();
 }
 
 function resetFormMontarNovo() {
@@ -1165,7 +1261,7 @@ function agendarAutoSave() {
   autoSaveTimer = setTimeout(salvarMedicaoTruck, 700);
 }
 
-async function salvarMedicaoTruck() {
+async function salvarMedicaoTruck({ concluir = false } = {}) {
   if (!pneuSelecionado || !veiculoAtual) return;
 
   const pontos = pontosFromInputs('truck');
@@ -1262,6 +1358,15 @@ async function salvarMedicaoTruck() {
       ? `Salvo! Crítico — ${result.menor_sulco} mm${acaoTxt}`
       : `Salvo — menor sulco: ${result.menor_sulco ?? '-'} mm${acaoTxt}`;
     status.className = `hint save-status ${result.status_sulco === 'critico' ? 'erro' : 'salvo'}`;
+    if (modoAcessoRapido && pneuSelecionado?.id) {
+      pneusMedidosSessao.add(pneuSelecionado.id);
+      atualizarProgressoCampo();
+      marcarPneusMedidosSessao();
+    }
+    if (concluir && modoAcessoRapido) {
+      voltarDesenhoCampo({ toastProx: true });
+      return;
+    }
     if (modoAcessoRapido) {
       toast(`Sulco salvo (${result.menor_sulco ?? '—'} mm)`, 'success');
     }
@@ -1320,7 +1425,10 @@ async function registrarEventoPneu(tipo) {
 
 document.getElementById('btn-truck-salvar-sulco')?.addEventListener('click', () => {
   clearTimeout(autoSaveTimer);
-  salvarMedicaoTruck();
+  salvarMedicaoTruck({ concluir: modoAcessoRapido });
+});
+document.getElementById('btn-campo-voltar')?.addEventListener('click', () => {
+  voltarDesenhoCampo();
 });
 
 document.getElementById('btn-truck-montar')?.addEventListener('click', montarPneuDoEstoque);
