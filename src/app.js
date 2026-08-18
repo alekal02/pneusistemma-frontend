@@ -2480,9 +2480,9 @@ function startWaPollFilial(filialId, nome) {
         if (detail) detail.textContent = 'Chatbot conectado — escolha o grupo abaixo.';
         document.getElementById('fc-step-connect')?.classList.add('is-done');
         document.getElementById('fc-step-group')?.classList.add('is-active');
-        const phone = data.phone || '';
+        const phone = String(data.phone || '').replace(/\D/g, '');
         const chipInput = document.getElementById('fc-whatsapp');
-        if (phone && phone.length >= 10 && phone.length <= 15 && chipInput && valorCampoWa(chipInput.value) !== phone) {
+        if (phone.length >= 10 && chipInput) {
           chipInput.value = phone;
           fetchJSON(`${API}/whatsapp/filiais-chatbot/${filialId}`, {
             method: 'PUT',
@@ -3087,8 +3087,8 @@ function renderChatbotPanelHtml(data) {
             </div>
             <div class="form-group">
               <label for="fc-whatsapp">Número do chip</label>
-              <input type="text" id="fc-whatsapp" class="mono" value="${escapeHtml(chip)}" placeholder="Preenchido ao conectar" inputmode="tel" readonly>
-              <small class="field-hint">Preenchido automaticamente quando o QR conectar.</small>
+              <input type="tel" id="fc-whatsapp" class="mono" value="${escapeHtml(chip)}" placeholder="Com DDI, ex.: 5562999999999" inputmode="tel" autocomplete="tel">
+              <small class="field-hint">Pode editar e salvar. Se o QR conectar, o número do chip entra sozinho.</small>
             </div>
             <p class="hint" id="fc-wuzapi-hint">Servidor do chatbot precisa estar no ar. Depois: Gerar token → Conectar / QR.</p>
             <div class="cb-qr-panel hidden" id="fc-qr-wrap">
@@ -3224,13 +3224,15 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
     hidden.value = lerAlertasSelecionados().join(',');
   };
 
-  const aplicarNumeroChip = async (phone, { salvar = true } = {}) => {
+  let chipSessaoAplicado = false;
+
+  const aplicarNumeroChip = async (phone, { salvar = true, forcar = false } = {}) => {
     const digits = String(phone || '').replace(/\D/g, '');
     if (digits.length < 10 || digits.length > 15) return;
     if (digits.length >= 15 && digits.startsWith('120')) return;
     const input = document.getElementById('fc-whatsapp');
     if (!input) return;
-    if (valorCampoWa(input.value) === digits) return;
+    if (!forcar && valorCampoWa(input.value) === digits) return;
     input.value = digits;
     if (!salvar || salvandoChipAuto) return;
     salvandoChipAuto = true;
@@ -3246,6 +3248,29 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
     }
   };
 
+  const salvarNumeroChipDigitado = async () => {
+    const input = document.getElementById('fc-whatsapp');
+    if (!input) return;
+    const digits = String(input.value || '').replace(/\D/g, '');
+    if (!digits) {
+      await fetchJSON(`${API}/whatsapp/filiais-chatbot/${filialId}`, {
+        method: 'PUT',
+        body: JSON.stringify({ whatsapp: null }),
+      });
+      return;
+    }
+    if (digits.length < 10 || digits.length > 15) {
+      toast('Informe o número com DDI (ex.: 5562…), 10 a 15 dígitos', 'error');
+      return;
+    }
+    input.value = digits;
+    await fetchJSON(`${API}/whatsapp/filiais-chatbot/${filialId}`, {
+      method: 'PUT',
+      body: JSON.stringify({ whatsapp: digits }),
+    });
+    toast('Número do chip salvo', 'success');
+  };
+
   const refreshStatus = async () => {
     if (!statusEl) return;
     const detail = document.getElementById('fc-status-detail');
@@ -3253,7 +3278,13 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
     const stepGroup = document.getElementById('fc-step-group');
     try {
       const st = await fetchJSON(`${API}/whatsapp/filial/${filialId}/status`);
-      if (st.loggedIn && st.phone) await aplicarNumeroChip(st.phone, { salvar: true });
+      if (st.loggedIn && st.phone) {
+        const atual = String(document.getElementById('fc-whatsapp')?.value || '').replace(/\D/g, '');
+        if (!chipSessaoAplicado || !atual) {
+          await aplicarNumeroChip(st.phone, { salvar: true, forcar: true });
+          chipSessaoAplicado = true;
+        }
+      }
       if (st.loggedIn) {
         statusEl.className = 'badge badge-ok';
         statusEl.textContent = 'Online';
@@ -3498,6 +3529,20 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
     }
   };
 
+  document.getElementById('fc-whatsapp')?.addEventListener('change', async () => {
+    try {
+      await salvarNumeroChipDigitado();
+    } catch (err) {
+      toast(err.message || 'Falha ao salvar o número', 'error');
+    }
+  });
+  document.getElementById('fc-whatsapp')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      document.getElementById('fc-whatsapp')?.blur();
+    }
+  });
+
   document.getElementById('fc-whatsapp-grupo')?.addEventListener('change', async () => {
     const grupo = document.getElementById('fc-whatsapp-grupo')?.value;
     if (!grupo) return;
@@ -3556,6 +3601,11 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
         body: '{}',
       });
       mostrarQrFilial(data, nomeFilial);
+      if (data.phone) {
+        chipSessaoAplicado = false;
+        await aplicarNumeroChip(data.phone, { salvar: true, forcar: true });
+        chipSessaoAplicado = true;
+      }
       if (data.loggedIn) {
         toast(data.mensagem || `Chatbot ${nomeFilial} já está conectado`, 'success');
       } else if (data.qrcode) {
