@@ -312,6 +312,57 @@ h3 {
 
 .veiculo-meta { display: flex; align-items: center; gap: .65rem; flex-wrap: wrap; }
 
+.dash-frota-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .5rem;
+  margin: 0 0 1rem;
+}
+.dash-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  padding: .4rem .7rem;
+  border-radius: 999px;
+  font-size: .82rem;
+  font-weight: 600;
+  border: 1px solid var(--border);
+  background: var(--surface-2);
+}
+.dash-chip strong { font-size: 1rem; }
+.dash-chip-ok { background: #dcfce7; border-color: #86efac; color: #166534; }
+.dash-chip-pendente { background: #f1f5f9; border-color: #cbd5e1; color: #334155; }
+.dash-frota-sec {
+  display: flex;
+  flex-direction: column;
+  gap: .7rem;
+  margin-bottom: 1.35rem;
+}
+.dash-frota-sec h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: 1.05rem;
+  display: flex;
+  align-items: baseline;
+  gap: .45rem;
+}
+.dash-frota-sec h3 span {
+  font-size: .8rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+.dash-frota-sec > .hint { margin: 0; }
+.dash-medicao-data {
+  font-size: .8rem !important;
+  color: var(--text-muted);
+  margin-top: .28rem !important;
+  font-weight: 600;
+}
+.veiculo-card-pendente {
+  border-style: dashed;
+  background: var(--surface-2);
+}
+
 /* Badges */
 .badge {
   display: inline-block;

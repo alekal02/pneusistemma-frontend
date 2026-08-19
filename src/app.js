@@ -186,7 +186,9 @@ function badgeAcao(codigo, label) {
 
 function formatDate(d) {
   if (!d) return '-';
-  const [y, m, day] = d.split('-');
+  const s = String(d).slice(0, 10);
+  const [y, m, day] = s.split('-');
+  if (!y || !m || !day) return '-';
   return `${day}/${m}/${y}`;
 }
 
@@ -526,26 +528,81 @@ async function loadDashboard() {
     if (hint) hint.textContent = hintLimites();
 
     const lista = document.getElementById('dashboard-lista');
+    const chips = document.getElementById('dashboard-frota-chips');
     if (!veiculos.length) {
+      if (chips) chips.innerHTML = '';
       lista.innerHTML = '<div class="empty-state"><h3>Nenhum veículo cadastrado</h3><p>Cadastre seu primeiro veículo na aba Veículos</p></div>';
       return;
     }
 
-    lista.innerHTML = veiculos.map((v) => `
-      <div class="veiculo-card" data-id="${v.id}">
-        <div class="veiculo-info">
-          <h4>${v.apelido || v.placa}</h4>
-          <p>${v.placa} · ${v.tipo} · ${v.km_atual?.toLocaleString('pt-BR') || 0} km</p>
+    const tsAtualizacao = (v) => {
+      const raw = v.ultima_atualizacao || v.ultima_medicao;
+      const t = raw ? Date.parse(raw) : 0;
+      return Number.isFinite(t) ? t : 0;
+    };
+    const medidos = veiculos
+      .filter((v) => v.ultima_medicao || Number(v.pneus_medidos) > 0)
+      .sort((a, b) => tsAtualizacao(b) - tsAtualizacao(a));
+    const pendentes = veiculos
+      .filter((v) => !v.ultima_medicao && !(Number(v.pneus_medidos) > 0))
+      .sort((a, b) => String(a.apelido || a.placa).localeCompare(String(b.apelido || b.placa), 'pt-BR'));
+
+    if (chips) {
+      chips.innerHTML = `
+        <span class="dash-chip dash-chip-ok"><strong>${medidos.length}</strong> já medidos</span>
+        <span class="dash-chip dash-chip-pendente"><strong>${pendentes.length}</strong> ainda sem medição</span>
+      `;
+    }
+
+    const renderCard = (v, pendente) => {
+      const dataMed = v.ultima_medicao
+        ? `Última medição: ${formatDate(v.ultima_medicao)}`
+        : 'Ainda sem medição';
+      const nMed = Number(v.pneus_medidos) || 0;
+      const nTot = Number(v.total_pneus) || 0;
+      const posTxt = nTot
+        ? `${nMed}/${nTot} posições medidas`
+        : 'Sem pneus montados';
+      return `
+        <div class="veiculo-card${pendente ? ' veiculo-card-pendente' : ''}" data-id="${v.id}">
+          <div class="veiculo-info">
+            <h4>${escapeHtml(v.apelido || v.placa)}</h4>
+            <p>${escapeHtml(v.placa)} · ${escapeHtml(normalizarTipoLabel(v.tipo) || '')} · ${(v.km_atual || 0).toLocaleString('pt-BR')} km</p>
+            <p class="dash-medicao-data">${escapeHtml(dataMed)} · ${escapeHtml(posTxt)}</p>
+          </div>
+          <div class="veiculo-meta">
+            ${v.menor_sulco != null ? `<span style="font-weight:600">${v.menor_sulco} mm</span>` : ''}
+            ${badge(v.status_sulco)}
+            ${pendente ? `<button type="button" class="btn btn-sm btn-primary btn-dash-medir" data-id="${v.id}">Medir</button>` : ''}
+          </div>
         </div>
-        <div class="veiculo-meta">
-          ${v.menor_sulco != null ? `<span style="font-weight:600">${v.menor_sulco} mm</span>` : ''}
-          ${badge(v.status_sulco)}
-        </div>
-      </div>
-    `).join('');
+      `;
+    };
+
+    lista.innerHTML = `
+      <section class="dash-frota-sec">
+        <h3>Já medidos <span>${medidos.length}</span></h3>
+        <p class="hint">${medidos.length ? 'Mais recentes primeiro — toque para abrir o caminhão.' : 'Nenhum caminhão medido ainda.'}</p>
+        ${medidos.map((v) => renderCard(v, false)).join('')}
+      </section>
+      <section class="dash-frota-sec">
+        <h3>Ainda sem medição <span>${pendentes.length}</span></h3>
+        <p class="hint">${pendentes.length ? 'Ativos que ainda não tiveram sulco registrado.' : 'Todos os ativos já têm medição.'}</p>
+        ${pendentes.map((v) => renderCard(v, true)).join('')}
+      </section>
+    `;
 
     lista.querySelectorAll('.veiculo-card').forEach((card) => {
-      card.addEventListener('click', () => openVeiculoDetalhe(card.dataset.id, 'dashboard'));
+      card.addEventListener('click', (e) => {
+        if (e.target.closest('.btn-dash-medir')) return;
+        openVeiculoDetalhe(card.dataset.id, 'dashboard');
+      });
+    });
+    lista.querySelectorAll('.btn-dash-medir').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        openVeiculoDetalhe(btn.dataset.id, 'dashboard');
+      });
     });
   } catch (err) {
     toast(err.message, 'error');
