@@ -318,6 +318,24 @@ h3 {
   gap: .5rem;
   margin: 0 0 1rem;
 }
+.dash-dia-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .65rem 1rem;
+  margin: 0 0 .85rem;
+}
+.dash-dia-row label {
+  font-weight: 600;
+  font-size: .88rem;
+}
+.dash-dia-row select {
+  min-width: 180px;
+}
+.veiculo-card-atrasado {
+  border-color: #fecaca;
+  background: #fef2f2;
+}
 .dash-chip {
   display: inline-flex;
   align-items: center;

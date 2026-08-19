@@ -218,6 +218,11 @@
       </div>
       <h2>Resumo da Frota</h2>
       <p class="hint" id="dashboard-limites-hint"></p>
+      <div class="dash-dia-row" id="dash-dia-wrap">
+        <label for="dash-dia-medicao">Dia da medição da frota</label>
+        <select id="dash-dia-medicao"></select>
+        <span class="hint" id="dash-dia-hoje" style="margin:0"></span>
+      </div>
       <div class="dash-frota-chips" id="dashboard-frota-chips"></div>
       <div id="dashboard-lista" class="card-list"></div>
     </section>
@@ -784,6 +789,11 @@
         <label for="v-tipo">Tipo do veículo *</label>
         <select id="v-tipo"></select>
       </div>
+      <div class="form-group">
+        <label for="v-dia-medicao">Dia da medição</label>
+        <select id="v-dia-medicao"></select>
+        <small class="field-hint">Dia da semana em que este caminhão deve ser medido.</small>
+      </div>
 
       <div class="form-group">
         <label for="v-layout">Quantos pneus / eixos?</label>
@@ -865,6 +875,11 @@
           <label for="f-contrato">Contrato</label>
           <input type="text" id="f-contrato" placeholder="Ex: Pref. XYZ 2026">
         </div>
+      </div>
+      <div class="form-group">
+        <label for="f-dia-medicao">Dia da medição da frota</label>
+        <select id="f-dia-medicao"></select>
+        <small class="field-hint">Usado no dashboard para ver quem já mediu nesta semana.</small>
       </div>
       <div class="form-row" id="f-login-row">
         <div class="form-group">

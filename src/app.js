@@ -29,6 +29,7 @@ let authToken = null;
 let slotPosicaoSelecionada = null;
 let modoAcessoRapido = false;
 let tokenAcessoRapido = null;
+let diaMedicaoUnidade = null;
 let pneusMedidosSessao = new Set();
 let sessaoCampoVeiculoId = null;
 
@@ -190,6 +191,59 @@ function formatDate(d) {
   const [y, m, day] = s.split('-');
   if (!y || !m || !day) return '-';
   return `${day}/${m}/${y}`;
+}
+
+const DIAS_SEMANA = [
+  { id: 1, label: 'Segunda' },
+  { id: 2, label: 'Terça' },
+  { id: 3, label: 'Quarta' },
+  { id: 4, label: 'Quinta' },
+  { id: 5, label: 'Sexta' },
+  { id: 6, label: 'Sábado' },
+  { id: 7, label: 'Domingo' },
+];
+
+function labelDiaSemana(n) {
+  return DIAS_SEMANA.find((d) => d.id === Number(n))?.label || '';
+}
+
+function optionsDiaSemana(selected, { incluirVazio = false, vazioLabel = '— Escolha o dia —' } = {}) {
+  const vazio = incluirVazio ? `<option value="">${vazioLabel}</option>` : '';
+  return vazio + DIAS_SEMANA.map((d) => (
+    `<option value="${d.id}"${Number(selected) === d.id ? ' selected' : ''}>${d.label}</option>`
+  )).join('');
+}
+
+function semanaMedicaoBrasil(agora = new Date()) {
+  const hoje = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Sao_Paulo',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(agora);
+  const wd = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Sao_Paulo',
+    weekday: 'short',
+  }).format(agora);
+  const isoDia = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 }[wd] || 1;
+  const [y, m, d] = hoje.split('-').map(Number);
+  const utc = Date.UTC(y, m - 1, d);
+  const monday = utc - (isoDia - 1) * 86_400_000;
+  const sunday = monday + 6 * 86_400_000;
+  const iso = (ms) => new Date(ms).toISOString().slice(0, 10);
+  return {
+    hoje,
+    isoDia,
+    inicio: iso(monday),
+    fim: iso(sunday),
+    diaHojeLabel: labelDiaSemana(isoDia),
+  };
+}
+
+function medidoNestaSemana(ultima, semana) {
+  if (!ultima || !semana?.inicio) return false;
+  const d = String(ultima).slice(0, 10);
+  return d >= semana.inicio && d <= semana.fim;
 }
 
 /** Corrige tipos com acento corrompido vindos do banco */
@@ -529,6 +583,32 @@ async function loadDashboard() {
 
     const lista = document.getElementById('dashboard-lista');
     const chips = document.getElementById('dashboard-frota-chips');
+    const selDia = document.getElementById('dash-dia-medicao');
+    const hojeEl = document.getElementById('dash-dia-hoje');
+    const semana = resumo.semana
+      ? {
+        hoje: resumo.semana.hoje,
+        isoDia: resumo.semana.iso_dia,
+        inicio: resumo.semana.inicio,
+        fim: resumo.semana.fim,
+        diaHojeLabel: resumo.semana.dia_hoje_label,
+      }
+      : semanaMedicaoBrasil();
+    const diaUnidade = Number(resumo.dia_medicao) || null;
+    diaMedicaoUnidade = diaUnidade;
+    if (selDia) {
+      if (!selDia.dataset.ready) {
+        selDia.innerHTML = optionsDiaSemana(diaUnidade, { incluirVazio: true });
+        selDia.dataset.ready = '1';
+      } else {
+        selDia.value = diaUnidade ? String(diaUnidade) : '';
+      }
+    }
+    if (hojeEl) {
+      hojeEl.textContent = diaUnidade
+        ? `Hoje é ${semana.diaHojeLabel}. Meta da frota: ${labelDiaSemana(diaUnidade)}.`
+        : `Hoje é ${semana.diaHojeLabel}. Escolha o dia para conferir a semana.`;
+    }
     if (!veiculos.length) {
       if (chips) chips.innerHTML = '';
       lista.innerHTML = '<div class="empty-state"><h3>Nenhum veículo cadastrado</h3><p>Cadastre seu primeiro veículo na aba Veículos</p></div>';
@@ -540,39 +620,56 @@ async function loadDashboard() {
       const t = raw ? Date.parse(raw) : 0;
       return Number.isFinite(t) ? t : 0;
     };
+    const diaDoVeiculo = (v) => Number(v.dia_medicao) || diaUnidade || null;
+    const naSemana = (v) => medidoNestaSemana(v.ultima_medicao, semana);
     const medidos = veiculos
-      .filter((v) => v.ultima_medicao || Number(v.pneus_medidos) > 0)
+      .filter((v) => naSemana(v))
       .sort((a, b) => tsAtualizacao(b) - tsAtualizacao(a));
     const pendentes = veiculos
-      .filter((v) => !v.ultima_medicao && !(Number(v.pneus_medidos) > 0))
-      .sort((a, b) => String(a.apelido || a.placa).localeCompare(String(b.apelido || b.placa), 'pt-BR'));
+      .filter((v) => !naSemana(v))
+      .sort((a, b) => {
+        const atrasoA = diaDoVeiculo(a) && semana.isoDia > diaDoVeiculo(a) ? 0 : 1;
+        const atrasoB = diaDoVeiculo(b) && semana.isoDia > diaDoVeiculo(b) ? 0 : 1;
+        if (atrasoA !== atrasoB) return atrasoA - atrasoB;
+        return String(a.apelido || a.placa).localeCompare(String(b.apelido || b.placa), 'pt-BR');
+      });
 
     if (chips) {
       chips.innerHTML = `
-        <span class="dash-chip dash-chip-ok"><strong>${medidos.length}</strong> já medidos</span>
-        <span class="dash-chip dash-chip-pendente"><strong>${pendentes.length}</strong> ainda sem medição</span>
+        <span class="dash-chip dash-chip-ok"><strong>${medidos.length}</strong> medidos nesta semana</span>
+        <span class="dash-chip dash-chip-pendente"><strong>${pendentes.length}</strong> pendentes nesta semana</span>
       `;
     }
 
     const renderCard = (v, pendente) => {
+      const diaV = diaDoVeiculo(v);
       const dataMed = v.ultima_medicao
         ? `Última medição: ${formatDate(v.ultima_medicao)}`
         : 'Ainda sem medição';
       const nMed = Number(v.pneus_medidos) || 0;
       const nTot = Number(v.total_pneus) || 0;
-      const posTxt = nTot
-        ? `${nMed}/${nTot} posições medidas`
-        : 'Sem pneus montados';
+      const posTxt = nTot ? `${nMed}/${nTot} posições medidas` : 'Sem pneus montados';
+      const atrasado = pendente && diaV && semana.isoDia > diaV;
+      const eHoje = pendente && diaV && semana.isoDia === diaV;
+      const statusSemana = !pendente
+        ? '<span class="badge badge-ok">Nesta semana</span>'
+        : (atrasado
+          ? '<span class="badge badge-critico">Atrasado</span>'
+          : (eHoje
+            ? '<span class="badge badge-alerta">Medir hoje</span>'
+            : '<span class="badge badge-sem_dado">Pendente</span>'));
+      const diaTxt = diaV ? `Dia: ${labelDiaSemana(diaV)}` : 'Sem dia definido';
       return `
-        <div class="veiculo-card${pendente ? ' veiculo-card-pendente' : ''}" data-id="${v.id}">
+        <div class="veiculo-card${pendente ? ' veiculo-card-pendente' : ''}${atrasado ? ' veiculo-card-atrasado' : ''}" data-id="${v.id}">
           <div class="veiculo-info">
             <h4>${escapeHtml(v.apelido || v.placa)}</h4>
             <p>${escapeHtml(v.placa)} · ${escapeHtml(normalizarTipoLabel(v.tipo) || '')} · ${(v.km_atual || 0).toLocaleString('pt-BR')} km</p>
-            <p class="dash-medicao-data">${escapeHtml(dataMed)} · ${escapeHtml(posTxt)}</p>
+            <p class="dash-medicao-data">${escapeHtml(diaTxt)} · ${escapeHtml(dataMed)} · ${escapeHtml(posTxt)}</p>
           </div>
           <div class="veiculo-meta">
             ${v.menor_sulco != null ? `<span style="font-weight:600">${v.menor_sulco} mm</span>` : ''}
             ${badge(v.status_sulco)}
+            ${statusSemana}
             ${pendente ? `<button type="button" class="btn btn-sm btn-primary btn-dash-medir" data-id="${v.id}">Medir</button>` : ''}
           </div>
         </div>
@@ -581,13 +678,13 @@ async function loadDashboard() {
 
     lista.innerHTML = `
       <section class="dash-frota-sec">
-        <h3>Já medidos <span>${medidos.length}</span></h3>
-        <p class="hint">${medidos.length ? 'Mais recentes primeiro — toque para abrir o caminhão.' : 'Nenhum caminhão medido ainda.'}</p>
+        <h3>Medidos nesta semana <span>${medidos.length}</span></h3>
+        <p class="hint">${medidos.length ? `${semana.inicio.split('-').reverse().join('/')} a ${semana.fim.split('-').reverse().join('/')} — mais recentes primeiro.` : 'Nenhum caminhão medido nesta semana ainda.'}</p>
         ${medidos.map((v) => renderCard(v, false)).join('')}
       </section>
       <section class="dash-frota-sec">
-        <h3>Ainda sem medição <span>${pendentes.length}</span></h3>
-        <p class="hint">${pendentes.length ? 'Ativos que ainda não tiveram sulco registrado.' : 'Todos os ativos já têm medição.'}</p>
+        <h3>Pendentes nesta semana <span>${pendentes.length}</span></h3>
+        <p class="hint">${pendentes.length ? (diaUnidade ? `Faltam medir até ${labelDiaSemana(diaUnidade)} (ou nesta semana).` : 'Ativos sem medição nesta semana.') : 'Toda a frota já foi medida nesta semana.'}</p>
         ${pendentes.map((v) => renderCard(v, true)).join('')}
       </section>
     `;
@@ -608,6 +705,21 @@ async function loadDashboard() {
     toast(err.message, 'error');
   }
 }
+
+document.getElementById('dash-dia-medicao')?.addEventListener('change', async (e) => {
+  const raw = e.target.value;
+  const dia = raw ? Number(raw) : null;
+  try {
+    const data = await fetchJSON(`${API}/dashboard/dia-medicao`, {
+      method: 'PUT',
+      body: JSON.stringify({ dia_medicao: dia }),
+    });
+    toast(data.mensagem || 'Dia da frota salvo', 'success');
+    loadDashboard();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+});
 
 // ── Veículos ───────────────────────────────────────────
 
@@ -2169,6 +2281,10 @@ document.getElementById('btn-novo-veiculo').addEventListener('click', () => {
     }
   }
   onLayoutSelectChange('v-layout', 'v-layout-desc', 'v-layout-preview', 'v-layout-diagram');
+  const selDiaV = document.getElementById('v-dia-medicao');
+  if (selDiaV) {
+    selDiaV.innerHTML = optionsDiaSemana(diaMedicaoUnidade, { incluirVazio: true, vazioLabel: '— Usar dia da frota —' });
+  }
   modalVeiculo.showModal();
 });
 
@@ -2205,6 +2321,9 @@ document.getElementById('form-veiculo').addEventListener('submit', async (e) => 
         km_atual: parseInt(document.getElementById('v-km').value) || 0,
         hr_atual: parseFloat(document.getElementById('v-hr').value) || 0,
         layout_pneus: document.getElementById('v-layout').value,
+        dia_medicao: document.getElementById('v-dia-medicao')?.value
+          ? Number(document.getElementById('v-dia-medicao').value)
+          : null,
       }),
     });
     modalVeiculo.close();
@@ -4002,6 +4121,9 @@ function wireEdicaoVeiculoInspecao() {
           hr_atual: numOrNull('insp-v-hr'),
           marca: document.getElementById('insp-v-marca')?.value || '',
           modelo: document.getElementById('insp-v-modelo')?.value || '',
+          dia_medicao: document.getElementById('insp-v-dia')?.value
+            ? Number(document.getElementById('insp-v-dia').value)
+            : null,
         }),
       });
       toast('Veículo atualizado', 'success');
@@ -4171,6 +4293,10 @@ async function abrirInspecaoVeiculoFilial(filialId, veiculoId) {
             <label for="insp-v-modelo">Modelo</label>
             <input type="text" id="insp-v-modelo" value="${escapeHtml(v.modelo || '')}">
           </div>
+          <div class="form-group">
+            <label for="insp-v-dia">Dia da medição</label>
+            <select id="insp-v-dia">${optionsDiaSemana(v.dia_medicao, { incluirVazio: true, vazioLabel: '— Usar dia da frota —' })}</select>
+          </div>
         </div>
         <button type="button" class="btn btn-primary btn-sm" id="btn-insp-salvar-veiculo">Salvar veículo</button>
       </details>
@@ -4264,6 +4390,8 @@ async function abrirModalFilial(id = null) {
     document.getElementById('f-nome').value = f.nome || '';
     document.getElementById('f-codigo').value = f.codigo || '';
     document.getElementById('f-contrato').value = f.contrato || '';
+    const fDia = document.getElementById('f-dia-medicao');
+    if (fDia) fDia.innerHTML = optionsDiaSemana(f.dia_medicao, { incluirVazio: true });
     document.getElementById('f-whatsapp').value = valorCampoWa(f.whatsapp);
     const alertaEl = document.getElementById('f-whatsapp-alerta');
     if (alertaEl) alertaEl.value = valorCampoWa(f.whatsapp_alerta);
@@ -4274,6 +4402,8 @@ async function abrirModalFilial(id = null) {
     }
   } else {
     document.getElementById('modal-filial-titulo').textContent = 'Nova Filial';
+    const fDia = document.getElementById('f-dia-medicao');
+    if (fDia) fDia.innerHTML = optionsDiaSemana('', { incluirVazio: true });
     document.getElementById('f-login-row').classList.remove('hidden');
     document.getElementById('f-reset-row').classList.add('hidden');
     document.getElementById('f-login').required = true;
@@ -4307,6 +4437,9 @@ document.getElementById('form-filial')?.addEventListener('submit', async (e) => 
         contrato: document.getElementById('f-contrato').value,
         whatsapp: document.getElementById('f-whatsapp').value || null,
         whatsapp_alerta: document.getElementById('f-whatsapp-alerta')?.value || null,
+        dia_medicao: document.getElementById('f-dia-medicao')?.value
+          ? Number(document.getElementById('f-dia-medicao').value)
+          : null,
       };
       const tok = document.getElementById('f-wuzapi-token')?.value?.trim();
       if (tok) body.wuzapi_token = tok;
