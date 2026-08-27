@@ -218,6 +218,12 @@
       </div>
       <h2>Resumo da Frota</h2>
       <p class="hint" id="dashboard-limites-hint"></p>
+      <div class="dash-dia-row" id="dash-dia-wrap">
+        <label for="dash-dia-medicao">Dia da medição da frota</label>
+        <select id="dash-dia-medicao"></select>
+        <span class="hint" id="dash-dia-hoje" style="margin:0"></span>
+      </div>
+      <div class="dash-frota-chips" id="dashboard-frota-chips"></div>
       <div id="dashboard-lista" class="card-list"></div>
     </section>
 
@@ -321,6 +327,10 @@
             <p class="hint">Slot vazio (+) = colocar pneu · Pneu montado = medir sulco</p>
           </div>
           <div class="truck-panel-form hidden" id="truck-panel-form">
+            <div id="truck-campo-nav" class="truck-campo-nav hidden">
+              <button type="button" class="btn btn-ghost btn-sm" id="btn-campo-voltar">← Voltar ao desenho</button>
+              <span id="truck-campo-progresso" class="hint"></span>
+            </div>
             <h3 id="truck-pneu-nome">Pneu</h3>
             <div class="truck-badges">
               <span id="truck-pneu-status"></span>
@@ -466,8 +476,8 @@
               <div class="acao-instrucao hidden" id="truck-acao-instrucao"></div>
               <div class="rodizio-sugestao hidden" id="truck-rodizio-sugestao"></div>
               <p class="hint save-status" id="truck-save-status">Preencha os sulcos — salva automaticamente</p>
-              <button type="button" class="btn btn-primary" id="btn-truck-salvar-sulco">Salvar medição de sulco</button>
               <div id="truck-mini-marker" class="tire-container" style="min-height:240px"></div>
+              <button type="button" class="btn btn-primary" id="btn-truck-salvar-sulco">Salvar medição de sulco</button>
               <div class="panel-actions" id="truck-panel-acoes">
                 <p class="panel-actions-label">Ações no pneu</p>
                 <div class="panel-actions-grid" id="truck-panel-acoes-ops">
@@ -779,6 +789,11 @@
         <label for="v-tipo">Tipo do veículo *</label>
         <select id="v-tipo"></select>
       </div>
+      <div class="form-group">
+        <label for="v-dia-medicao">Dia da medição</label>
+        <select id="v-dia-medicao"></select>
+        <small class="field-hint">Dia da semana em que este caminhão deve ser medido.</small>
+      </div>
 
       <div class="form-group">
         <label for="v-layout">Quantos pneus / eixos?</label>
@@ -860,6 +875,11 @@
           <label for="f-contrato">Contrato</label>
           <input type="text" id="f-contrato" placeholder="Ex: Pref. XYZ 2026">
         </div>
+      </div>
+      <div class="form-group">
+        <label for="f-dia-medicao">Dia da medição da frota</label>
+        <select id="f-dia-medicao"></select>
+        <small class="field-hint">Usado no dashboard para ver quem já mediu nesta semana.</small>
       </div>
       <div class="form-row" id="f-login-row">
         <div class="form-group">
