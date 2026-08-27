@@ -312,75 +312,6 @@ h3 {
 
 .veiculo-meta { display: flex; align-items: center; gap: .65rem; flex-wrap: wrap; }
 
-.dash-frota-chips {
-  display: flex;
-  flex-wrap: wrap;
-  gap: .5rem;
-  margin: 0 0 1rem;
-}
-.dash-dia-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: .65rem 1rem;
-  margin: 0 0 .85rem;
-}
-.dash-dia-row label {
-  font-weight: 600;
-  font-size: .88rem;
-}
-.dash-dia-row select {
-  min-width: 180px;
-}
-.veiculo-card-atrasado {
-  border-color: #fecaca;
-  background: #fef2f2;
-}
-.dash-chip {
-  display: inline-flex;
-  align-items: center;
-  gap: .35rem;
-  padding: .4rem .7rem;
-  border-radius: 999px;
-  font-size: .82rem;
-  font-weight: 600;
-  border: 1px solid var(--border);
-  background: var(--surface-2);
-}
-.dash-chip strong { font-size: 1rem; }
-.dash-chip-ok { background: #dcfce7; border-color: #86efac; color: #166534; }
-.dash-chip-pendente { background: #f1f5f9; border-color: #cbd5e1; color: #334155; }
-.dash-frota-sec {
-  display: flex;
-  flex-direction: column;
-  gap: .7rem;
-  margin-bottom: 1.35rem;
-}
-.dash-frota-sec h3 {
-  margin: 0;
-  font-family: var(--font-display);
-  font-size: 1.05rem;
-  display: flex;
-  align-items: baseline;
-  gap: .45rem;
-}
-.dash-frota-sec h3 span {
-  font-size: .8rem;
-  font-weight: 600;
-  color: var(--text-muted);
-}
-.dash-frota-sec > .hint { margin: 0; }
-.dash-medicao-data {
-  font-size: .8rem !important;
-  color: var(--text-muted);
-  margin-top: .28rem !important;
-  font-weight: 600;
-}
-.veiculo-card-pendente {
-  border-style: dashed;
-  background: var(--surface-2);
-}
-
 /* Badges */
 .badge {
   display: inline-block;
@@ -1775,61 +1706,6 @@ h3 {
   color: #145223;
   font-size: .9rem;
   font-weight: 600;
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: .75rem;
-  flex-wrap: wrap;
-}
-.truck-campo-nav {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: .75rem;
-  flex-wrap: wrap;
-  margin: 0 0 .85rem;
-  padding-bottom: .65rem;
-  border-bottom: 1px solid var(--border);
-}
-.truck-svg .pneu-sessao-ok .pneu-status-ring {
-  stroke: #16a34a;
-  stroke-width: 3;
-}
-.tire-pick.is-sessao-ok {
-  outline: 2px solid #16a34a;
-  outline-offset: 1px;
-}
-
-#view-veiculo-detalhe.campo-medindo .truck-diagram-wrap,
-#view-veiculo-detalhe.campo-medindo #truck-fluxo-banner,
-#view-veiculo-detalhe.campo-medindo #historico-pneu,
-#view-veiculo-detalhe.campo-medindo .pneu-info-fixa,
-#view-veiculo-detalhe.campo-medindo #truck-panel-acoes {
-  display: none;
-}
-#view-veiculo-detalhe.campo-medindo .truck-layout {
-  grid-template-columns: 1fr;
-}
-#view-veiculo-detalhe.campo-medindo .truck-panel {
-  min-height: auto;
-}
-#view-veiculo-detalhe.campo-medindo #truck-medicao-box .form-row-4 input {
-  font-size: 1.35rem;
-  min-height: 3rem;
-  text-align: center;
-  font-weight: 700;
-}
-#view-veiculo-detalhe.campo-medindo #btn-truck-salvar-sulco {
-  position: sticky;
-  bottom: 12px;
-  z-index: 5;
-  width: 100%;
-  padding: .95rem 1rem;
-  font-size: 1.05rem;
-  margin-top: .75rem;
-}
-#view-veiculo-detalhe.campo-medindo #truck-mini-marker {
-  min-height: 200px;
 }
 .erro-token-container {
   max-width: 420px;
@@ -2104,8 +1980,11 @@ h3 {
   margin: 0 0 .35rem;
   font-family: var(--font-display);
 }
-.cb-autosave-hint {
-  margin: 0 1.25rem .85rem;
+.cb-footer-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: .5rem;
+  padding: .85rem 1.25rem 1.1rem;
 }
 .filial-chatbot-panel .form-group {
   margin-bottom: .75rem;

@@ -29,9 +29,6 @@ let authToken = null;
 let slotPosicaoSelecionada = null;
 let modoAcessoRapido = false;
 let tokenAcessoRapido = null;
-let diaMedicaoUnidade = null;
-let pneusMedidosSessao = new Set();
-let sessaoCampoVeiculoId = null;
 
 const LAYOUT_POR_TIPO = {
   'Truck / Tração': 'truck_10',
@@ -187,63 +184,8 @@ function badgeAcao(codigo, label) {
 
 function formatDate(d) {
   if (!d) return '-';
-  const s = String(d).slice(0, 10);
-  const [y, m, day] = s.split('-');
-  if (!y || !m || !day) return '-';
+  const [y, m, day] = d.split('-');
   return `${day}/${m}/${y}`;
-}
-
-const DIAS_SEMANA = [
-  { id: 1, label: 'Segunda' },
-  { id: 2, label: 'Terça' },
-  { id: 3, label: 'Quarta' },
-  { id: 4, label: 'Quinta' },
-  { id: 5, label: 'Sexta' },
-  { id: 6, label: 'Sábado' },
-  { id: 7, label: 'Domingo' },
-];
-
-function labelDiaSemana(n) {
-  return DIAS_SEMANA.find((d) => d.id === Number(n))?.label || '';
-}
-
-function optionsDiaSemana(selected, { incluirVazio = false, vazioLabel = '— Escolha o dia —' } = {}) {
-  const vazio = incluirVazio ? `<option value="">${vazioLabel}</option>` : '';
-  return vazio + DIAS_SEMANA.map((d) => (
-    `<option value="${d.id}"${Number(selected) === d.id ? ' selected' : ''}>${d.label}</option>`
-  )).join('');
-}
-
-function semanaMedicaoBrasil(agora = new Date()) {
-  const hoje = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Sao_Paulo',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).format(agora);
-  const wd = new Intl.DateTimeFormat('en-US', {
-    timeZone: 'America/Sao_Paulo',
-    weekday: 'short',
-  }).format(agora);
-  const isoDia = { Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6, Sun: 7 }[wd] || 1;
-  const [y, m, d] = hoje.split('-').map(Number);
-  const utc = Date.UTC(y, m - 1, d);
-  const monday = utc - (isoDia - 1) * 86_400_000;
-  const sunday = monday + 6 * 86_400_000;
-  const iso = (ms) => new Date(ms).toISOString().slice(0, 10);
-  return {
-    hoje,
-    isoDia,
-    inicio: iso(monday),
-    fim: iso(sunday),
-    diaHojeLabel: labelDiaSemana(isoDia),
-  };
-}
-
-function medidoNestaSemana(ultima, semana) {
-  if (!ultima || !semana?.inicio) return false;
-  const d = String(ultima).slice(0, 10);
-  return d >= semana.inicio && d <= semana.fim;
 }
 
 /** Corrige tipos com acento corrompido vindos do banco */
@@ -582,144 +524,31 @@ async function loadDashboard() {
     if (hint) hint.textContent = hintLimites();
 
     const lista = document.getElementById('dashboard-lista');
-    const chips = document.getElementById('dashboard-frota-chips');
-    const selDia = document.getElementById('dash-dia-medicao');
-    const hojeEl = document.getElementById('dash-dia-hoje');
-    const semana = resumo.semana
-      ? {
-        hoje: resumo.semana.hoje,
-        isoDia: resumo.semana.iso_dia,
-        inicio: resumo.semana.inicio,
-        fim: resumo.semana.fim,
-        diaHojeLabel: resumo.semana.dia_hoje_label,
-      }
-      : semanaMedicaoBrasil();
-    const diaUnidade = Number(resumo.dia_medicao) || null;
-    diaMedicaoUnidade = diaUnidade;
-    if (selDia) {
-      if (!selDia.dataset.ready) {
-        selDia.innerHTML = optionsDiaSemana(diaUnidade, { incluirVazio: true });
-        selDia.dataset.ready = '1';
-      } else {
-        selDia.value = diaUnidade ? String(diaUnidade) : '';
-      }
-    }
-    if (hojeEl) {
-      hojeEl.textContent = diaUnidade
-        ? `Hoje é ${semana.diaHojeLabel}. Meta da frota: ${labelDiaSemana(diaUnidade)}.`
-        : `Hoje é ${semana.diaHojeLabel}. Escolha o dia para conferir a semana.`;
-    }
     if (!veiculos.length) {
-      if (chips) chips.innerHTML = '';
       lista.innerHTML = '<div class="empty-state"><h3>Nenhum veículo cadastrado</h3><p>Cadastre seu primeiro veículo na aba Veículos</p></div>';
       return;
     }
 
-    const tsAtualizacao = (v) => {
-      const raw = v.ultima_atualizacao || v.ultima_medicao;
-      const t = raw ? Date.parse(raw) : 0;
-      return Number.isFinite(t) ? t : 0;
-    };
-    const diaDoVeiculo = (v) => Number(v.dia_medicao) || diaUnidade || null;
-    const naSemana = (v) => medidoNestaSemana(v.ultima_medicao, semana);
-    const medidos = veiculos
-      .filter((v) => naSemana(v))
-      .sort((a, b) => tsAtualizacao(b) - tsAtualizacao(a));
-    const pendentes = veiculos
-      .filter((v) => !naSemana(v))
-      .sort((a, b) => {
-        const atrasoA = diaDoVeiculo(a) && semana.isoDia > diaDoVeiculo(a) ? 0 : 1;
-        const atrasoB = diaDoVeiculo(b) && semana.isoDia > diaDoVeiculo(b) ? 0 : 1;
-        if (atrasoA !== atrasoB) return atrasoA - atrasoB;
-        return String(a.apelido || a.placa).localeCompare(String(b.apelido || b.placa), 'pt-BR');
-      });
-
-    if (chips) {
-      chips.innerHTML = `
-        <span class="dash-chip dash-chip-ok"><strong>${medidos.length}</strong> medidos nesta semana</span>
-        <span class="dash-chip dash-chip-pendente"><strong>${pendentes.length}</strong> pendentes nesta semana</span>
-      `;
-    }
-
-    const renderCard = (v, pendente) => {
-      const diaV = diaDoVeiculo(v);
-      const dataMed = v.ultima_medicao
-        ? `Última medição: ${formatDate(v.ultima_medicao)}`
-        : 'Ainda sem medição';
-      const nMed = Number(v.pneus_medidos) || 0;
-      const nTot = Number(v.total_pneus) || 0;
-      const posTxt = nTot ? `${nMed}/${nTot} posições medidas` : 'Sem pneus montados';
-      const atrasado = pendente && diaV && semana.isoDia > diaV;
-      const eHoje = pendente && diaV && semana.isoDia === diaV;
-      const statusSemana = !pendente
-        ? '<span class="badge badge-ok">Nesta semana</span>'
-        : (atrasado
-          ? '<span class="badge badge-critico">Atrasado</span>'
-          : (eHoje
-            ? '<span class="badge badge-alerta">Medir hoje</span>'
-            : '<span class="badge badge-sem_dado">Pendente</span>'));
-      const diaTxt = diaV ? `Dia: ${labelDiaSemana(diaV)}` : 'Sem dia definido';
-      return `
-        <div class="veiculo-card${pendente ? ' veiculo-card-pendente' : ''}${atrasado ? ' veiculo-card-atrasado' : ''}" data-id="${v.id}">
-          <div class="veiculo-info">
-            <h4>${escapeHtml(v.apelido || v.placa)}</h4>
-            <p>${escapeHtml(v.placa)} · ${escapeHtml(normalizarTipoLabel(v.tipo) || '')} · ${(v.km_atual || 0).toLocaleString('pt-BR')} km</p>
-            <p class="dash-medicao-data">${escapeHtml(diaTxt)} · ${escapeHtml(dataMed)} · ${escapeHtml(posTxt)}</p>
-          </div>
-          <div class="veiculo-meta">
-            ${v.menor_sulco != null ? `<span style="font-weight:600">${v.menor_sulco} mm</span>` : ''}
-            ${badge(v.status_sulco)}
-            ${statusSemana}
-            ${pendente ? `<button type="button" class="btn btn-sm btn-primary btn-dash-medir" data-id="${v.id}">Medir</button>` : ''}
-          </div>
+    lista.innerHTML = veiculos.map((v) => `
+      <div class="veiculo-card" data-id="${v.id}">
+        <div class="veiculo-info">
+          <h4>${v.apelido || v.placa}</h4>
+          <p>${v.placa} · ${v.tipo} · ${v.km_atual?.toLocaleString('pt-BR') || 0} km</p>
         </div>
-      `;
-    };
-
-    lista.innerHTML = `
-      <section class="dash-frota-sec">
-        <h3>Medidos nesta semana <span>${medidos.length}</span></h3>
-        <p class="hint">${medidos.length ? `${semana.inicio.split('-').reverse().join('/')} a ${semana.fim.split('-').reverse().join('/')} — mais recentes primeiro.` : 'Nenhum caminhão medido nesta semana ainda.'}</p>
-        ${medidos.map((v) => renderCard(v, false)).join('')}
-      </section>
-      <section class="dash-frota-sec">
-        <h3>Pendentes nesta semana <span>${pendentes.length}</span></h3>
-        <p class="hint">${pendentes.length ? (diaUnidade ? `Faltam medir até ${labelDiaSemana(diaUnidade)} (ou nesta semana).` : 'Ativos sem medição nesta semana.') : 'Toda a frota já foi medida nesta semana.'}</p>
-        ${pendentes.map((v) => renderCard(v, true)).join('')}
-      </section>
-    `;
+        <div class="veiculo-meta">
+          ${v.menor_sulco != null ? `<span style="font-weight:600">${v.menor_sulco} mm</span>` : ''}
+          ${badge(v.status_sulco)}
+        </div>
+      </div>
+    `).join('');
 
     lista.querySelectorAll('.veiculo-card').forEach((card) => {
-      card.addEventListener('click', (e) => {
-        if (e.target.closest('.btn-dash-medir')) return;
-        openVeiculoDetalhe(card.dataset.id, 'dashboard');
-      });
-    });
-    lista.querySelectorAll('.btn-dash-medir').forEach((btn) => {
-      btn.addEventListener('click', (e) => {
-        e.stopPropagation();
-        openVeiculoDetalhe(btn.dataset.id, 'dashboard');
-      });
+      card.addEventListener('click', () => openVeiculoDetalhe(card.dataset.id, 'dashboard'));
     });
   } catch (err) {
     toast(err.message, 'error');
   }
 }
-
-document.getElementById('dash-dia-medicao')?.addEventListener('change', async (e) => {
-  const raw = e.target.value;
-  const dia = raw ? Number(raw) : null;
-  try {
-    const data = await fetchJSON(`${API}/dashboard/dia-medicao`, {
-      method: 'PUT',
-      body: JSON.stringify({ dia_medicao: dia }),
-    });
-    toast(data.mensagem || 'Dia da frota salvo', 'success');
-    loadDashboard();
-  } catch (err) {
-    toast(err.message, 'error');
-  }
-});
 
 // ── Veículos ───────────────────────────────────────────
 
@@ -765,89 +594,12 @@ async function loadVeiculos() {
   }
 }
 
-function garantirSessaoCampo(veiculoId) {
-  const id = Number(veiculoId);
-  if (sessaoCampoVeiculoId !== id) {
-    sessaoCampoVeiculoId = id;
-    pneusMedidosSessao = new Set();
-  }
-}
-
-function resumoSessaoCampo() {
-  const total = veiculoAtual?.pneus?.length || 0;
-  if (!total) return '';
-  const feitos = pneusMedidosSessao.size;
-  const falta = Math.max(0, total - feitos);
-  if (!feitos) return `${total} pneu(s) para medir`;
-  if (!falta) return `Todos os ${total} pneus desta visita já foram medidos`;
-  return `${feitos} de ${total} medidos nesta visita · faltam ${falta}`;
-}
-
-function atualizarProgressoCampo() {
-  const texto = resumoSessaoCampo();
-  const nav = document.getElementById('truck-campo-progresso');
-  if (nav) nav.textContent = texto;
-  const resumo = document.getElementById('truck-campo-resumo');
-  if (resumo) resumo.textContent = texto;
-}
-
-function marcarPneusMedidosSessao() {
-  truckDiagram?.container?.querySelectorAll('.pneu-click').forEach((g) => {
-    g.classList.toggle('pneu-sessao-ok', pneusMedidosSessao.has(Number(g.dataset.pneuId)));
-  });
-  truckDiagram?.container?.querySelectorAll('.tire-pick').forEach((btn) => {
-    btn.classList.toggle('is-sessao-ok', pneusMedidosSessao.has(Number(btn.dataset.pneuId)));
-  });
-  atualizarProgressoCampo();
-}
-
-function entrarMedicaoCampo() {
-  if (!modoAcessoRapido) {
-    document.getElementById('truck-panel')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    return;
-  }
-  document.getElementById('view-veiculo-detalhe')?.classList.add('campo-medindo');
-  document.getElementById('truck-campo-nav')?.classList.remove('hidden');
-  atualizarProgressoCampo();
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-  const primeiroVazio = ['truck-sulco-ext', 'truck-sulco-cent', 'truck-sulco-int', 'truck-sulco-aux']
-    .map((id) => document.getElementById(id))
-    .find((el) => el && String(el.value).trim() === '');
-  setTimeout(() => {
-    (primeiroVazio || document.getElementById('truck-sulco-ext'))?.focus({ preventScroll: true });
-  }, 200);
-}
-
-function voltarDesenhoCampo({ toastProx = false } = {}) {
-  document.getElementById('view-veiculo-detalhe')?.classList.remove('campo-medindo');
-  document.getElementById('truck-campo-nav')?.classList.add('hidden');
-  document.getElementById('truck-panel-form')?.classList.add('hidden');
-  document.querySelector('.truck-panel-empty')?.classList.remove('hidden');
-  pneuSelecionado = null;
-  slotPosicaoSelecionada = null;
-  truckDiagram?.setAtivo(null);
-  marcarPneusMedidosSessao();
-  window.scrollTo({ top: 0, behavior: 'smooth' });
-  if (toastProx) {
-    const falta = (veiculoAtual?.pneus || []).filter((p) => !pneusMedidosSessao.has(p.id)).length;
-    toast(
-      falta
-        ? `Medição salva. Toque no próximo pneu (${falta} restante${falta > 1 ? 's' : ''}).`
-        : 'Todos os pneus desta visita foram medidos.',
-      'success'
-    );
-  }
-}
-
 async function openVeiculoDetalhe(id, origem = 'dashboard', dadosPreload = null) {
   voltarPara = origem;
   try {
     const v = dadosPreload || await fetchJSON(`${API}/veiculos/${id}`);
     veiculoAtual = v;
     veiculoLayoutId = v.id;
-    garantirSessaoCampo(v.id);
-    document.getElementById('view-veiculo-detalhe')?.classList.remove('campo-medindo');
-    document.getElementById('truck-campo-nav')?.classList.add('hidden');
 
     if (v.posicoes) meta = { ...meta, posicoes: v.posicoes };
     if (v.limites) {
@@ -877,8 +629,7 @@ async function openVeiculoDetalhe(id, origem = 'dashboard', dadosPreload = null)
         banner.classList.remove('hidden');
         banner.innerHTML = `
           <strong>Modo campo (WhatsApp)</strong>
-          <span>Toque no pneu para medir · ao concluir, volta ao desenho para o próximo</span>
-          <span id="truck-campo-resumo">${resumoSessaoCampo()}</span>`;
+          <span>1) Toque no pneu para medir o sulco · 2) Toque no slot vazio (+) para informar pneu novo · 3) Os sulcos salvam sozinhos</span>`;
       } else if (v.pneus.length === 0) {
         banner.classList.remove('hidden');
         banner.innerHTML = `
@@ -912,11 +663,7 @@ async function openVeiculoDetalhe(id, origem = 'dashboard', dadosPreload = null)
         onSlotClick: (posicao) => selecionarSlotVazio(posicao),
       });
     }
-    truckDiagram.pickerHint = modoAcessoRapido
-      ? 'Toque no pneu para abrir a medição. Ao concluir, volta para o próximo.'
-      : 'Clique no pneu para medir ou no slot vazio para montar:';
     truckDiagram.render(v.pneus, meta.posicoes, posicoesLayout);
-    marcarPneusMedidosSessao();
 
     document.getElementById('truck-km').value = v.km_atual || '';
     document.getElementById('truck-hr').value = v.hr_atual || '';
@@ -1014,16 +761,6 @@ function aplicarVisibilidadeAcessoRapido() {
   const nota = document.getElementById('truck-novo-nota')?.closest('.form-group');
   if (custo) custo.classList.toggle('hidden', modoAcessoRapido);
   if (nota) nota.classList.toggle('hidden', modoAcessoRapido);
-  const btnSulco = document.getElementById('btn-truck-salvar-sulco');
-  if (btnSulco) {
-    btnSulco.textContent = modoAcessoRapido ? 'Concluir medição e voltar' : 'Salvar medição de sulco';
-  }
-  const empty = document.querySelector('.truck-panel-empty');
-  if (empty) {
-    empty.innerHTML = modoAcessoRapido
-      ? '<p>Toque em um pneu no desenho</p><p class="hint">Abre a medição na hora. Ao concluir, volta para o próximo.</p>'
-      : '<p>Clique em uma posição</p><p class="hint">Slot vazio (+) = colocar pneu · Pneu montado = medir sulco</p>';
-  }
   const bar = document.getElementById('acesso-rapido-bar');
   if (bar && modoAcessoRapido) {
     bar.innerHTML = `
@@ -1161,7 +898,6 @@ function selecionarPneuTruck(pneu) {
     elPrazo.textContent = '';
     elPrazo.classList.add('hidden');
   }
-  entrarMedicaoCampo();
 }
 
 async function selecionarSlotVazio(posicao) {
@@ -1192,7 +928,6 @@ async function selecionarSlotVazio(posicao) {
       ? 'Preencha fogo, padrão e modelo e toque em “Criar e montar”.'
       : 'Posição vazia — coloque um pneu aqui.';
   }
-  entrarMedicaoCampo();
 }
 
 function resetFormMontarNovo() {
@@ -1430,7 +1165,7 @@ function agendarAutoSave() {
   autoSaveTimer = setTimeout(salvarMedicaoTruck, 700);
 }
 
-async function salvarMedicaoTruck({ concluir = false } = {}) {
+async function salvarMedicaoTruck() {
   if (!pneuSelecionado || !veiculoAtual) return;
 
   const pontos = pontosFromInputs('truck');
@@ -1527,15 +1262,6 @@ async function salvarMedicaoTruck({ concluir = false } = {}) {
       ? `Salvo! Crítico — ${result.menor_sulco} mm${acaoTxt}`
       : `Salvo — menor sulco: ${result.menor_sulco ?? '-'} mm${acaoTxt}`;
     status.className = `hint save-status ${result.status_sulco === 'critico' ? 'erro' : 'salvo'}`;
-    if (modoAcessoRapido && pneuSelecionado?.id) {
-      pneusMedidosSessao.add(pneuSelecionado.id);
-      atualizarProgressoCampo();
-      marcarPneusMedidosSessao();
-    }
-    if (concluir && modoAcessoRapido) {
-      voltarDesenhoCampo({ toastProx: true });
-      return;
-    }
     if (modoAcessoRapido) {
       toast(`Sulco salvo (${result.menor_sulco ?? '—'} mm)`, 'success');
     }
@@ -1594,10 +1320,7 @@ async function registrarEventoPneu(tipo) {
 
 document.getElementById('btn-truck-salvar-sulco')?.addEventListener('click', () => {
   clearTimeout(autoSaveTimer);
-  salvarMedicaoTruck({ concluir: modoAcessoRapido });
-});
-document.getElementById('btn-campo-voltar')?.addEventListener('click', () => {
-  voltarDesenhoCampo();
+  salvarMedicaoTruck();
 });
 
 document.getElementById('btn-truck-montar')?.addEventListener('click', montarPneuDoEstoque);
@@ -2281,10 +2004,6 @@ document.getElementById('btn-novo-veiculo').addEventListener('click', () => {
     }
   }
   onLayoutSelectChange('v-layout', 'v-layout-desc', 'v-layout-preview', 'v-layout-diagram');
-  const selDiaV = document.getElementById('v-dia-medicao');
-  if (selDiaV) {
-    selDiaV.innerHTML = optionsDiaSemana(diaMedicaoUnidade, { incluirVazio: true, vazioLabel: '— Usar dia da frota —' });
-  }
   modalVeiculo.showModal();
 });
 
@@ -2321,9 +2040,6 @@ document.getElementById('form-veiculo').addEventListener('submit', async (e) => 
         km_atual: parseInt(document.getElementById('v-km').value) || 0,
         hr_atual: parseFloat(document.getElementById('v-hr').value) || 0,
         layout_pneus: document.getElementById('v-layout').value,
-        dia_medicao: document.getElementById('v-dia-medicao')?.value
-          ? Number(document.getElementById('v-dia-medicao').value)
-          : null,
       }),
     });
     modalVeiculo.close();
@@ -2692,54 +2408,19 @@ function stopWaPoll() {
   waPollFilialId = null;
 }
 
-function painelQrEls() {
-  return {
-    wrap: document.getElementById('fc-qr-wrap') || document.getElementById('wa-qr-wrap'),
-    img: document.getElementById('fc-qr-img') || document.getElementById('wa-qr-img'),
-    titulo: document.getElementById('fc-qr-titulo') || document.getElementById('wa-qr-titulo'),
-    status: document.getElementById('fc-qr-status'),
-  };
-}
-
-function abrirPainelQr(mensagem, nomeFilial) {
-  const { wrap, img, titulo, status } = painelQrEls();
-  if (titulo) titulo.textContent = `Escaneie com o chip da unidade${nomeFilial ? ` (${nomeFilial})` : ''}`;
-  if (status) {
-    status.textContent = mensagem || 'Gerando QR Code…';
-    status.classList.remove('login-erro', 'hidden');
-  }
-  img?.classList.add('hidden');
-  wrap?.classList.remove('hidden');
-  wrap?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-}
-
 function mostrarQrFilial(data, nomeFilial) {
-  const { wrap, img, titulo, status } = painelQrEls();
+  const qrWrap = document.getElementById('fc-qr-wrap') || document.getElementById('wa-qr-wrap');
+  const qrImg = document.getElementById('fc-qr-img') || document.getElementById('wa-qr-img');
+  const titulo = document.getElementById('fc-qr-titulo') || document.getElementById('wa-qr-titulo');
   if (titulo) titulo.textContent = `Escaneie com o chip da unidade${nomeFilial ? ` (${nomeFilial})` : ''}`;
-
-  if (data?.loggedIn) {
-    wrap?.classList.add('hidden');
+  if (data.qrcode && qrImg) {
+    qrImg.src = data.qrcode;
+    qrWrap?.classList.remove('hidden');
+    qrWrap?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  }
+  if (data.loggedIn) {
+    qrWrap?.classList.add('hidden');
     stopWaPoll();
-    return;
-  }
-
-  if (data?.qrcode && img) {
-    img.src = data.qrcode;
-    img.classList.remove('hidden');
-    if (status) {
-      status.textContent = 'QR pronto — escaneie no celular do chip.';
-      status.classList.remove('login-erro');
-    }
-    wrap?.classList.remove('hidden');
-    wrap?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    return;
-  }
-
-  if (data?.qr_erro && status) {
-    wrap?.classList.remove('hidden');
-    img?.classList.add('hidden');
-    status.textContent = data.qr_erro;
-    status.classList.add('login-erro');
   }
 }
 
@@ -2749,7 +2430,7 @@ function startWaPollFilial(filialId, nome) {
   waPollTimer = setInterval(async () => {
     try {
       const data = await fetchJSON(`${API}/whatsapp/filial/${filialId}/status`);
-      if (data.qrcode || data.qr_erro) mostrarQrFilial(data, nome);
+      if (data.qrcode) mostrarQrFilial(data, nome);
       if (data.loggedIn) {
         toast(`Chatbot ${nome} conectado!`, 'success');
         document.getElementById('fc-qr-wrap')?.classList.add('hidden');
@@ -2764,20 +2445,25 @@ function startWaPollFilial(filialId, nome) {
         if (detail) detail.textContent = 'Chatbot conectado — escolha o grupo abaixo.';
         document.getElementById('fc-step-connect')?.classList.add('is-done');
         document.getElementById('fc-step-group')?.classList.add('is-active');
-        const phone = String(data.phone || '').replace(/\D/g, '');
+        const phone = data.phone || String(data.jid || '').split('@')[0]?.split(':')[0]?.replace(/\D/g, '');
         const chipInput = document.getElementById('fc-whatsapp');
-        if (phone.length >= 10 && chipInput) {
+        if (phone && phone.length >= 10 && chipInput && valorCampoWa(chipInput.value) !== phone) {
           chipInput.value = phone;
           fetchJSON(`${API}/whatsapp/filiais-chatbot/${filialId}`, {
             method: 'PUT',
-            body: JSON.stringify({ whatsapp: phone }),
+            body: JSON.stringify({
+              whatsapp: phone,
+              whatsapp_grupo: document.getElementById('fc-whatsapp-grupo')?.value || null,
+              whatsapp_alerta: (document.getElementById('fc-whatsapp-alerta')?.value || '')
+                .split(/[,;\n]+/).map((s) => s.trim()).filter(Boolean),
+            }),
           }).catch(() => {});
         }
       }
     } catch {
       // ignore
     }
-  }, 1500);
+  }, 3000);
 }
 
 document.getElementById('btn-wa-qr-fechar')?.addEventListener('click', () => {
@@ -3371,15 +3057,14 @@ function renderChatbotPanelHtml(data) {
             </div>
             <div class="form-group">
               <label for="fc-whatsapp">Número do chip</label>
-              <input type="tel" id="fc-whatsapp" class="mono" value="${escapeHtml(chip)}" placeholder="Com DDI, ex.: 5562999999999" inputmode="tel" autocomplete="tel">
-              <small class="field-hint">Salva sozinho ao sair do campo. Se o QR conectar, o número do chip entra sozinho.</small>
+              <input type="text" id="fc-whatsapp" class="mono" value="${escapeHtml(chip)}" placeholder="Preenchido ao conectar" inputmode="tel" readonly>
+              <small class="field-hint">Preenchido automaticamente quando o QR conectar.</small>
             </div>
             <p class="hint" id="fc-wuzapi-hint">Servidor do chatbot precisa estar no ar. Depois: Gerar token → Conectar / QR.</p>
             <div class="cb-qr-panel hidden" id="fc-qr-wrap">
               <h4 id="fc-qr-titulo">Escaneie o QR Code</h4>
               <p class="hint">No celular do chip: WhatsApp → Aparelhos conectados → Conectar um aparelho</p>
-              <p class="hint" id="fc-qr-status">Gerando QR Code…</p>
-              <img id="fc-qr-img" class="wa-qr-img hidden" alt="QR Code WhatsApp">
+              <img id="fc-qr-img" class="wa-qr-img" alt="QR Code WhatsApp">
               <p class="hint">O QR expira em poucos segundos — clique em Conectar de novo se precisar.</p>
               <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-qr-fechar">Fechar QR</button>
             </div>
@@ -3412,10 +3097,8 @@ function renderChatbotPanelHtml(data) {
           <div class="cb-step-head">
             <span class="cb-step-num">3</span>
             <div>
-              <h4>Quem recebe alertas ${data.alertas_enabled ? '' : '<span class="cb-pill">pausado</span>'}</h4>
-              <p class="hint">${data.alertas_enabled
-                ? 'Marque usuários ou grupos que recebem alerta depois de medição crítica/monitorar.'
-                : 'Alertas depois da medição estão pausados. O chatbot do grupo (placa, limite, relatório) continua respondendo.'}</p>
+              <h4>Quem recebe alertas <span class="cb-pill">pausado</span></h4>
+              <p class="hint">Marque usuários ou grupos. Os envios estão pausados até segunda ordem — a seleção já fica salva.</p>
             </div>
           </div>
           <div class="cb-step-body">
@@ -3431,7 +3114,9 @@ function renderChatbotPanelHtml(data) {
         </li>
       </ol>
 
-      <p class="hint cb-autosave-hint">Número, grupo e alertas salvam automaticamente — não precisa clicar em salvar.</p>
+      <div class="cb-footer-actions">
+        <button type="button" class="btn btn-primary" id="btn-fc-salvar">Salvar configuração</button>
+      </div>
 
       <div class="wa-envios-panel" id="fc-envios-panel">
         <div class="section-header" style="margin:0 0 .5rem;align-items:center">
@@ -3441,9 +3126,6 @@ function renderChatbotPanelHtml(data) {
             <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-limpar-pendentes">Limpar pendentes</button>
           </div>
         </div>
-        <p class="hint" id="fc-envios-hint" style="margin:0 0 .65rem">
-          Só o grupo selecionado na etapa 2. Aparecem link de medição, relatório PDF e falha real — sem “aguarde”, placa errada ou conversa.
-        </p>
         <div class="compras-resumo-filial" style="margin-bottom:.75rem">
           <div class="compras-chip monitorar"><strong id="fc-env-pendentes">—</strong><span>Pendentes / falha</span></div>
           <div class="compras-chip"><strong id="fc-env-enviados">—</strong><span>Enviados</span></div>
@@ -3481,13 +3163,13 @@ async function loadChatbotGerente() {
   try {
     const data = await fetchJSON(`${API}/whatsapp/filial/${filialId}/config`);
     box.innerHTML = renderChatbotPanelHtml(data);
-    wireFilialChatbotPanel(filialId, data.nome, { alertasEnabled: Boolean(data.alertas_enabled) });
+    wireFilialChatbotPanel(filialId, data.nome);
   } catch (err) {
     box.innerHTML = `<p class="hint login-erro">${escapeHtml(err.message)}</p>`;
   }
 }
 
-function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false } = {}) {
+function wireFilialChatbotPanel(filialId, nomeFilial) {
   const statusEl = document.getElementById('fc-status');
   let salvandoChipAuto = false;
 
@@ -3506,51 +3188,22 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
     hidden.value = lerAlertasSelecionados().join(',');
   };
 
-  let chipSessaoAplicado = false;
-
-  const aplicarNumeroChip = async (phone, { salvar = true, forcar = false } = {}) => {
+  const aplicarNumeroChip = async (phone, { salvar = true } = {}) => {
     const digits = String(phone || '').replace(/\D/g, '');
-    if (digits.length < 10 || digits.length > 15) return;
-    if (digits.length >= 15 && digits.startsWith('120')) return;
+    if (digits.length < 10) return;
     const input = document.getElementById('fc-whatsapp');
     if (!input) return;
-    if (!forcar && valorCampoWa(input.value) === digits) return;
+    if (valorCampoWa(input.value) === digits) return;
     input.value = digits;
     if (!salvar || salvandoChipAuto) return;
     salvandoChipAuto = true;
     try {
-      await fetchJSON(`${API}/whatsapp/filiais-chatbot/${filialId}`, {
-        method: 'PUT',
-        body: JSON.stringify({ whatsapp: digits }),
-      });
+      await salvarChatbotFilial({ silencioso: true });
     } catch {
       // ignore — número já aparece na tela
     } finally {
       salvandoChipAuto = false;
     }
-  };
-
-  const salvarNumeroChipDigitado = async () => {
-    const input = document.getElementById('fc-whatsapp');
-    if (!input) return;
-    const digits = String(input.value || '').replace(/\D/g, '');
-    if (!digits) {
-      await fetchJSON(`${API}/whatsapp/filiais-chatbot/${filialId}`, {
-        method: 'PUT',
-        body: JSON.stringify({ whatsapp: null }),
-      });
-      return;
-    }
-    if (digits.length < 10 || digits.length > 15) {
-      toast('Informe o número com DDI (ex.: 5562…), 10 a 15 dígitos', 'error');
-      return;
-    }
-    input.value = digits;
-    await fetchJSON(`${API}/whatsapp/filiais-chatbot/${filialId}`, {
-      method: 'PUT',
-      body: JSON.stringify({ whatsapp: digits }),
-    });
-    toast('Número do chip salvo', 'success');
   };
 
   const refreshStatus = async () => {
@@ -3560,13 +3213,7 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
     const stepGroup = document.getElementById('fc-step-group');
     try {
       const st = await fetchJSON(`${API}/whatsapp/filial/${filialId}/status`);
-      if (st.loggedIn && st.phone) {
-        const atual = String(document.getElementById('fc-whatsapp')?.value || '').replace(/\D/g, '');
-        if (!chipSessaoAplicado || !atual) {
-          await aplicarNumeroChip(st.phone, { salvar: true, forcar: true });
-          chipSessaoAplicado = true;
-        }
-      }
+      if (st.phone) await aplicarNumeroChip(st.phone, { salvar: true });
       if (st.loggedIn) {
         statusEl.className = 'badge badge-ok';
         statusEl.textContent = 'Online';
@@ -3574,7 +3221,6 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
         stepConnect?.classList.add('is-done');
         stepConnect?.classList.remove('is-active');
         stepGroup?.classList.add('is-active');
-        carregarGrupos(true);
       } else if (st.connected) {
         statusEl.className = 'badge badge-alerta';
         statusEl.textContent = 'Aguardando QR';
@@ -3610,13 +3256,12 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
       <div class="wa-envio-meta">
         <span class="badge ${item.status === 'erro' ? 'badge-critico' : 'badge-ok'}">${escapeHtml(item.status_label)}</span>
         <strong>${escapeHtml(item.tipo_label)}</strong>
-        ${item.eh_alerta ? '<span class="cb-pill">alerta</span>' : ''}
         ${item.placa ? `<span class="mono">${escapeHtml(item.placa)}</span>` : ''}
         <span class="hint">${escapeHtml(formatDateTime(item.criado_em))}</span>
       </div>
       <div class="hint">Para: <span class="mono">${escapeHtml(item.destinatario || '—')}</span></div>
       <div class="hint">${escapeHtml(item.preview || '')}${item.erro ? ` · <span class="login-erro">${escapeHtml(item.erro)}</span>` : ''}</div>
-      ${reenviar && item.pode_reenviar !== false ? `<button type="button" class="btn btn-ghost btn-sm btn-fc-reenviar" data-id="${item.id}">Reenviar</button>` : ''}
+      ${reenviar ? `<button type="button" class="btn btn-ghost btn-sm btn-fc-reenviar" data-id="${item.id}">Reenviar</button>` : ''}
     </div>
   `;
 
@@ -3636,12 +3281,12 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
       if (pendEl) {
         pendEl.innerHTML = data.pendentes?.length
           ? `<h5 style="margin:.25rem 0">Pendentes / falha</h5>${data.pendentes.map((i) => renderEnvioItem(i, { reenviar: true })).join('')}`
-          : `<p class="hint">${escapeHtml(data.mensagem || 'Nenhum envio pendente neste grupo.')}</p>`;
+          : '<p class="hint">Nenhum envio pendente.</p>';
       }
       if (envEl) {
         envEl.innerHTML = data.enviados?.length
           ? `<h5 style="margin:.25rem 0">Últimos enviados</h5>${data.enviados.slice(0, 8).map((i) => renderEnvioItem(i)).join('')}`
-          : `<p class="hint">${escapeHtml(data.mensagem || 'Nenhum envio neste grupo ainda. Só entra link de medição ou relatório.')}</p>`;
+          : '<p class="hint">Nenhum envio registrado ainda.</p>';
       }
       if (logsEl) {
         logsEl.innerHTML = (data.logs || []).map((i) => `
@@ -3730,26 +3375,41 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
   };
 
   document.getElementById('btn-fc-grupos')?.addEventListener('click', () => carregarGrupos(false));
+  // Tenta carregar silenciosamente se já estiver conectado
+  setTimeout(() => carregarGrupos(true), 400);
 
-  const salvarCamposChatbot = async (body, { silencioso = false, mensagem } = {}) => {
+  const salvarChatbotFilial = async ({ silencioso = false } = {}) => {
+    syncHiddenAlertas();
+    const alertas = lerAlertasSelecionados();
+    const body = {
+      whatsapp: document.getElementById('fc-whatsapp')?.value || null,
+      whatsapp_grupo: document.getElementById('fc-whatsapp-grupo')?.value || null,
+      whatsapp_alerta: alertas,
+    };
+    const tok = document.getElementById('fc-wuzapi-token')?.value?.trim();
+    if (tok) body.wuzapi_token = tok;
     const data = await fetchJSON(`${API}/whatsapp/filiais-chatbot/${filialId}`, {
       method: 'PUT',
       body: JSON.stringify(body),
     });
-    filiaisCache = [];
-    if (!silencioso) toast(mensagem || data.mensagem || 'Salvo', 'success');
-    return data;
-  };
-
-  const salvarTokenDigitado = async () => {
     const tokenInput = document.getElementById('fc-wuzapi-token');
-    const tok = tokenInput?.value?.trim();
-    if (!tok) return;
-    await salvarCamposChatbot({ wuzapi_token: tok }, { silencioso: true });
-    tokenInput.value = '';
-    tokenInput.placeholder = '•••• (deixe em branco para manter)';
-    toast('Token WuzAPI salvo', 'success');
+    if (tokenInput) {
+      tokenInput.value = '';
+      tokenInput.placeholder = '•••• (deixe em branco para manter)';
+    }
+    filiaisCache = [];
+    if (!silencioso) toast(data.mensagem || 'Chatbot da filial salvo', 'success');
+    // Reaplica webhook (placa → link) após salvar grupo
+    try {
+      await fetchJSON(`${API}/whatsapp/filial/${filialId}/reconnect-webhook`, {
+        method: 'POST',
+        body: '{}',
+      });
+    } catch {
+      // endpoint opcional — connect já configura; ignore se 404
+    }
     refreshStatus();
+    return data;
   };
 
   const carregarAlertaOpcoes = async (silencioso = false) => {
@@ -3783,10 +3443,7 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
         el.addEventListener('change', async () => {
           syncHiddenAlertas();
           try {
-            await salvarCamposChatbot(
-              { whatsapp_alerta: lerAlertasSelecionados() },
-              { silencioso: true }
-            );
+            await salvarChatbotFilial({ silencioso: true });
             document.getElementById('fc-step-alerta')?.classList.toggle('is-done', lerAlertasSelecionados().length > 0);
             toast('Destinatários de alerta salvos', 'success');
           } catch (err) {
@@ -3801,46 +3458,16 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
     }
   };
 
-  document.getElementById('fc-whatsapp')?.addEventListener('change', async () => {
-    try {
-      await salvarNumeroChipDigitado();
-    } catch (err) {
-      toast(err.message || 'Falha ao salvar o número', 'error');
-    }
-  });
-  document.getElementById('fc-whatsapp')?.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      document.getElementById('fc-whatsapp')?.blur();
-    }
-  });
-
   document.getElementById('fc-whatsapp-grupo')?.addEventListener('change', async () => {
-    const grupo = document.getElementById('fc-whatsapp-grupo')?.value || null;
+    const grupo = document.getElementById('fc-whatsapp-grupo')?.value;
+    if (!grupo) return;
     try {
-      toast(grupo ? 'Salvando grupo do chatbot…' : 'Removendo grupo…');
-      await salvarCamposChatbot({ whatsapp_grupo: grupo }, { silencioso: true });
-      document.getElementById('fc-step-group')?.classList.toggle('is-done', Boolean(grupo));
-      toast(
-        grupo ? 'Grupo salvo — envie a placa no WhatsApp' : 'Grupo removido',
-        'success'
-      );
+      toast('Salvando grupo do chatbot…');
+      await salvarChatbotFilial({ silencioso: true });
+      document.getElementById('fc-step-group')?.classList.add('is-done');
+      toast('Grupo salvo — envie a placa no WhatsApp', 'success');
     } catch (err) {
       toast(err.message || 'Falha ao salvar grupo', 'error');
-    }
-  });
-
-  document.getElementById('fc-wuzapi-token')?.addEventListener('change', async () => {
-    try {
-      await salvarTokenDigitado();
-    } catch (err) {
-      toast(err.message || 'Falha ao salvar o token', 'error');
-    }
-  });
-  document.getElementById('fc-wuzapi-token')?.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      document.getElementById('fc-wuzapi-token')?.blur();
     }
   });
 
@@ -3870,72 +3497,47 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
     }
   });
 
-  document.getElementById('btn-fc-conectar')?.addEventListener('click', async () => {
-    const btn = document.getElementById('btn-fc-conectar');
+  document.getElementById('btn-fc-salvar')?.addEventListener('click', async () => {
     try {
-      if (btn) btn.disabled = true;
-      abrirPainelQr('Gerando QR Code… isso pode levar alguns segundos.', nomeFilial);
+      await salvarChatbotFilial();
+    } catch (err) {
+      toast(err.message, 'error');
+    }
+  });
+
+  document.getElementById('btn-fc-conectar')?.addEventListener('click', async () => {
+    try {
       toast(`Conectando chatbot ${nomeFilial}…`);
       const data = await fetchJSON(`${API}/whatsapp/filial/${filialId}/connect`, {
         method: 'POST',
         body: '{}',
       });
       mostrarQrFilial(data, nomeFilial);
-      if (data.phone) {
-        chipSessaoAplicado = false;
-        await aplicarNumeroChip(data.phone, { salvar: true, forcar: true });
-        chipSessaoAplicado = true;
-      }
-      if (data.loggedIn) {
-        toast(data.mensagem || `Chatbot ${nomeFilial} já está conectado`, 'success');
-      } else if (data.qrcode) {
-        toast('Escaneie o QR com o WhatsApp do chip', 'success');
-        startWaPollFilial(filialId, nomeFilial);
-      } else {
-        toast(data.mensagem || 'Não foi possível gerar o QR', 'error');
-        startWaPollFilial(filialId, nomeFilial);
-      }
+      toast(data.mensagem || 'Escaneie o QR', 'success');
+      startWaPollFilial(filialId, nomeFilial);
       refreshStatus();
-      if (data.loggedIn) setTimeout(() => carregarGrupos(true), 1200);
+      setTimeout(() => carregarGrupos(true), 2000);
     } catch (err) {
-      abrirPainelQr(err.message || 'Falha ao gerar o QR', nomeFilial);
-      const { status } = painelQrEls();
-      status?.classList.add('login-erro');
       toast(err.message, 'error');
-    } finally {
-      if (btn) btn.disabled = false;
     }
   });
 
   document.getElementById('btn-fc-desconectar')?.addEventListener('click', async () => {
-    if (!confirm('Desconectar o chip, apagar número e grupo salvos, e deixar limpo para conectar outro celular?')) return;
-    const btn = document.getElementById('btn-fc-desconectar');
+    if (!confirm('Desconectar o chip e limpar número, grupo da medição e destinatários de alerta?')) return;
     try {
-      if (btn) btn.disabled = true;
-      stopWaPoll();
-      const chip = document.getElementById('fc-whatsapp');
-      if (chip) chip.value = '';
-      const sel = document.getElementById('fc-whatsapp-grupo');
-      if (sel) sel.innerHTML = '<option value="">— Selecione o grupo —</option>';
-      const alertaHidden = document.getElementById('fc-whatsapp-alerta');
-      if (alertaHidden) alertaHidden.value = '';
-      document.getElementById('fc-alerta-lista')?.querySelectorAll('input[type="checkbox"]')
-        .forEach((c) => { c.checked = false; });
-      document.getElementById('fc-qr-wrap')?.classList.add('hidden');
-      document.getElementById('wa-qr-wrap')?.classList.add('hidden');
-
       const data = await fetchJSON(`${API}/whatsapp/filial/${filialId}/disconnect`, {
         method: 'POST',
         body: '{}',
       });
-      toast(data.mensagem || 'Número e grupo apagados — conecte o próximo chip', 'success');
+      toast(data.mensagem || 'Chatbot desconectado — vínculos limpos', 'success');
       if (data.aviso) toast(data.aviso, 'warning');
+      document.getElementById('fc-qr-wrap')?.classList.add('hidden');
+      document.getElementById('wa-qr-wrap')?.classList.add('hidden');
+      stopWaPoll();
       filiaisCache = [];
       await loadChatbotGerente();
     } catch (err) {
       toast(err.message, 'error');
-    } finally {
-      if (btn) btn.disabled = false;
     }
   });
 
@@ -4121,9 +3723,6 @@ function wireEdicaoVeiculoInspecao() {
           hr_atual: numOrNull('insp-v-hr'),
           marca: document.getElementById('insp-v-marca')?.value || '',
           modelo: document.getElementById('insp-v-modelo')?.value || '',
-          dia_medicao: document.getElementById('insp-v-dia')?.value
-            ? Number(document.getElementById('insp-v-dia').value)
-            : null,
         }),
       });
       toast('Veículo atualizado', 'success');
@@ -4293,10 +3892,6 @@ async function abrirInspecaoVeiculoFilial(filialId, veiculoId) {
             <label for="insp-v-modelo">Modelo</label>
             <input type="text" id="insp-v-modelo" value="${escapeHtml(v.modelo || '')}">
           </div>
-          <div class="form-group">
-            <label for="insp-v-dia">Dia da medição</label>
-            <select id="insp-v-dia">${optionsDiaSemana(v.dia_medicao, { incluirVazio: true, vazioLabel: '— Usar dia da frota —' })}</select>
-          </div>
         </div>
         <button type="button" class="btn btn-primary btn-sm" id="btn-insp-salvar-veiculo">Salvar veículo</button>
       </details>
@@ -4390,8 +3985,6 @@ async function abrirModalFilial(id = null) {
     document.getElementById('f-nome').value = f.nome || '';
     document.getElementById('f-codigo').value = f.codigo || '';
     document.getElementById('f-contrato').value = f.contrato || '';
-    const fDia = document.getElementById('f-dia-medicao');
-    if (fDia) fDia.innerHTML = optionsDiaSemana(f.dia_medicao, { incluirVazio: true });
     document.getElementById('f-whatsapp').value = valorCampoWa(f.whatsapp);
     const alertaEl = document.getElementById('f-whatsapp-alerta');
     if (alertaEl) alertaEl.value = valorCampoWa(f.whatsapp_alerta);
@@ -4402,8 +3995,6 @@ async function abrirModalFilial(id = null) {
     }
   } else {
     document.getElementById('modal-filial-titulo').textContent = 'Nova Filial';
-    const fDia = document.getElementById('f-dia-medicao');
-    if (fDia) fDia.innerHTML = optionsDiaSemana('', { incluirVazio: true });
     document.getElementById('f-login-row').classList.remove('hidden');
     document.getElementById('f-reset-row').classList.add('hidden');
     document.getElementById('f-login').required = true;
@@ -4437,9 +4028,6 @@ document.getElementById('form-filial')?.addEventListener('submit', async (e) => 
         contrato: document.getElementById('f-contrato').value,
         whatsapp: document.getElementById('f-whatsapp').value || null,
         whatsapp_alerta: document.getElementById('f-whatsapp-alerta')?.value || null,
-        dia_medicao: document.getElementById('f-dia-medicao')?.value
-          ? Number(document.getElementById('f-dia-medicao').value)
-          : null,
       };
       const tok = document.getElementById('f-wuzapi-token')?.value?.trim();
       if (tok) body.wuzapi_token = tok;
@@ -4880,6 +4468,7 @@ function isRotaAcessoRapido() {
 function mostrarErroToken(msg) {
   document.getElementById('app-login')?.classList.add('hidden');
   document.getElementById('app-shell')?.classList.remove('hidden');
+  finalizarBootVisual();
   document.getElementById('nav-tabs-filial')?.classList.add('hidden');
   document.getElementById('nav-tabs-admin')?.classList.add('hidden');
   document.getElementById('nav-tabs-gerente')?.classList.add('hidden');
@@ -4898,6 +4487,7 @@ async function bootAcessoRapido(token) {
   tokenAcessoRapido = token;
   document.getElementById('app-login')?.classList.add('hidden');
   document.getElementById('app-shell')?.classList.remove('hidden');
+  finalizarBootVisual();
   document.getElementById('nav-tabs-filial')?.classList.add('hidden');
   document.getElementById('nav-tabs-admin')?.classList.add('hidden');
   document.getElementById('nav-tabs-gerente')?.classList.add('hidden');
