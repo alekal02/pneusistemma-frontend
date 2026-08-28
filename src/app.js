@@ -193,6 +193,14 @@ function formatDate(d) {
   return `${day}/${m}/${y}`;
 }
 
+function hojeISOLocal() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 const DIAS_SEMANA = [
   { id: 1, label: 'Segunda' },
   { id: 2, label: 'Terça' },
@@ -1137,7 +1145,14 @@ function selecionarPneuTruck(pneu) {
   document.getElementById('btn-truck-historico').onclick = () => abrirHistoricoPneu(pneu.id);
   document.getElementById('btn-truck-desmontar').onclick = () => desmontarPneuTruck();
   document.getElementById('btn-truck-reposicionar').onclick = () => reposicionarPneuTruck();
-  document.getElementById('btn-truck-recap').onclick = () => registrarEventoPneu('recap');
+  document.getElementById('btn-truck-recap').onclick = () => {
+    if (!pneuSelecionado) return;
+    abrirModalEnviarRecap({
+      id: pneuSelecionado.id,
+      fogo: pneuSelecionado.numero_fogo,
+      origem: 'truck',
+    });
+  };
   document.getElementById('btn-truck-troca').onclick = () => registrarEventoPneu('descarte');
   aplicarVisibilidadeAcessoRapido();
 
@@ -1548,9 +1563,15 @@ async function salvarMedicaoTruck({ concluir = false } = {}) {
 
 async function registrarEventoPneu(tipo) {
   if (!pneuSelecionado || !veiculoAtual) return;
-  const label = tipo === 'recap'
-    ? 'recapagem (volta ao estoque)'
-    : 'descarte (envia ao estoque de descarte para definir o tratamento)';
+  if (tipo === 'recap') {
+    abrirModalEnviarRecap({
+      id: pneuSelecionado.id,
+      fogo: pneuSelecionado.numero_fogo,
+      origem: 'truck',
+    });
+    return;
+  }
+  const label = 'descarte (envia ao estoque de descarte para definir o tratamento)';
   if (!confirm(`Registrar ${label} deste pneu?`)) return;
 
   try {
@@ -1565,7 +1586,7 @@ async function registrarEventoPneu(tipo) {
         tipo,
         km_veiculo: parseInt(document.getElementById('truck-km').value, 10) || veiculoAtual.km_atual,
         hr_veiculo: numOrNull('truck-hr'),
-        sulco_mm: tipo === 'recap' ? (limitesAtuais.sulco_novo_mm || 14) : sulco,
+        sulco_mm: sulco,
         detalhes: `Registrado pelo painel do veículo`,
       }),
     });
@@ -1623,11 +1644,14 @@ async function loadPneus() {
     const pneus = await fetchJSON(`${API}/pneus?${params}`);
     if (!pneus.length) {
       const vazioDescarte = status === 'descarte';
+      const vazioRecap = status === 'recapagem';
       lista.innerHTML = `
         <div class="empty-state">
           <h3>Nenhum pneu encontrado</h3>
           <p>${vazioDescarte
             ? 'Ainda não há pneus registrados como descarte nesta filial.'
+            : vazioRecap
+              ? 'Nenhum pneu enviado para recap nesta filial.'
             : 'Cadastre pneus no estoque e depois monte no caminhão para medir.'}</p>
         </div>`;
       return;
@@ -1646,6 +1670,9 @@ async function loadPneus() {
       const tratamento = p.status_pneu === 'descarte'
         ? (p.tratamento_descarte_label || 'Aguardando destino')
         : null;
+      const recapInfo = p.status_pneu === 'recapagem' && p.recap_fornecedor
+        ? `${escapeHtml(p.recap_fornecedor)}${p.recap_enviado_em ? ` · ${formatDate(p.recap_enviado_em)}` : ''}`
+        : null;
       const tratamentoPendente = p.status_pneu === 'descarte'
         && (!p.tratamento_descarte || p.tratamento_descarte === 'pendente');
       return `
@@ -1661,6 +1688,9 @@ async function loadPneus() {
                 p.tratamento_descarte_obs ? ` — ${escapeHtml(p.tratamento_descarte_obs)}` : ''
               }</p>`
               : ''}
+            ${recapInfo
+              ? `<p class="hint"><strong>Enviado para recap:</strong> ${recapInfo}</p>`
+              : ''}
           </div>
           <div class="pneu-card-actions">
             ${p.status_pneu === 'descarte' ? '' : badge(p.status_sulco)}
@@ -1669,7 +1699,16 @@ async function loadPneus() {
               ? '<span class="badge badge-alerta">aguardando destino</span>'
               : ''}
             ${p.status_pneu === 'estoque'
-              ? `<button type="button" class="btn btn-primary btn-sm" data-montar-pneu="${p.id}" data-fogo="${p.numero_fogo || ''}">Montar</button>`
+              ? `<button type="button" class="btn btn-primary btn-sm" data-montar-pneu="${p.id}" data-fogo="${p.numero_fogo || ''}">Montar</button>
+                 <button type="button" class="btn btn-ghost btn-sm" data-enviar-recap="${p.id}" data-fogo="${escapeHtml(p.numero_fogo || '')}">Enviar para recap</button>`
+              : ''}
+            ${p.status_pneu === 'recapagem'
+              ? `<button type="button" class="btn btn-primary btn-sm" data-receber-recap="${p.id}"
+                   data-fogo="${escapeHtml(p.numero_fogo || '')}"
+                   data-fornecedor="${escapeHtml(p.recap_fornecedor || '')}">Receber recap</button>`
+              : ''}
+            ${p.status_pneu === 'montado'
+              ? `<button type="button" class="btn btn-ghost btn-sm" data-enviar-recap="${p.id}" data-fogo="${escapeHtml(p.numero_fogo || '')}">Enviar para recap</button>`
               : ''}
             ${p.status_pneu === 'descarte'
               ? `<button type="button" class="btn btn-primary btn-sm" data-tratamento-descarte="${p.id}"
@@ -1703,6 +1742,24 @@ async function loadPneus() {
         });
       });
     });
+    lista.querySelectorAll('[data-enviar-recap]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        abrirModalEnviarRecap({
+          id: parseInt(btn.dataset.enviarRecap, 10),
+          fogo: btn.dataset.fogo || '',
+          origem: 'lista',
+        });
+      });
+    });
+    lista.querySelectorAll('[data-receber-recap]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        receberRecapDoPainel({
+          id: parseInt(btn.dataset.receberRecap, 10),
+          fogo: btn.dataset.fogo || '',
+          fornecedor: btn.dataset.fornecedor || '',
+        });
+      });
+    });
     lista.querySelectorAll('[data-edit-pneu]').forEach((btn) => {
       btn.addEventListener('click', () => abrirModalPneu(parseInt(btn.dataset.editPneu, 10)));
     });
@@ -1723,6 +1780,41 @@ async function loadPneus() {
     });
   } catch (err) {
     lista.innerHTML = `<p class="hint erro">${err.message}</p>`;
+  }
+}
+
+function abrirModalEnviarRecap({ id, fogo, origem = 'truck' }) {
+  const modal = document.getElementById('modal-enviar-recap');
+  if (!modal || !id) return;
+  document.getElementById('enviar-recap-pneu-id').value = String(id);
+  document.getElementById('enviar-recap-origem').value = origem;
+  document.getElementById('enviar-recap-label').textContent = fogo
+    ? `Pneu fogo ${fogo} — informe o fornecedor e a data do envio.`
+    : 'Informe o fornecedor e a data do envio.';
+  const forn = document.getElementById('enviar-recap-fornecedor');
+  const obs = document.getElementById('enviar-recap-obs');
+  const data = document.getElementById('enviar-recap-data');
+  if (forn) forn.value = '';
+  if (obs) obs.value = '';
+  if (data) data.value = hojeISOLocal();
+  modal.showModal();
+  forn?.focus();
+}
+
+async function receberRecapDoPainel({ id, fogo, fornecedor }) {
+  const forn = fornecedor ? ` (${fornecedor})` : '';
+  if (!confirm(`Registrar retorno da recap do fogo ${fogo || id}${forn}? O pneu volta ao estoque.`)) {
+    return;
+  }
+  try {
+    const result = await fetchJSON(`${API}/pneus/${id}/evento`, {
+      method: 'POST',
+      body: JSON.stringify({ tipo: 'recap', detalhes: 'Recebido pelo painel' }),
+    });
+    toast(result.mensagem, 'success');
+    await loadPneus();
+  } catch (err) {
+    toast(err.message, 'error');
   }
 }
 
@@ -1901,6 +1993,47 @@ document.getElementById('btn-cancelar-montar')?.addEventListener('click', () => 
   document.getElementById('modal-montar').close();
 });
 
+document.getElementById('btn-cancelar-enviar-recap')?.addEventListener('click', () => {
+  document.getElementById('modal-enviar-recap')?.close();
+});
+
+document.getElementById('form-enviar-recap')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const pneuId = parseInt(document.getElementById('enviar-recap-pneu-id').value, 10);
+  const origem = document.getElementById('enviar-recap-origem')?.value || 'truck';
+  const fornecedor = document.getElementById('enviar-recap-fornecedor')?.value?.trim();
+  const dataEvento = document.getElementById('enviar-recap-data')?.value;
+  const obs = document.getElementById('enviar-recap-obs')?.value?.trim();
+  if (!pneuId || !fornecedor || !dataEvento) {
+    return toast('Informe o fornecedor e a data', 'error');
+  }
+  const body = {
+    tipo: 'enviar_recap',
+    fornecedor,
+    data_evento: dataEvento,
+    detalhes: obs || 'Registrado pelo painel',
+  };
+  if (origem === 'truck' && veiculoAtual) {
+    body.km_veiculo = parseInt(document.getElementById('truck-km').value, 10) || veiculoAtual.km_atual;
+    body.hr_veiculo = numOrNull('truck-hr');
+  }
+  try {
+    const result = await fetchJSON(`${API}/pneus/${pneuId}/evento`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+    document.getElementById('modal-enviar-recap')?.close();
+    toast(result.mensagem, 'success');
+    if (origem === 'truck' && veiculoAtual) {
+      await openVeiculoDetalhe(veiculoAtual.id, voltarPara);
+    } else {
+      await loadPneus();
+    }
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+});
+
 document.getElementById('btn-cancelar-tratamento-descarte')?.addEventListener('click', () => {
   document.getElementById('modal-tratamento-descarte')?.close();
 });
@@ -2049,7 +2182,7 @@ async function abrirHistoricoPneu(pneuId) {
         </tbody>
       </table>` : '<p class="hint">Sem medições.</p>'}
       ${data.movimentacoes?.length ? `
-        <h4 style="margin-top:1rem">Movimentações (colocar / retirar / mudar posição)</h4>
+        <h4 style="margin-top:1rem">Movimentações (colocar / retirar / recap / posição)</h4>
         <table class="historico-table">
           <thead><tr><th>Data</th><th>Tipo</th><th>Placa</th><th>Posição</th><th>KM</th><th>Hr</th><th>Km rodados</th><th>Detalhes</th></tr></thead>
           <tbody>
@@ -2505,23 +2638,44 @@ document.getElementById('btn-salvar-medicao').addEventListener('click', async ()
 
 async function loadAlertas() {
   try {
-    const [alertas, config] = await Promise.all([
+    const [alertas, vagas, config] = await Promise.all([
       fetchJSON(`${API}/medicoes/alertas`),
+      fetchJSON(`${API}/pneus/alertas-vaga`).catch(() => []),
       fetchConfiguracoes(),
     ]);
     limitesAtuais = { ...limitesAtuais, ...config };
 
     const hint = document.getElementById('alertas-limites-hint');
-    if (hint) hint.textContent = hintLimites();
+    if (hint) {
+      const nVaga = Array.isArray(vagas) ? vagas.length : 0;
+      hint.textContent = nVaga
+        ? `${nVaga} posição(ões) vaga(s) esperando pneu novo. ${hintLimites()}`
+        : hintLimites();
+    }
 
     const lista = document.getElementById('alertas-lista');
+    const sulco = Array.isArray(alertas) ? alertas : [];
+    const posVagas = Array.isArray(vagas) ? vagas : [];
 
-    if (!alertas.length) {
-      lista.innerHTML = '<div class="empty-state"><h3>Nenhum alerta</h3><p>Todos os pneus estão dentro do limite</p></div>';
+    if (!sulco.length && !posVagas.length) {
+      lista.innerHTML = '<div class="empty-state"><h3>Nenhum alerta</h3><p>Todos os pneus estão dentro do limite e não há posição vaga.</p></div>';
       return;
     }
 
-    lista.innerHTML = alertas.map((a) => `
+    const cardsVaga = posVagas.map((a) => `
+      <div class="alerta-card vaga">
+        <div>
+          <strong>Informe um pneu novo</strong> — ${escapeHtml(a.apelido || a.placa)} · ${escapeHtml(a.posicao_label || a.posicao || '')}
+          <p class="hint">${escapeHtml(a.placa)} · Fogo ${escapeHtml(a.numero_fogo || '—')} ${escapeHtml(a.motivo_label || '')}</p>
+        </div>
+        <div class="veiculo-meta">
+          <span class="badge badge-alerta">posição vaga</span>
+          <button type="button" class="btn btn-sm btn-primary" data-veiculo-vaga="${a.veiculo_id}">Abrir caminhão</button>
+        </div>
+      </div>
+    `).join('');
+
+    const cardsSulco = sulco.map((a) => `
       <div class="alerta-card ${a.status_sulco}">
         <div>
           <strong>${a.apelido || a.placa}</strong> — ${meta.posicoes[a.posicao] || a.posicao}
@@ -2534,6 +2688,11 @@ async function loadAlertas() {
         </div>
       </div>
     `).join('');
+
+    lista.innerHTML = cardsVaga + cardsSulco;
+    lista.querySelectorAll('[data-veiculo-vaga]').forEach((btn) => {
+      btn.addEventListener('click', () => openVeiculoDetalhe(btn.dataset.veiculoVaga, 'alertas'));
+    });
   } catch (err) {
     toast(err.message, 'error');
   }
@@ -2893,7 +3052,7 @@ async function loadFiliais() {
           <p class="hint">
             Chatbot:
             ${f.whatsapp ? `<span class="mono">${escapeHtml(f.whatsapp)}</span>` : '<em>não cadastrado</em>'}
-            ${f.whatsapp_grupo ? ` · grupo <span class="mono">${escapeHtml(f.whatsapp_grupo)}</span>` : ''}
+            ${f.whatsapp_grupo ? ` · grupo <span class="mono">${escapeHtml(f.whatsapp_grupo_nome || f.whatsapp_grupo)}</span>` : ''}
             ${f.whatsapp_alerta ? ` · alertas <span class="mono">${escapeHtml(f.whatsapp_alerta)}</span>` : ''}
             ${f.tem_wuzapi_token ? ' · token OK' : ''}
           </p>
@@ -3210,6 +3369,39 @@ function valorCampoWa(v) {
   return s;
 }
 
+function idGrupoCanonicoFront(v) {
+  const s = valorCampoWa(v);
+  if (!s) return '';
+  const gUs = s.match(/^([^@\s]+)@g\.us$/i);
+  if (gUs) return gUs[1].replace(/:[0-9]+$/, '');
+  if (/@g\.us$/i.test(s)) return s.replace(/@g\.us$/i, '').replace(/[^\d-]/g, '');
+  return s.replace(/[^\d-]/g, '') || s;
+}
+
+function jidsGrupoIguaisFront(a, b) {
+  if (!a || !b) return false;
+  if (valorCampoWa(a) === valorCampoWa(b)) return true;
+  const idA = idGrupoCanonicoFront(a);
+  const idB = idGrupoCanonicoFront(b);
+  return Boolean(idA && idB && idA === idB);
+}
+
+function rotuloGrupoWhatsapp(jid, nome) {
+  const n = valorCampoWa(nome);
+  if (n && n !== '(sem nome)' && n !== jid) return n;
+  return valorCampoWa(jid) || 'Grupo selecionado';
+}
+
+function htmlGrupoAtivoChatbot(jid, nome) {
+  if (!jid) {
+    return '<p class="hint" style="margin:0">Nenhum grupo selecionado — o chatbot não responde placas em grupos.</p>';
+  }
+  return `
+    <p class="cb-grupo-ativo-line"><strong>${escapeHtml(rotuloGrupoWhatsapp(jid, nome))}</strong></p>
+    <p class="hint" style="margin:.35rem 0 0">O chatbot só responde a placa neste grupo.</p>
+  `;
+}
+
 async function abrirDetalheFilial(id) {
   try {
     const data = await fetchJSON(`${API}/filiais/${id}`);
@@ -3330,17 +3522,18 @@ async function abrirDetalheFilial(id) {
 
 function renderChatbotPanelHtml(data) {
   const grupoAtual = valorCampoWa(data.whatsapp_grupo);
+  const grupoNome = valorCampoWa(data.whatsapp_grupo_nome);
   const chip = valorCampoWa(data.whatsapp);
   const alerta = valorCampoWa(data.whatsapp_alerta);
-  const temToken = Boolean(data.tem_wuzapi_token);
   const temGrupo = Boolean(grupoAtual);
+  const labelGrupo = rotuloGrupoWhatsapp(grupoAtual, grupoNome);
   return `
     <div class="filial-chatbot-panel cb-setup">
       <header class="cb-hero">
         <div class="cb-hero-text">
           <p class="cb-kicker">Chatbot da unidade</p>
           <h3>${escapeHtml(data.nome || 'Unidade')}${data.codigo ? ` <span class="cb-code">${escapeHtml(data.codigo)}</span>` : ''}</h3>
-          <p class="hint cb-hero-hint">Placa no grupo → link de medição no celular do borracheiro.</p>
+          <p class="hint cb-hero-hint">Placa no grupo → link de medição. Recap: <code>recap 08251227 Fornecedor 26/08/2026</code>.</p>
         </div>
         <div class="cb-status-card">
           <span id="fc-status" class="badge badge-sem_dado">Status…</span>
@@ -3358,23 +3551,16 @@ function renderChatbotPanelHtml(data) {
             <span class="cb-step-num">1</span>
             <div>
               <h4>Conectar o chip</h4>
-              <p class="hint">Gere o token (se precisar) e escaneie o QR com o WhatsApp do chip da unidade.</p>
+              <p class="hint">O token é gerado sozinho. Escaneie o QR com o WhatsApp do chip da unidade.</p>
             </div>
           </div>
           <div class="cb-step-body">
-            <div class="form-row cb-token-row">
-              <div class="form-group" style="flex:1;margin:0">
-                <label for="fc-wuzapi-token">Token WuzAPI</label>
-                <input type="password" id="fc-wuzapi-token" placeholder="${temToken ? '•••• token já cadastrado — deixe em branco' : 'Clique em Gerar token'}" autocomplete="off">
-              </div>
-              <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-gerar-token">${temToken ? 'Gerar de novo' : 'Gerar token'}</button>
-            </div>
             <div class="form-group">
               <label for="fc-whatsapp">Número do chip</label>
               <input type="tel" id="fc-whatsapp" class="mono" value="${escapeHtml(chip)}" placeholder="Com DDI, ex.: 5562999999999" inputmode="tel" autocomplete="tel">
               <small class="field-hint">Salva sozinho ao sair do campo. Se o QR conectar, o número do chip entra sozinho.</small>
             </div>
-            <p class="hint" id="fc-wuzapi-hint">Servidor do chatbot precisa estar no ar. Depois: Gerar token → Conectar / QR.</p>
+            <p class="hint" id="fc-wuzapi-hint">Servidor do chatbot precisa estar no ar. Clique em Conectar / QR — o token é criado automaticamente.</p>
             <div class="cb-qr-panel hidden" id="fc-qr-wrap">
               <h4 id="fc-qr-titulo">Escaneie o QR Code</h4>
               <p class="hint">No celular do chip: WhatsApp → Aparelhos conectados → Conectar um aparelho</p>
@@ -3391,21 +3577,34 @@ function renderChatbotPanelHtml(data) {
             <span class="cb-step-num">2</span>
             <div>
               <h4>Grupo da medição</h4>
-              <p class="hint">Grupo onde o borracheiro manda a placa. Ao selecionar, salva automaticamente.</p>
+              <p class="hint">Grupo onde o borracheiro manda a placa. Só este grupo recebe resposta do chatbot.</p>
             </div>
           </div>
           <div class="cb-step-body">
-            <div class="form-row" style="align-items:flex-end;gap:.5rem">
-              <div class="form-group" style="flex:1;margin:0">
-                <label for="fc-whatsapp-grupo">Grupo WhatsApp</label>
-                <select id="fc-whatsapp-grupo">
-                  <option value="">— Selecione o grupo —</option>
-                  ${grupoAtual ? `<option value="${escapeHtml(grupoAtual)}" selected>${escapeHtml(grupoAtual)}</option>` : ''}
-                </select>
+            <div class="cb-grupo-locked${temGrupo ? '' : ' hidden'}" id="fc-grupo-locked">
+              <div class="cb-grupo-ativo" id="fc-grupo-ativo">
+                ${htmlGrupoAtivoChatbot(grupoAtual, grupoNome)}
               </div>
-              <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-grupos">Atualizar lista</button>
+              <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-trocar-grupo">Escolher outro grupo</button>
             </div>
-            <small class="field-hint">O chip precisa estar no grupo. Conecte primeiro (passo 1), depois atualize a lista.</small>
+            <div class="cb-grupo-picker${temGrupo ? ' hidden' : ''}" id="fc-grupo-picker">
+              <div class="form-row" style="align-items:flex-end;gap:.5rem">
+                <div class="form-group" style="flex:1;margin:0">
+                  <label for="fc-whatsapp-grupo">Grupo WhatsApp</label>
+                  <select id="fc-whatsapp-grupo">
+                    <option value="">— Selecione o grupo —</option>
+                    ${grupoAtual ? `<option value="${escapeHtml(grupoAtual)}" selected data-nome="${escapeHtml(grupoNome)}">${escapeHtml(labelGrupo)}</option>` : ''}
+                  </select>
+                </div>
+                <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-grupos">Atualizar lista</button>
+              </div>
+              <div class="form-row" style="gap:.5rem;margin-top:.5rem">
+                <button type="button" class="btn btn-ghost btn-sm${temGrupo ? '' : ' hidden'}" id="btn-fc-cancelar-grupo">Cancelar</button>
+              </div>
+              <small class="field-hint">O chip precisa estar no grupo. Conecte primeiro (passo 1), depois escolha o grupo. A lista só abre aqui.</small>
+            </div>
+            <input type="hidden" id="fc-whatsapp-grupo-jid" value="${escapeHtml(grupoAtual)}">
+            <input type="hidden" id="fc-whatsapp-grupo-nome" value="${escapeHtml(grupoNome)}">
           </div>
         </li>
         <li class="cb-step cb-step-muted${alerta ? ' is-done' : ''}" id="fc-step-alerta">
@@ -3570,11 +3769,13 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
       if (st.loggedIn) {
         statusEl.className = 'badge badge-ok';
         statusEl.textContent = 'Online';
-        if (detail) detail.textContent = 'Conectado. Atualize e escolha o grupo da medição.';
+        if (detail) detail.textContent = 'Conectado. O chatbot só responde no grupo escolhido abaixo.';
         stepConnect?.classList.add('is-done');
         stepConnect?.classList.remove('is-active');
         stepGroup?.classList.add('is-active');
-        carregarGrupos(true);
+        const jidSalvo = valorCampoWa(document.getElementById('fc-whatsapp-grupo-jid')?.value);
+        const pickerAberto = !document.getElementById('fc-grupo-picker')?.classList.contains('hidden');
+        if (!jidSalvo || pickerAberto) carregarGrupos(true);
       } else if (st.connected) {
         statusEl.className = 'badge badge-alerta';
         statusEl.textContent = 'Aguardando QR';
@@ -3583,7 +3784,7 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
       } else if (!st.configurado) {
         statusEl.className = 'badge badge-sem_dado';
         statusEl.textContent = 'Sem token';
-        if (detail) detail.textContent = 'Clique em Gerar token e depois em Conectar / QR.';
+        if (detail) detail.textContent = 'Clique em Conectar / QR — o token é gerado automaticamente.';
         stepConnect?.classList.add('is-active');
       } else {
         statusEl.className = 'badge badge-sem_dado';
@@ -3695,32 +3896,72 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
   });
   carregarEnvios(true);
 
+  const lerGrupoSalvo = () => ({
+    jid: valorCampoWa(document.getElementById('fc-whatsapp-grupo-jid')?.value),
+    nome: valorCampoWa(document.getElementById('fc-whatsapp-grupo-nome')?.value),
+  });
+
+  const gravarGrupoSalvoUi = (jid, nome) => {
+    const jidEl = document.getElementById('fc-whatsapp-grupo-jid');
+    const nomeEl = document.getElementById('fc-whatsapp-grupo-nome');
+    if (jidEl) jidEl.value = jid || '';
+    if (nomeEl) nomeEl.value = nome || '';
+  };
+
+  const travarGrupoUi = (jid, nome) => {
+    gravarGrupoSalvoUi(jid, nome);
+    const badge = document.getElementById('fc-grupo-ativo');
+    if (badge) badge.innerHTML = htmlGrupoAtivoChatbot(jid, nome);
+    document.getElementById('fc-grupo-locked')?.classList.toggle('hidden', !jid);
+    document.getElementById('fc-grupo-picker')?.classList.toggle('hidden', Boolean(jid));
+    document.getElementById('btn-fc-cancelar-grupo')?.classList.toggle('hidden', !jid);
+    document.getElementById('fc-step-group')?.classList.toggle('is-done', Boolean(jid));
+  };
+
+  const abrirEscolhaGrupo = () => {
+    document.getElementById('fc-grupo-locked')?.classList.add('hidden');
+    document.getElementById('fc-grupo-picker')?.classList.remove('hidden');
+    const salvo = lerGrupoSalvo();
+    document.getElementById('btn-fc-cancelar-grupo')?.classList.toggle('hidden', !salvo.jid);
+    carregarGrupos(false);
+  };
+
   const carregarGrupos = async (silencioso = false) => {
     const sel = document.getElementById('fc-whatsapp-grupo');
     if (!sel) return;
-    const atual = valorCampoWa(sel.value);
+    const salvo = lerGrupoSalvo();
+    const atual = valorCampoWa(sel.value) || salvo.jid;
     try {
       if (!silencioso) toast('Buscando grupos no WhatsApp…');
       const data = await fetchJSON(`${API}/whatsapp/filial/${filialId}/grupos`);
       const grupos = data.grupos || [];
+      const selJid = valorCampoWa(data.selecionado) || atual;
+      const selNome = valorCampoWa(data.selecionado_nome) || salvo.nome;
       sel.innerHTML = '<option value="">— Selecione o grupo —</option>';
+      let achouAtual = false;
       for (const g of grupos) {
         const id = valorCampoWa(g.jid || g.id);
         if (!id) continue;
-        const nome = valorCampoWa(g.nome || g.name) || id;
+        const nome = valorCampoWa(g.nome || g.name);
         const opt = document.createElement('option');
         opt.value = id;
-        opt.textContent = `${nome} (${id})`;
-        if (atual && atual === id) opt.selected = true;
+        opt.dataset.nome = nome;
+        opt.textContent = (nome && nome !== '(sem nome)') ? nome : 'Grupo sem nome';
+        if (selJid && jidsGrupoIguaisFront(selJid, id)) {
+          opt.selected = true;
+          achouAtual = true;
+        }
         sel.appendChild(opt);
       }
-      if (atual && !grupos.some((g) => valorCampoWa(g.jid || g.id) === atual)) {
+      if (selJid && !achouAtual) {
         const opt = document.createElement('option');
-        opt.value = atual;
-        opt.textContent = `Salvo: ${atual}`;
+        opt.value = selJid;
+        opt.dataset.nome = selNome;
         opt.selected = true;
+        opt.textContent = rotuloGrupoWhatsapp(selJid, selNome);
         sel.appendChild(opt);
       }
+      if (selNome && selJid) gravarGrupoSalvoUi(selJid, selNome);
       if (!silencioso) {
         toast(grupos.length ? `${grupos.length} grupo(s) encontrado(s)` : 'Nenhum grupo — entre no grupo com o chip e tente de novo', grupos.length ? 'success' : 'error');
       }
@@ -3730,6 +3971,11 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
   };
 
   document.getElementById('btn-fc-grupos')?.addEventListener('click', () => carregarGrupos(false));
+  document.getElementById('btn-fc-trocar-grupo')?.addEventListener('click', () => abrirEscolhaGrupo());
+  document.getElementById('btn-fc-cancelar-grupo')?.addEventListener('click', () => {
+    const salvo = lerGrupoSalvo();
+    travarGrupoUi(salvo.jid, salvo.nome);
+  });
 
   const salvarCamposChatbot = async (body, { silencioso = false, mensagem } = {}) => {
     const data = await fetchJSON(`${API}/whatsapp/filiais-chatbot/${filialId}`, {
@@ -3739,17 +3985,6 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
     filiaisCache = [];
     if (!silencioso) toast(mensagem || data.mensagem || 'Salvo', 'success');
     return data;
-  };
-
-  const salvarTokenDigitado = async () => {
-    const tokenInput = document.getElementById('fc-wuzapi-token');
-    const tok = tokenInput?.value?.trim();
-    if (!tok) return;
-    await salvarCamposChatbot({ wuzapi_token: tok }, { silencioso: true });
-    tokenInput.value = '';
-    tokenInput.placeholder = '•••• (deixe em branco para manter)';
-    toast('Token WuzAPI salvo', 'success');
-    refreshStatus();
   };
 
   const carregarAlertaOpcoes = async (silencioso = false) => {
@@ -3816,13 +4051,20 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
   });
 
   document.getElementById('fc-whatsapp-grupo')?.addEventListener('change', async () => {
-    const grupo = document.getElementById('fc-whatsapp-grupo')?.value || null;
+    const sel = document.getElementById('fc-whatsapp-grupo');
+    const grupo = valorCampoWa(sel?.value) || null;
+    const nome = grupo ? valorCampoWa(sel?.selectedOptions?.[0]?.dataset?.nome) : null;
     try {
       toast(grupo ? 'Salvando grupo do chatbot…' : 'Removendo grupo…');
-      await salvarCamposChatbot({ whatsapp_grupo: grupo }, { silencioso: true });
-      document.getElementById('fc-step-group')?.classList.toggle('is-done', Boolean(grupo));
+      await salvarCamposChatbot({
+        whatsapp_grupo: grupo,
+        whatsapp_grupo_nome: nome || null,
+      }, { silencioso: true });
+      travarGrupoUi(grupo, nome);
       toast(
-        grupo ? 'Grupo salvo — envie a placa no WhatsApp' : 'Grupo removido',
+        grupo
+          ? `Grupo salvo: ${rotuloGrupoWhatsapp(grupo, nome)}. O chatbot só responde neste grupo.`
+          : 'Grupo removido — o chatbot não responde mais em grupos.',
         'success'
       );
     } catch (err) {
@@ -3830,45 +4072,8 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
     }
   });
 
-  document.getElementById('fc-wuzapi-token')?.addEventListener('change', async () => {
-    try {
-      await salvarTokenDigitado();
-    } catch (err) {
-      toast(err.message || 'Falha ao salvar o token', 'error');
-    }
-  });
-  document.getElementById('fc-wuzapi-token')?.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      document.getElementById('fc-wuzapi-token')?.blur();
-    }
-  });
-
   document.getElementById('btn-fc-alerta-opcoes')?.addEventListener('click', () => carregarAlertaOpcoes(false));
   setTimeout(() => carregarAlertaOpcoes(true), 600);
-  document.getElementById('btn-fc-gerar-token')?.addEventListener('click', async () => {
-    try {
-      toast('Gerando token no WuzAPI…');
-      const data = await fetchJSON(`${API}/whatsapp/filial/${filialId}/provisionar-token`, {
-        method: 'POST',
-        body: '{}',
-      });
-      toast(data.mensagem || 'Token gerado', 'success');
-      const tokenInput = document.getElementById('fc-wuzapi-token');
-      if (tokenInput) {
-        tokenInput.value = '';
-        tokenInput.placeholder = '•••• (deixe em branco para manter)';
-      }
-      const hint = document.getElementById('fc-wuzapi-hint');
-      if (hint) {
-        hint.textContent = 'Token OK. Agora clique em Conectar / QR.';
-        hint.classList.remove('login-erro');
-      }
-      refreshStatus();
-    } catch (err) {
-      toast(err.message, 'error');
-    }
-  });
 
   document.getElementById('btn-fc-conectar')?.addEventListener('click', async () => {
     const btn = document.getElementById('btn-fc-conectar');
@@ -3896,7 +4101,8 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
         startWaPollFilial(filialId, nomeFilial);
       }
       refreshStatus();
-      if (data.loggedIn) setTimeout(() => carregarGrupos(true), 1200);
+      const jidSalvo = valorCampoWa(document.getElementById('fc-whatsapp-grupo-jid')?.value);
+      if (data.loggedIn && !jidSalvo) setTimeout(() => carregarGrupos(true), 1200);
     } catch (err) {
       abrirPainelQr(err.message || 'Falha ao gerar o QR', nomeFilial);
       const { status } = painelQrEls();
@@ -4880,7 +5086,6 @@ function isRotaAcessoRapido() {
 function mostrarErroToken(msg) {
   document.getElementById('app-login')?.classList.add('hidden');
   document.getElementById('app-shell')?.classList.remove('hidden');
-  finalizarBootVisual();
   document.getElementById('nav-tabs-filial')?.classList.add('hidden');
   document.getElementById('nav-tabs-admin')?.classList.add('hidden');
   document.getElementById('nav-tabs-gerente')?.classList.add('hidden');
@@ -4899,7 +5104,6 @@ async function bootAcessoRapido(token) {
   tokenAcessoRapido = token;
   document.getElementById('app-login')?.classList.add('hidden');
   document.getElementById('app-shell')?.classList.remove('hidden');
-  finalizarBootVisual();
   document.getElementById('nav-tabs-filial')?.classList.add('hidden');
   document.getElementById('nav-tabs-admin')?.classList.add('hidden');
   document.getElementById('nav-tabs-gerente')?.classList.add('hidden');
