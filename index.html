@@ -522,6 +522,105 @@
       </div>
     </section>
 
+    <section id="view-ar-veiculo" class="view">
+      <div class="ar-form-wrap card">
+        <p class="cb-kicker">WhatsApp · acesso rápido</p>
+        <h2>Cadastrar caminhão</h2>
+        <p class="hint" id="ar-veiculo-filial"></p>
+        <form id="form-ar-veiculo">
+          <div class="form-group">
+            <label for="ar-v-placa">Placa *</label>
+            <input type="text" id="ar-v-placa" required placeholder="Ex: BH123" autocomplete="off">
+          </div>
+          <div class="form-group">
+            <label for="ar-v-apelido">Apelido</label>
+            <input type="text" id="ar-v-apelido" placeholder="Opcional">
+          </div>
+          <div class="form-group">
+            <label for="ar-v-tipo">Tipo *</label>
+            <select id="ar-v-tipo">
+              <option value="Truck / Tração">Truck / Tração</option>
+              <option value="Toco / Mini">Toco / Mini</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label for="ar-v-km">KM atual</label>
+            <input type="number" id="ar-v-km" min="0" value="0">
+          </div>
+          <p class="hint login-erro hidden" id="ar-veiculo-erro"></p>
+          <p class="hint" id="ar-veiculo-ok" style="color:var(--ok,#16a34a)"></p>
+          <button type="submit" class="btn btn-primary" style="width:100%">Salvar caminhão</button>
+        </form>
+      </div>
+    </section>
+
+    <section id="view-ar-pneu" class="view">
+      <div class="ar-form-wrap card">
+        <p class="cb-kicker">WhatsApp · acesso rápido</p>
+        <h2>Cadastrar pneu (estoque)</h2>
+        <p class="hint" id="ar-pneu-filial"></p>
+        <form id="form-ar-pneu">
+          <div class="form-group">
+            <label for="ar-p-fogo">Nº de fogo *</label>
+            <input type="text" id="ar-p-fogo" required autocomplete="off">
+          </div>
+          <div class="form-group">
+            <label for="ar-p-modelo">Modelo *</label>
+            <input type="text" id="ar-p-modelo" required placeholder="Ex: X Multi D">
+          </div>
+          <div class="form-group">
+            <label for="ar-p-marca">Marca</label>
+            <input type="text" id="ar-p-marca" placeholder="Ex: Michelin">
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="ar-p-tipo">Padrão *</label>
+              <select id="ar-p-tipo">
+                <option value="direcional">Direcional</option>
+                <option value="misto" selected>Misto</option>
+                <option value="borrachudo">Borrachudo</option>
+              </select>
+            </div>
+            <div class="form-group">
+              <label for="ar-p-condicao">Condição *</label>
+              <select id="ar-p-condicao">
+                <option value="novo">Novo</option>
+                <option value="recapado">Recapado</option>
+              </select>
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="ar-p-sulco">Sulco inicial (mm)</label>
+            <input type="number" id="ar-p-sulco" step="0.1" min="0" placeholder="Ex: 14">
+          </div>
+          <p class="hint login-erro hidden" id="ar-pneu-erro"></p>
+          <p class="hint" id="ar-pneu-ok" style="color:var(--ok,#16a34a)"></p>
+          <button type="submit" class="btn btn-primary" style="width:100%">Salvar no estoque</button>
+        </form>
+      </div>
+    </section>
+
+    <section id="view-ar-troca" class="view">
+      <div class="ar-form-wrap" style="max-width:720px;margin:0 auto">
+        <p class="cb-kicker">WhatsApp · troca</p>
+        <h2 id="ar-troca-titulo">Trocar pneu</h2>
+        <p class="hint" id="ar-troca-hint">1) Toque no pneu montado para retirar · 2) Escolha um do estoque</p>
+        <div class="card" style="margin-bottom:1rem">
+          <div id="ar-troca-diagram"></div>
+        </div>
+        <div class="card" id="ar-troca-painel">
+          <p class="hint" id="ar-troca-status">Selecione um pneu montado no diagrama.</p>
+          <div id="ar-troca-estoque-wrap" class="hidden">
+            <label for="ar-troca-estoque">Pneu do estoque *</label>
+            <select id="ar-troca-estoque"></select>
+            <button type="button" class="btn btn-primary" id="btn-ar-troca-confirmar" style="width:100%;margin-top:1rem">Confirmar troca</button>
+          </div>
+          <p class="hint login-erro hidden" id="ar-troca-erro"></p>
+          <p class="hint" id="ar-troca-ok" style="color:var(--ok,#16a34a)"></p>
+        </div>
+      </div>
+    </section>
+
     <section id="view-medicao" class="view">
       <h2>Registrar Medição de Sulco</h2>
       <div class="medicao-layout">

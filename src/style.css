@@ -2192,3 +2192,14 @@ h3 {
   font-size: .75rem;
   opacity: .85;
 }
+
+/* Formulários acesso rápido (cadastro / troca WhatsApp) */
+.ar-form-wrap {
+  max-width: 28rem;
+  margin: 1.5rem auto;
+  padding: 1.25rem 1.35rem;
+}
+.ar-form-wrap h2 {
+  margin: .25rem 0 .75rem;
+  font-size: 1.35rem;
+}

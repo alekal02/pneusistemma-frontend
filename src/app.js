@@ -4962,7 +4962,17 @@ document.getElementById('btn-relatorio-refresh')?.addEventListener('click', () =
 function isRotaAcessoRapido() {
   const path = window.location.pathname.replace(/\/+$/, '') || '/';
   return path.endsWith('/veiculo-acesso-rapido')
-    || window.location.search.includes('token=') && path.includes('acesso-rapido');
+    || path.includes('/acesso-rapido')
+    || (window.location.search.includes('token=') && path.includes('acesso-rapido'));
+}
+
+function tipoRotaAcessoRapido() {
+  const path = window.location.pathname.replace(/\/+$/, '') || '/';
+  if (path.endsWith('/acesso-rapido/veiculo')) return 'cadastrar_veiculo';
+  if (path.endsWith('/acesso-rapido/pneu')) return 'cadastrar_pneu';
+  if (path.endsWith('/acesso-rapido/troca')) return 'troca';
+  if (path.endsWith('/veiculo-acesso-rapido')) return 'medir';
+  return null;
 }
 
 function mostrarErroToken(msg) {
@@ -4982,9 +4992,8 @@ function mostrarErroToken(msg) {
   showView('acesso-erro');
 }
 
-async function bootAcessoRapido(token) {
+function prepararShellAcessoRapido(titulo) {
   modoAcessoRapido = true;
-  tokenAcessoRapido = token;
   document.getElementById('app-login')?.classList.add('hidden');
   document.getElementById('app-shell')?.classList.remove('hidden');
   finalizarBootVisual();
@@ -4995,10 +5004,230 @@ async function bootAcessoRapido(token) {
   const label = document.getElementById('header-user-label');
   if (label) label.textContent = 'Acesso rápido · WhatsApp';
   const subtitle = document.getElementById('header-subtitle');
-  if (subtitle) subtitle.textContent = 'Medição sem login — link temporário';
+  if (subtitle) subtitle.textContent = titulo || 'Link temporário';
+}
+
+async function bootArCadastroVeiculo(token) {
+  prepararShellAcessoRapido('Cadastrar caminhão');
+  showView('ar-veiculo');
+  try {
+    const data = await fetchJSON(`${API}/acesso-rapido?token=${encodeURIComponent(token)}`);
+    if (data.tipo && data.tipo !== 'cadastrar_veiculo') {
+      throw new Error('Este link não é de cadastro de caminhão');
+    }
+    const fil = document.getElementById('ar-veiculo-filial');
+    if (fil) fil.textContent = data.filial ? `${data.filial.nome} (${data.filial.codigo || ''})` : '';
+  } catch (err) {
+    mostrarErroToken(err.message);
+    return;
+  }
+
+  const form = document.getElementById('form-ar-veiculo');
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const erro = document.getElementById('ar-veiculo-erro');
+    const ok = document.getElementById('ar-veiculo-ok');
+    erro?.classList.add('hidden');
+    if (ok) ok.textContent = '';
+    try {
+      const resp = await fetchJSON(`${API}/acesso-rapido/veiculo`, {
+        method: 'POST',
+        body: JSON.stringify({
+          token,
+          placa: document.getElementById('ar-v-placa')?.value,
+          apelido: document.getElementById('ar-v-apelido')?.value || null,
+          tipo: document.getElementById('ar-v-tipo')?.value,
+          km_atual: Number(document.getElementById('ar-v-km')?.value) || 0,
+        }),
+      });
+      if (ok) ok.textContent = resp.mensagem || 'Caminhão cadastrado! Pode fechar esta página.';
+      form.querySelector('button[type="submit"]')?.setAttribute('disabled', 'true');
+      toast(resp.mensagem || 'Salvo', 'success');
+    } catch (err) {
+      if (erro) {
+        erro.textContent = err.message;
+        erro.classList.remove('hidden');
+      }
+      toast(err.message, 'error');
+    }
+  }, { once: true });
+}
+
+async function bootArCadastroPneu(token) {
+  prepararShellAcessoRapido('Cadastrar pneu');
+  showView('ar-pneu');
+  try {
+    const data = await fetchJSON(`${API}/acesso-rapido?token=${encodeURIComponent(token)}`);
+    if (data.tipo && data.tipo !== 'cadastrar_pneu') {
+      throw new Error('Este link não é de cadastro de pneu');
+    }
+    const fil = document.getElementById('ar-pneu-filial');
+    if (fil) fil.textContent = data.filial ? `${data.filial.nome} (${data.filial.codigo || ''})` : '';
+  } catch (err) {
+    mostrarErroToken(err.message);
+    return;
+  }
+
+  const form = document.getElementById('form-ar-pneu');
+  form?.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const erro = document.getElementById('ar-pneu-erro');
+    const ok = document.getElementById('ar-pneu-ok');
+    erro?.classList.add('hidden');
+    if (ok) ok.textContent = '';
+    try {
+      const sulcoRaw = document.getElementById('ar-p-sulco')?.value;
+      const resp = await fetchJSON(`${API}/acesso-rapido/pneu`, {
+        method: 'POST',
+        body: JSON.stringify({
+          token,
+          numero_fogo: document.getElementById('ar-p-fogo')?.value,
+          modelo: document.getElementById('ar-p-modelo')?.value,
+          marca: document.getElementById('ar-p-marca')?.value || null,
+          tipo_pneu: document.getElementById('ar-p-tipo')?.value,
+          condicao: document.getElementById('ar-p-condicao')?.value,
+          sulco_inicial_mm: sulcoRaw === '' || sulcoRaw == null ? null : Number(String(sulcoRaw).replace(',', '.')),
+        }),
+      });
+      if (ok) ok.textContent = resp.mensagem || 'Pneu no estoque! Pode fechar esta página.';
+      form.querySelector('button[type="submit"]')?.setAttribute('disabled', 'true');
+      toast(resp.mensagem || 'Salvo', 'success');
+    } catch (err) {
+      if (erro) {
+        erro.textContent = err.message;
+        erro.classList.remove('hidden');
+      }
+      toast(err.message, 'error');
+    }
+  }, { once: true });
+}
+
+async function bootArTroca(token) {
+  prepararShellAcessoRapido('Troca de pneu');
+  showView('ar-troca');
+  let estado = { retirar: null, veiculo: null, estoque: [] };
+  let diagram = null;
+
+  const preencherEstoque = (lista) => {
+    const sel = document.getElementById('ar-troca-estoque');
+    if (!sel) return;
+    sel.innerHTML = (lista || []).map((p) =>
+      `<option value="${p.id}">${escapeHtml(p.numero_fogo)} — ${escapeHtml([p.marca, p.modelo].filter(Boolean).join(' ') || p.tipo_pneu)}</option>`
+    ).join('') || '<option value="">Estoque vazio</option>';
+  };
+
+  const pintarDiagrama = (veiculo) => {
+    const posicoesLayout = veiculo.posicoes_layout?.length
+      ? veiculo.posicoes_layout.map((p) => p.codigo)
+      : (veiculo.layout?.posicoes || (veiculo.pneus || []).map((p) => p.posicao));
+    const labels = {};
+    (veiculo.posicoes_layout || []).forEach((p) => { labels[p.codigo] = p.label || p.codigo; });
+    if (!diagram) {
+      diagram = new TruckDiagram('ar-troca-diagram', {
+        pickerHint: 'Toque no pneu montado para retirar',
+        onPneuClick: (pneu) => {
+          estado.retirar = { id: pneu.id, posicao: pneu.posicao, fogo: pneu.numero_fogo };
+          const st = document.getElementById('ar-troca-status');
+          if (st) st.textContent = `Retirar fogo ${pneu.numero_fogo} (${pneu.posicao}). Escolha o substituto do estoque.`;
+          document.getElementById('ar-troca-estoque-wrap')?.classList.remove('hidden');
+        },
+        onSlotClick: () => toast('Posição vazia — escolha um pneu montado', 'error'),
+      });
+    }
+    diagram.render(veiculo.pneus || [], labels, posicoesLayout);
+  };
 
   try {
-    const data = await fetchJSON(`${API}/veiculos/acesso-rapido?token=${encodeURIComponent(token)}`);
+    const data = await fetchJSON(`${API}/acesso-rapido?token=${encodeURIComponent(token)}`);
+    if (data.tipo && data.tipo !== 'troca') throw new Error('Este link não é de troca');
+    estado.veiculo = data.veiculo;
+    estado.estoque = data.estoque || [];
+    const tit = document.getElementById('ar-troca-titulo');
+    if (tit) tit.textContent = `Troca — ${data.veiculo?.placa || ''}`;
+    preencherEstoque(estado.estoque);
+    pintarDiagrama(data.veiculo);
+  } catch (err) {
+    mostrarErroToken(err.message);
+    return;
+  }
+
+  document.getElementById('btn-ar-troca-confirmar')?.addEventListener('click', async () => {
+    const erro = document.getElementById('ar-troca-erro');
+    const ok = document.getElementById('ar-troca-ok');
+    erro?.classList.add('hidden');
+    if (ok) ok.textContent = '';
+    if (!estado.retirar?.id) {
+      toast('Selecione o pneu a retirar no diagrama', 'error');
+      return;
+    }
+    const montarId = document.getElementById('ar-troca-estoque')?.value;
+    if (!montarId) {
+      toast('Escolha um pneu do estoque', 'error');
+      return;
+    }
+    try {
+      const resp = await fetchJSON(`${API}/acesso-rapido/troca`, {
+        method: 'POST',
+        body: JSON.stringify({
+          token,
+          retirar_pneu_id: estado.retirar.id,
+          montar_pneu_id: Number(montarId),
+        }),
+      });
+      if (ok) ok.textContent = resp.mensagem || 'Troca concluída!';
+      toast(resp.mensagem || 'Troca ok', 'success');
+      estado.retirar = null;
+      document.getElementById('ar-troca-estoque-wrap')?.classList.add('hidden');
+      const st = document.getElementById('ar-troca-status');
+      if (st) st.textContent = 'Troca feita. Pode trocar outro pneu ou fechar.';
+      if (resp.veiculo) {
+        estado.veiculo = resp.veiculo;
+        try {
+          const data = await fetchJSON(`${API}/acesso-rapido?token=${encodeURIComponent(token)}`);
+          estado.estoque = data.estoque || [];
+        } catch {
+          estado.estoque = [];
+        }
+        preencherEstoque(estado.estoque);
+        pintarDiagrama(resp.veiculo);
+      }
+    } catch (err) {
+      if (erro) {
+        erro.textContent = err.message;
+        erro.classList.remove('hidden');
+      }
+      toast(err.message, 'error');
+    }
+  });
+}
+
+async function bootAcessoRapido(token) {
+  const tipoPath = tipoRotaAcessoRapido();
+  if (tipoPath === 'cadastrar_veiculo') return bootArCadastroVeiculo(token);
+  if (tipoPath === 'cadastrar_pneu') return bootArCadastroPneu(token);
+  if (tipoPath === 'troca') return bootArTroca(token);
+
+  prepararShellAcessoRapido('Medição sem login — link temporário');
+  tokenAcessoRapido = token;
+
+  try {
+    // Preferir API unificada; fallback na rota antiga
+    let data;
+    try {
+      data = await fetchJSON(`${API}/acesso-rapido?token=${encodeURIComponent(token)}`);
+      if (data.tipo && data.tipo !== 'medir' && data.veiculo) {
+        // token tipado com veiculo embutido
+      } else if (data.tipo === 'cadastrar_veiculo') {
+        return bootArCadastroVeiculo(token);
+      } else if (data.tipo === 'cadastrar_pneu') {
+        return bootArCadastroPneu(token);
+      } else if (data.tipo === 'troca') {
+        return bootArTroca(token);
+      }
+      if (!data.id && data.veiculo) data = data.veiculo;
+    } catch {
+      data = await fetchJSON(`${API}/veiculos/acesso-rapido?token=${encodeURIComponent(token)}`);
+    }
     if (data.posicoes) meta = { ...meta, posicoes: data.posicoes };
     if (data.limites) limitesAtuais = { ...limitesAtuais, ...data.limites };
     tokenAcessoRapido = data.token_acesso || token;
