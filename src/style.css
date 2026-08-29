@@ -598,6 +598,7 @@ h3 {
   box-shadow: var(--shadow);
 }
 .alerta-card.critico { border-left-color: var(--critico); }
+.alerta-card.vaga { border-left-color: #c2410c; background: #fff7ed; }
 
 /* Configura√ß√µes */
 .config-layout {
@@ -2028,6 +2029,31 @@ h3 {
   margin-top: .85rem;
   padding-left: 2.45rem;
 }
+.cb-grupo-ativo {
+  margin: 0;
+  padding: .7rem .85rem;
+  border-radius: calc(var(--radius) - 2px);
+  background: #ecfdf5;
+  border: 1px solid #bbf7d0;
+  flex: 1;
+  min-width: 0;
+}
+.cb-grupo-ativo-line {
+  margin: 0;
+  font-size: 1.02rem;
+}
+.cb-grupo-ativo-line strong {
+  color: #166534;
+}
+.cb-grupo-locked {
+  display: flex;
+  align-items: center;
+  gap: .65rem;
+  flex-wrap: wrap;
+}
+.cb-grupo-picker {
+  margin: 0;
+}
 .cb-token-row {
   align-items: flex-end;
   gap: .5rem;
@@ -2191,15 +2217,4 @@ h3 {
   font-family: inherit;
   font-size: .75rem;
   opacity: .85;
-}
-
-/* Formul·rios acesso r·pido (cadastro / troca WhatsApp) */
-.ar-form-wrap {
-  max-width: 28rem;
-  margin: 1.5rem auto;
-  padding: 1.25rem 1.35rem;
-}
-.ar-form-wrap h2 {
-  margin: .25rem 0 .75rem;
-  font-size: 1.35rem;
 }

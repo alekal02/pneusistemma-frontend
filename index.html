@@ -285,7 +285,7 @@
         <li class="ativo"><strong>Estoque</strong> — cadastre pneus avulsos aqui</li>
         <li><strong>Atalho</strong> — no veículo, clique no slot vazio e crie o pneu na hora</li>
       </ol>
-      <p class="hint">Use esta aba para estoque, histórico e pneus em descarte (tratamento do destino). Para montar rápido, prefira o diagrama do veículo.</p>
+      <p class="hint">Use esta aba para estoque, recapagem (envio ao fornecedor) e pneus em descarte. Para montar rápido, prefira o diagrama do veículo.</p>
       <details class="import-hint-details">
         <summary>Dica para importação CSV de pneus</summary>
         <p class="hint import-hint">Campos: nº de fogo, padrão (<code>direcional</code>, <code>misto</code>, <code>borrachudo</code>), condição.</p>
@@ -298,10 +298,9 @@
             <option value="todos">Todos</option>
             <option value="estoque" selected>Estoque</option>
             <option value="montado">Montados</option>
-            <option value="recapagem">Em recapagem</option>
+            <option value="recapagem">Recapagem</option>
             <option value="descarte">Descarte</option>
           </select>
-          <p class="hint" id="pneus-filtro-hint" style="margin:.35rem 0 0">Pneus em recapagem: use “Devolver ao estoque” quando o recap voltar.</p>
         </div>
         <div class="form-group" style="margin:0;flex:1">
           <label for="pneus-busca">Buscar</label>
@@ -491,9 +490,9 @@
                     <strong>Mudar posição</strong>
                     <span>Rodízio no caminhão</span>
                   </button>
-                  <button type="button" class="btn btn-ghost btn-sm" id="btn-truck-recap" title="Registra que o pneu foi recapado">
-                    <strong>Registrar recap</strong>
-                    <span>Vida / condição</span>
+                  <button type="button" class="btn btn-ghost btn-sm" id="btn-truck-recap" title="Envia o pneu à recapagem com fornecedor e data">
+                    <strong>Enviar para recap</strong>
+                    <span>Fornecedor e data</span>
                   </button>
                   <button type="button" class="btn btn-ghost btn-sm btn-danger-text" id="btn-truck-troca" title="Registra descarte do pneu">
                     <strong>Registrar descarte</strong>
@@ -521,105 +520,6 @@
         <h2>Link expirado ou inválido</h2>
         <p>Este link de acesso rápido não é mais válido. Solicite um novo link pelo WhatsApp enviando a placa do caminhão.</p>
         <a class="btn btn-primary" href="/">Voltar ao login</a>
-      </div>
-    </section>
-
-    <section id="view-ar-veiculo" class="view">
-      <div class="ar-form-wrap card">
-        <p class="cb-kicker">WhatsApp · acesso rápido</p>
-        <h2>Cadastrar caminhão</h2>
-        <p class="hint" id="ar-veiculo-filial"></p>
-        <form id="form-ar-veiculo">
-          <div class="form-group">
-            <label for="ar-v-placa">Placa *</label>
-            <input type="text" id="ar-v-placa" required placeholder="Ex: BH123" autocomplete="off">
-          </div>
-          <div class="form-group">
-            <label for="ar-v-apelido">Apelido</label>
-            <input type="text" id="ar-v-apelido" placeholder="Opcional">
-          </div>
-          <div class="form-group">
-            <label for="ar-v-tipo">Tipo *</label>
-            <select id="ar-v-tipo">
-              <option value="Truck / Tração">Truck / Tração</option>
-              <option value="Toco / Mini">Toco / Mini</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label for="ar-v-km">KM atual</label>
-            <input type="number" id="ar-v-km" min="0" value="0">
-          </div>
-          <p class="hint login-erro hidden" id="ar-veiculo-erro"></p>
-          <p class="hint" id="ar-veiculo-ok" style="color:var(--ok,#16a34a)"></p>
-          <button type="submit" class="btn btn-primary" style="width:100%">Salvar caminhão</button>
-        </form>
-      </div>
-    </section>
-
-    <section id="view-ar-pneu" class="view">
-      <div class="ar-form-wrap card">
-        <p class="cb-kicker">WhatsApp · acesso rápido</p>
-        <h2>Cadastrar pneu (estoque)</h2>
-        <p class="hint" id="ar-pneu-filial"></p>
-        <form id="form-ar-pneu">
-          <div class="form-group">
-            <label for="ar-p-fogo">Nº de fogo *</label>
-            <input type="text" id="ar-p-fogo" required autocomplete="off">
-          </div>
-          <div class="form-group">
-            <label for="ar-p-modelo">Modelo *</label>
-            <input type="text" id="ar-p-modelo" required placeholder="Ex: X Multi D">
-          </div>
-          <div class="form-group">
-            <label for="ar-p-marca">Marca</label>
-            <input type="text" id="ar-p-marca" placeholder="Ex: Michelin">
-          </div>
-          <div class="form-row">
-            <div class="form-group">
-              <label for="ar-p-tipo">Padrão *</label>
-              <select id="ar-p-tipo">
-                <option value="direcional">Direcional</option>
-                <option value="misto" selected>Misto</option>
-                <option value="borrachudo">Borrachudo</option>
-              </select>
-            </div>
-            <div class="form-group">
-              <label for="ar-p-condicao">Condição *</label>
-              <select id="ar-p-condicao">
-                <option value="novo">Novo</option>
-                <option value="recapado">Recapado</option>
-              </select>
-            </div>
-          </div>
-          <div class="form-group">
-            <label for="ar-p-sulco">Sulco inicial (mm)</label>
-            <input type="number" id="ar-p-sulco" step="0.1" min="0" placeholder="Ex: 14">
-          </div>
-          <p class="hint login-erro hidden" id="ar-pneu-erro"></p>
-          <p class="hint" id="ar-pneu-ok" style="color:var(--ok,#16a34a)"></p>
-          <button type="submit" class="btn btn-primary" style="width:100%">Salvar no estoque</button>
-        </form>
-      </div>
-    </section>
-
-    <section id="view-ar-troca" class="view">
-      <div class="ar-form-wrap" style="max-width:720px;margin:0 auto">
-        <p class="cb-kicker">WhatsApp · troca</p>
-        <h2 id="ar-troca-titulo">Trocar pneu</h2>
-        <p class="hint" id="ar-troca-hint">1) Toque no pneu montado para retirar · 2) Escolha um do estoque</p>
-        <div class="card" style="margin-bottom:1rem">
-          <div id="ar-troca-diagram"></div>
-        </div>
-        <div class="card" id="ar-troca-painel">
-          <p class="hint" id="ar-troca-status">Selecione um pneu montado no diagrama.</p>
-          <div id="ar-troca-estoque-wrap" class="hidden">
-            <label for="ar-troca-estoque">Pneu do estoque *</label>
-            <select id="ar-troca-estoque"></select>
-            <button type="button" class="btn btn-primary" id="btn-ar-troca-confirmar" style="width:100%;margin-top:1rem">Confirmar troca</button>
-          </div>
-          <p class="hint login-erro hidden" id="ar-troca-erro"></p>
-          <p class="hint" id="ar-troca-ok" style="color:var(--ok,#16a34a)"></p>
-        </div>
       </div>
     </section>
 
@@ -694,7 +594,7 @@
     </section>
 
     <section id="view-alertas" class="view">
-      <h2>Alertas de Desgaste</h2>
+      <h2>Alertas</h2>
       <p class="hint" id="alertas-limites-hint"></p>
       <div id="alertas-lista" class="card-list"></div>
     </section>
@@ -1114,6 +1014,33 @@
     </div>
   </dialog>
 
+  <dialog id="modal-enviar-recap" class="modal">
+    <form id="form-enviar-recap" method="dialog">
+      <h3>Enviar para recap</h3>
+      <p class="hint" id="enviar-recap-label">Informe o fornecedor e a data do envio.</p>
+      <input type="hidden" id="enviar-recap-pneu-id" value="">
+      <input type="hidden" id="enviar-recap-origem" value="truck">
+      <div class="form-group">
+        <label for="enviar-recap-fornecedor">Fornecedor *</label>
+        <input type="text" id="enviar-recap-fornecedor" required maxlength="120" placeholder="Ex.: Bandag, Recapadora XYZ">
+      </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="enviar-recap-data">Data do envio *</label>
+          <input type="date" id="enviar-recap-data" required>
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="enviar-recap-obs">Observação</label>
+        <textarea id="enviar-recap-obs" rows="2" placeholder="Opcional"></textarea>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="btn-cancelar-enviar-recap">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Registrar envio</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="modal-tratamento-descarte" class="modal">
     <form id="form-tratamento-descarte" method="dialog">
       <h3>Tratamento do descarte</h3>
@@ -1136,57 +1063,6 @@
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost" id="btn-cancelar-tratamento-descarte">Cancelar</button>
         <button type="submit" class="btn btn-primary">Salvar tratamento</button>
-      </div>
-    </form>
-  </dialog>
-
-  <dialog id="modal-devolver-recap" class="modal">
-    <form id="form-devolver-recap" method="dialog">
-      <h3>Devolver recap ao estoque</h3>
-      <p class="hint" id="devolver-recap-label">Informe o sulco do pneu após o recap.</p>
-      <input type="hidden" id="devolver-recap-pneu-id" value="">
-      <div class="form-group">
-        <label for="devolver-recap-sulco">Sulco após recap (mm) *</label>
-        <input type="number" id="devolver-recap-sulco" min="1" max="30" step="0.1" required placeholder="Ex.: 14">
-        <p class="hint">Obrigatório — vira o sulco inicial do pneu no estoque.</p>
-      </div>
-      <div class="modal-actions">
-        <button type="button" class="btn btn-ghost" id="btn-cancelar-devolver-recap">Cancelar</button>
-        <button type="submit" class="btn btn-primary">Devolver ao estoque</button>
-      </div>
-    </form>
-  </dialog>
-
-  <dialog id="modal-medir-estoque" class="modal">
-    <form id="form-medir-estoque" method="dialog">
-      <h3>Medir sulco (estoque)</h3>
-      <p class="hint" id="medir-estoque-label">Informe os 4 pontos ou o mesmo valor em todos.</p>
-      <input type="hidden" id="medir-estoque-pneu-id" value="">
-      <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem">
-        <div class="form-group">
-          <label for="medir-estoque-ext">Externo (mm) *</label>
-          <input type="number" id="medir-estoque-ext" min="0" max="30" step="0.1" required>
-        </div>
-        <div class="form-group">
-          <label for="medir-estoque-cent">Central (mm)</label>
-          <input type="number" id="medir-estoque-cent" min="0" max="30" step="0.1">
-        </div>
-        <div class="form-group">
-          <label for="medir-estoque-int">Interno (mm)</label>
-          <input type="number" id="medir-estoque-int" min="0" max="30" step="0.1">
-        </div>
-        <div class="form-group">
-          <label for="medir-estoque-aux">Auxiliar (mm)</label>
-          <input type="number" id="medir-estoque-aux" min="0" max="30" step="0.1">
-        </div>
-      </div>
-      <div class="form-group">
-        <label for="medir-estoque-obs">Observação</label>
-        <input type="text" id="medir-estoque-obs" placeholder="Ex.: medido na prateleira">
-      </div>
-      <div class="modal-actions">
-        <button type="button" class="btn btn-ghost" id="btn-cancelar-medir-estoque">Cancelar</button>
-        <button type="submit" class="btn btn-primary">Salvar medição</button>
       </div>
     </form>
   </dialog>

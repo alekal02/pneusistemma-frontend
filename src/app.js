@@ -193,6 +193,14 @@ function formatDate(d) {
   return `${day}/${m}/${y}`;
 }
 
+function hojeISOLocal() {
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 const DIAS_SEMANA = [
   { id: 1, label: 'Segunda' },
   { id: 2, label: 'Terça' },
@@ -385,10 +393,6 @@ function showLogin() {
   document.getElementById('app-boot')?.setAttribute('aria-busy', 'false');
   document.getElementById('app-login').classList.remove('hidden');
   document.getElementById('app-shell').classList.add('hidden');
-  const label = document.getElementById('header-user-label');
-  const subtitle = document.getElementById('header-subtitle');
-  if (label) label.textContent = '';
-  if (subtitle) subtitle.textContent = 'Gestão automatizada de desgaste e ciclo de vida';
 }
 
 function showAppShell() {
@@ -1141,7 +1145,14 @@ function selecionarPneuTruck(pneu) {
   document.getElementById('btn-truck-historico').onclick = () => abrirHistoricoPneu(pneu.id);
   document.getElementById('btn-truck-desmontar').onclick = () => desmontarPneuTruck();
   document.getElementById('btn-truck-reposicionar').onclick = () => reposicionarPneuTruck();
-  document.getElementById('btn-truck-recap').onclick = () => registrarEventoPneu('recap');
+  document.getElementById('btn-truck-recap').onclick = () => {
+    if (!pneuSelecionado) return;
+    abrirModalEnviarRecap({
+      id: pneuSelecionado.id,
+      fogo: pneuSelecionado.numero_fogo,
+      origem: 'truck',
+    });
+  };
   document.getElementById('btn-truck-troca').onclick = () => registrarEventoPneu('descarte');
   aplicarVisibilidadeAcessoRapido();
 
@@ -1552,9 +1563,15 @@ async function salvarMedicaoTruck({ concluir = false } = {}) {
 
 async function registrarEventoPneu(tipo) {
   if (!pneuSelecionado || !veiculoAtual) return;
-  const label = tipo === 'recap'
-    ? 'envio à recapagem (sai do caminhão e fica em processo até voltar)'
-    : 'descarte (envia ao estoque de descarte para definir o tratamento)';
+  if (tipo === 'recap') {
+    abrirModalEnviarRecap({
+      id: pneuSelecionado.id,
+      fogo: pneuSelecionado.numero_fogo,
+      origem: 'truck',
+    });
+    return;
+  }
+  const label = 'descarte (envia ao estoque de descarte para definir o tratamento)';
   if (!confirm(`Registrar ${label} deste pneu?`)) return;
 
   try {
@@ -1569,20 +1586,13 @@ async function registrarEventoPneu(tipo) {
         tipo,
         km_veiculo: parseInt(document.getElementById('truck-km').value, 10) || veiculoAtual.km_atual,
         hr_veiculo: numOrNull('truck-hr'),
-        sulco_mm: tipo === 'recap' ? (limitesAtuais.sulco_novo_mm || 14) : sulco,
+        sulco_mm: sulco,
         detalhes: `Registrado pelo painel do veículo`,
       }),
     });
 
     toast(result.mensagem, 'success');
     await openVeiculoDetalhe(veiculoAtual.id, voltarPara);
-
-    if (tipo === 'recap' && confirm('Abrir a lista de pneus em recapagem?')) {
-      showView('pneus');
-      const filtro = document.getElementById('pneus-filtro-status');
-      if (filtro) filtro.value = 'recapagem';
-      await loadPneus();
-    }
 
     if (tipo === 'descarte' && confirm('Abrir o estoque de descarte para definir o tratamento deste pneu?')) {
       showView('pneus');
@@ -1641,8 +1651,8 @@ async function loadPneus() {
           <p>${vazioDescarte
             ? 'Ainda não há pneus registrados como descarte nesta filial.'
             : vazioRecap
-              ? 'Nenhum pneu em processo de recapagem no momento.'
-              : 'Cadastre pneus no estoque e depois monte no caminhão para medir.'}</p>
+              ? 'Nenhum pneu enviado para recap nesta filial.'
+            : 'Cadastre pneus no estoque e depois monte no caminhão para medir.'}</p>
         </div>`;
       return;
     }
@@ -1660,6 +1670,9 @@ async function loadPneus() {
       const tratamento = p.status_pneu === 'descarte'
         ? (p.tratamento_descarte_label || 'Aguardando destino')
         : null;
+      const recapInfo = p.status_pneu === 'recapagem' && p.recap_fornecedor
+        ? `${escapeHtml(p.recap_fornecedor)}${p.recap_enviado_em ? ` · ${formatDate(p.recap_enviado_em)}` : ''}`
+        : null;
       const tratamentoPendente = p.status_pneu === 'descarte'
         && (!p.tratamento_descarte || p.tratamento_descarte === 'pendente');
       return `
@@ -1675,6 +1688,9 @@ async function loadPneus() {
                 p.tratamento_descarte_obs ? ` — ${escapeHtml(p.tratamento_descarte_obs)}` : ''
               }</p>`
               : ''}
+            ${recapInfo
+              ? `<p class="hint"><strong>Enviado para recap:</strong> ${recapInfo}</p>`
+              : ''}
           </div>
           <div class="pneu-card-actions">
             ${p.status_pneu === 'descarte' ? '' : badge(p.status_sulco)}
@@ -1684,11 +1700,15 @@ async function loadPneus() {
               : ''}
             ${p.status_pneu === 'estoque'
               ? `<button type="button" class="btn btn-primary btn-sm" data-montar-pneu="${p.id}" data-fogo="${p.numero_fogo || ''}">Montar</button>
-                 <button type="button" class="btn btn-ghost btn-sm" data-medir-estoque="${p.id}" data-fogo="${escapeHtml(p.numero_fogo || '')}"
-                   data-sulco="${p.menor_sulco ?? p.sulco_inicial_mm ?? ''}">Medir sulco</button>`
+                 <button type="button" class="btn btn-ghost btn-sm" data-enviar-recap="${p.id}" data-fogo="${escapeHtml(p.numero_fogo || '')}">Enviar para recap</button>`
               : ''}
             ${p.status_pneu === 'recapagem'
-              ? `<button type="button" class="btn btn-primary btn-sm" data-devolver-recap="${p.id}" data-fogo="${escapeHtml(p.numero_fogo || '')}">Devolver ao estoque</button>`
+              ? `<button type="button" class="btn btn-primary btn-sm" data-receber-recap="${p.id}"
+                   data-fogo="${escapeHtml(p.numero_fogo || '')}"
+                   data-fornecedor="${escapeHtml(p.recap_fornecedor || '')}">Receber recap</button>`
+              : ''}
+            ${p.status_pneu === 'montado'
+              ? `<button type="button" class="btn btn-ghost btn-sm" data-enviar-recap="${p.id}" data-fogo="${escapeHtml(p.numero_fogo || '')}">Enviar para recap</button>`
               : ''}
             ${p.status_pneu === 'descarte'
               ? `<button type="button" class="btn btn-primary btn-sm" data-tratamento-descarte="${p.id}"
@@ -1712,23 +1732,6 @@ async function loadPneus() {
         abrirModalMontar(parseInt(btn.dataset.montarPneu, 10), btn.dataset.fogo || '');
       });
     });
-    lista.querySelectorAll('[data-medir-estoque]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        abrirModalMedirEstoque({
-          id: parseInt(btn.dataset.medirEstoque, 10),
-          fogo: btn.dataset.fogo || '',
-          sulco: btn.dataset.sulco || '',
-        });
-      });
-    });
-    lista.querySelectorAll('[data-devolver-recap]').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        abrirModalDevolverRecap({
-          id: parseInt(btn.dataset.devolverRecap, 10),
-          fogo: btn.dataset.fogo || '',
-        });
-      });
-    });
     lista.querySelectorAll('[data-tratamento-descarte]').forEach((btn) => {
       btn.addEventListener('click', () => {
         abrirModalTratamentoDescarte({
@@ -1736,6 +1739,24 @@ async function loadPneus() {
           fogo: btn.dataset.fogo || '',
           tratamento: btn.dataset.tratamento || 'pendente',
           obs: btn.dataset.obs || '',
+        });
+      });
+    });
+    lista.querySelectorAll('[data-enviar-recap]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        abrirModalEnviarRecap({
+          id: parseInt(btn.dataset.enviarRecap, 10),
+          fogo: btn.dataset.fogo || '',
+          origem: 'lista',
+        });
+      });
+    });
+    lista.querySelectorAll('[data-receber-recap]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        receberRecapDoPainel({
+          id: parseInt(btn.dataset.receberRecap, 10),
+          fogo: btn.dataset.fogo || '',
+          fornecedor: btn.dataset.fornecedor || '',
         });
       });
     });
@@ -1762,6 +1783,41 @@ async function loadPneus() {
   }
 }
 
+function abrirModalEnviarRecap({ id, fogo, origem = 'truck' }) {
+  const modal = document.getElementById('modal-enviar-recap');
+  if (!modal || !id) return;
+  document.getElementById('enviar-recap-pneu-id').value = String(id);
+  document.getElementById('enviar-recap-origem').value = origem;
+  document.getElementById('enviar-recap-label').textContent = fogo
+    ? `Pneu fogo ${fogo} — informe o fornecedor e a data do envio.`
+    : 'Informe o fornecedor e a data do envio.';
+  const forn = document.getElementById('enviar-recap-fornecedor');
+  const obs = document.getElementById('enviar-recap-obs');
+  const data = document.getElementById('enviar-recap-data');
+  if (forn) forn.value = '';
+  if (obs) obs.value = '';
+  if (data) data.value = hojeISOLocal();
+  modal.showModal();
+  forn?.focus();
+}
+
+async function receberRecapDoPainel({ id, fogo, fornecedor }) {
+  const forn = fornecedor ? ` (${fornecedor})` : '';
+  if (!confirm(`Registrar retorno da recap do fogo ${fogo || id}${forn}? O pneu volta ao estoque.`)) {
+    return;
+  }
+  try {
+    const result = await fetchJSON(`${API}/pneus/${id}/evento`, {
+      method: 'POST',
+      body: JSON.stringify({ tipo: 'recap', detalhes: 'Recebido pelo painel' }),
+    });
+    toast(result.mensagem, 'success');
+    await loadPneus();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
 function abrirModalTratamentoDescarte({ id, fogo, tratamento, obs }) {
   const modal = document.getElementById('modal-tratamento-descarte');
   if (!modal) return;
@@ -1772,41 +1828,6 @@ function abrirModalTratamentoDescarte({ id, fogo, tratamento, obs }) {
   document.getElementById('tratamento-descarte-tipo').value = tratamento || 'pendente';
   document.getElementById('tratamento-descarte-obs').value = obs || '';
   modal.showModal();
-}
-
-function abrirModalDevolverRecap({ id, fogo }) {
-  const modal = document.getElementById('modal-devolver-recap');
-  if (!modal) return;
-  document.getElementById('devolver-recap-pneu-id').value = String(id);
-  document.getElementById('devolver-recap-label').textContent = fogo
-    ? `Fogo ${fogo} — informe o sulco medido após o recap para liberar no estoque.`
-    : 'Informe o sulco medido após o recap para liberar no estoque.';
-  const sulcoPadrao = limitesAtuais?.sulco_novo_mm ?? 14;
-  const input = document.getElementById('devolver-recap-sulco');
-  input.value = String(sulcoPadrao);
-  modal.showModal();
-  setTimeout(() => {
-    input.focus();
-    input.select();
-  }, 50);
-}
-
-function abrirModalMedirEstoque({ id, fogo, sulco }) {
-  const modal = document.getElementById('modal-medir-estoque');
-  if (!modal) return;
-  document.getElementById('medir-estoque-pneu-id').value = String(id);
-  document.getElementById('medir-estoque-label').textContent = fogo
-    ? `Fogo ${fogo} — registre a medição atual (pode diferir do sulco cadastrado).`
-    : 'Registre a medição atual do pneu em estoque.';
-  const atual = sulco !== '' && sulco != null ? String(sulco) : '';
-  const padrao = atual || String(limitesAtuais?.sulco_novo_mm ?? 14);
-  ['medir-estoque-ext', 'medir-estoque-cent', 'medir-estoque-int', 'medir-estoque-aux'].forEach((idEl) => {
-    const el = document.getElementById(idEl);
-    if (el) el.value = padrao;
-  });
-  document.getElementById('medir-estoque-obs').value = '';
-  modal.showModal();
-  setTimeout(() => document.getElementById('medir-estoque-ext')?.focus(), 50);
 }
 
 function setTipoCondicaoEditaveis(editavel) {
@@ -1872,16 +1893,7 @@ document.getElementById('btn-novo-pneu')?.addEventListener('click', abrirModalPn
 document.getElementById('btn-cancelar-pneu')?.addEventListener('click', () => {
   document.getElementById('modal-pneu').close();
 });
-document.getElementById('pneus-filtro-status')?.addEventListener('change', () => {
-  const hint = document.getElementById('pneus-filtro-hint');
-  const status = document.getElementById('pneus-filtro-status')?.value;
-  if (hint) {
-    hint.classList.toggle('hidden', status !== 'recapagem');
-  }
-  loadPneus();
-});
-// hint só na aba recapagem
-document.getElementById('pneus-filtro-hint')?.classList.add('hidden');
+document.getElementById('pneus-filtro-status')?.addEventListener('change', loadPneus);
 let pneusBuscaTimer;
 document.getElementById('pneus-busca')?.addEventListener('input', () => {
   clearTimeout(pneusBuscaTimer);
@@ -1981,6 +1993,47 @@ document.getElementById('btn-cancelar-montar')?.addEventListener('click', () => 
   document.getElementById('modal-montar').close();
 });
 
+document.getElementById('btn-cancelar-enviar-recap')?.addEventListener('click', () => {
+  document.getElementById('modal-enviar-recap')?.close();
+});
+
+document.getElementById('form-enviar-recap')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const pneuId = parseInt(document.getElementById('enviar-recap-pneu-id').value, 10);
+  const origem = document.getElementById('enviar-recap-origem')?.value || 'truck';
+  const fornecedor = document.getElementById('enviar-recap-fornecedor')?.value?.trim();
+  const dataEvento = document.getElementById('enviar-recap-data')?.value;
+  const obs = document.getElementById('enviar-recap-obs')?.value?.trim();
+  if (!pneuId || !fornecedor || !dataEvento) {
+    return toast('Informe o fornecedor e a data', 'error');
+  }
+  const body = {
+    tipo: 'enviar_recap',
+    fornecedor,
+    data_evento: dataEvento,
+    detalhes: obs || 'Registrado pelo painel',
+  };
+  if (origem === 'truck' && veiculoAtual) {
+    body.km_veiculo = parseInt(document.getElementById('truck-km').value, 10) || veiculoAtual.km_atual;
+    body.hr_veiculo = numOrNull('truck-hr');
+  }
+  try {
+    const result = await fetchJSON(`${API}/pneus/${pneuId}/evento`, {
+      method: 'POST',
+      body: JSON.stringify(body),
+    });
+    document.getElementById('modal-enviar-recap')?.close();
+    toast(result.mensagem, 'success');
+    if (origem === 'truck' && veiculoAtual) {
+      await openVeiculoDetalhe(veiculoAtual.id, voltarPara);
+    } else {
+      await loadPneus();
+    }
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+});
+
 document.getElementById('btn-cancelar-tratamento-descarte')?.addEventListener('click', () => {
   document.getElementById('modal-tratamento-descarte')?.close();
 });
@@ -1998,92 +2051,6 @@ document.getElementById('form-tratamento-descarte')?.addEventListener('submit', 
     });
     document.getElementById('modal-tratamento-descarte')?.close();
     toast(result.mensagem || 'Tratamento salvo', 'success');
-    loadPneus();
-  } catch (err) {
-    toast(err.message, 'error');
-  }
-});
-
-document.getElementById('btn-cancelar-devolver-recap')?.addEventListener('click', () => {
-  document.getElementById('modal-devolver-recap')?.close();
-});
-
-document.getElementById('form-devolver-recap')?.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const pneuId = parseInt(document.getElementById('devolver-recap-pneu-id').value, 10);
-  const sulco = parseFloat(document.getElementById('devolver-recap-sulco').value);
-  if (!pneuId) return toast('Pneu inválido', 'error');
-  if (!Number.isFinite(sulco) || sulco <= 0) {
-    return toast('Informe o sulco após o recap (mm)', 'error');
-  }
-  try {
-    const result = await fetchJSON(`${API}/pneus/${pneuId}/evento`, {
-      method: 'POST',
-      body: JSON.stringify({
-        tipo: 'retorno_recap',
-        sulco_mm: sulco,
-        detalhes: `Recap concluído · sulco ${sulco} mm · voltou ao estoque`,
-      }),
-    });
-    document.getElementById('modal-devolver-recap')?.close();
-    toast(result.mensagem || `Pneu no estoque com sulco ${sulco} mm`, 'success');
-    const filtro = document.getElementById('pneus-filtro-status');
-    if (filtro) filtro.value = 'estoque';
-    loadPneus();
-  } catch (err) {
-    toast(err.message, 'error');
-  }
-});
-
-document.getElementById('btn-cancelar-medir-estoque')?.addEventListener('click', () => {
-  document.getElementById('modal-medir-estoque')?.close();
-});
-
-// Replica o externo nos outros pontos vazios (medição rápida em estoque)
-document.getElementById('medir-estoque-ext')?.addEventListener('change', () => {
-  const v = document.getElementById('medir-estoque-ext')?.value;
-  if (v === '' || v == null) return;
-  ['medir-estoque-cent', 'medir-estoque-int', 'medir-estoque-aux'].forEach((id) => {
-    const el = document.getElementById(id);
-    if (el && (el.value === '' || el.value == null)) el.value = v;
-  });
-});
-
-document.getElementById('form-medir-estoque')?.addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const pneuId = parseInt(document.getElementById('medir-estoque-pneu-id').value, 10);
-  const num = (id) => {
-    const v = parseFloat(document.getElementById(id)?.value);
-    return Number.isFinite(v) ? v : null;
-  };
-  let ext = num('medir-estoque-ext');
-  let cent = num('medir-estoque-cent');
-  let int_ = num('medir-estoque-int');
-  let aux = num('medir-estoque-aux');
-  if (ext != null) {
-    if (cent == null) cent = ext;
-    if (int_ == null) int_ = ext;
-    if (aux == null) aux = ext;
-  }
-  if (ext == null && cent == null && int_ == null && aux == null) {
-    return toast('Informe ao menos um sulco', 'error');
-  }
-  try {
-    const result = await fetchJSON(`${API}/medicoes`, {
-      method: 'POST',
-      body: JSON.stringify({
-        pneu_id: pneuId,
-        sulco_externo: ext,
-        sulco_central: cent,
-        sulco_interno: int_,
-        sulco_auxiliar: aux,
-        observacoes: document.getElementById('medir-estoque-obs')?.value?.trim() || 'Medição em estoque',
-        responsavel: 'estoque',
-      }),
-    });
-    document.getElementById('modal-medir-estoque')?.close();
-    const menor = result.menor_sulco ?? result.medicao?.menor_sulco;
-    toast(menor != null ? `Sulco atualizado: ${menor} mm` : 'Medição salva', 'success');
     loadPneus();
   } catch (err) {
     toast(err.message, 'error');
@@ -2215,7 +2182,7 @@ async function abrirHistoricoPneu(pneuId) {
         </tbody>
       </table>` : '<p class="hint">Sem medições.</p>'}
       ${data.movimentacoes?.length ? `
-        <h4 style="margin-top:1rem">Movimentações (colocar / retirar / mudar posição)</h4>
+        <h4 style="margin-top:1rem">Movimentações (colocar / retirar / recap / posição)</h4>
         <table class="historico-table">
           <thead><tr><th>Data</th><th>Tipo</th><th>Placa</th><th>Posição</th><th>KM</th><th>Hr</th><th>Km rodados</th><th>Detalhes</th></tr></thead>
           <tbody>
@@ -2671,23 +2638,44 @@ document.getElementById('btn-salvar-medicao').addEventListener('click', async ()
 
 async function loadAlertas() {
   try {
-    const [alertas, config] = await Promise.all([
+    const [alertas, vagas, config] = await Promise.all([
       fetchJSON(`${API}/medicoes/alertas`),
+      fetchJSON(`${API}/pneus/alertas-vaga`).catch(() => []),
       fetchConfiguracoes(),
     ]);
     limitesAtuais = { ...limitesAtuais, ...config };
 
     const hint = document.getElementById('alertas-limites-hint');
-    if (hint) hint.textContent = hintLimites();
+    if (hint) {
+      const nVaga = Array.isArray(vagas) ? vagas.length : 0;
+      hint.textContent = nVaga
+        ? `${nVaga} posição(ões) vaga(s) esperando pneu novo. ${hintLimites()}`
+        : hintLimites();
+    }
 
     const lista = document.getElementById('alertas-lista');
+    const sulco = Array.isArray(alertas) ? alertas : [];
+    const posVagas = Array.isArray(vagas) ? vagas : [];
 
-    if (!alertas.length) {
-      lista.innerHTML = '<div class="empty-state"><h3>Nenhum alerta</h3><p>Todos os pneus estão dentro do limite</p></div>';
+    if (!sulco.length && !posVagas.length) {
+      lista.innerHTML = '<div class="empty-state"><h3>Nenhum alerta</h3><p>Todos os pneus estão dentro do limite e não há posição vaga.</p></div>';
       return;
     }
 
-    lista.innerHTML = alertas.map((a) => `
+    const cardsVaga = posVagas.map((a) => `
+      <div class="alerta-card vaga">
+        <div>
+          <strong>Informe um pneu novo</strong> — ${escapeHtml(a.apelido || a.placa)} · ${escapeHtml(a.posicao_label || a.posicao || '')}
+          <p class="hint">${escapeHtml(a.placa)} · Fogo ${escapeHtml(a.numero_fogo || '—')} ${escapeHtml(a.motivo_label || '')}</p>
+        </div>
+        <div class="veiculo-meta">
+          <span class="badge badge-alerta">posição vaga</span>
+          <button type="button" class="btn btn-sm btn-primary" data-veiculo-vaga="${a.veiculo_id}">Abrir caminhão</button>
+        </div>
+      </div>
+    `).join('');
+
+    const cardsSulco = sulco.map((a) => `
       <div class="alerta-card ${a.status_sulco}">
         <div>
           <strong>${a.apelido || a.placa}</strong> — ${meta.posicoes[a.posicao] || a.posicao}
@@ -2700,6 +2688,11 @@ async function loadAlertas() {
         </div>
       </div>
     `).join('');
+
+    lista.innerHTML = cardsVaga + cardsSulco;
+    lista.querySelectorAll('[data-veiculo-vaga]').forEach((btn) => {
+      btn.addEventListener('click', () => openVeiculoDetalhe(btn.dataset.veiculoVaga, 'alertas'));
+    });
   } catch (err) {
     toast(err.message, 'error');
   }
@@ -2914,9 +2907,7 @@ function startWaPollFilial(filialId, nome) {
   waPollFilialId = filialId;
   waPollTimer = setInterval(async () => {
     try {
-      if (Number(waPollFilialId) !== Number(filialId)) return;
       const data = await fetchJSON(`${API}/whatsapp/filial/${filialId}/status`);
-      if (data.filial_id != null && Number(data.filial_id) !== Number(filialId)) return;
       if (data.qrcode || data.qr_erro) mostrarQrFilial(data, nome);
       if (data.loggedIn) {
         toast(`Chatbot ${nome} conectado!`, 'success');
@@ -3017,7 +3008,7 @@ async function loadFiliais() {
           </div>
           <div class="compras-chip recap">
             <strong>${t.pneus_para_recap ?? 0}</strong>
-            <span>Em recapagem</span>
+            <span>Recapagem</span>
           </div>
           <div class="compras-chip monitorar">
             <strong>${t.pneus_monitorar ?? 0}</strong>
@@ -3061,7 +3052,7 @@ async function loadFiliais() {
           <p class="hint">
             Chatbot:
             ${f.whatsapp ? `<span class="mono">${escapeHtml(f.whatsapp)}</span>` : '<em>não cadastrado</em>'}
-            ${f.whatsapp_grupo ? ` · grupo <span class="mono">${escapeHtml(f.whatsapp_grupo)}</span>` : ''}
+            ${f.whatsapp_grupo ? ` · grupo <span class="mono">${escapeHtml(f.whatsapp_grupo_nome || f.whatsapp_grupo)}</span>` : ''}
             ${f.whatsapp_alerta ? ` · alertas <span class="mono">${escapeHtml(f.whatsapp_alerta)}</span>` : ''}
             ${f.tem_wuzapi_token ? ' · token OK' : ''}
           </p>
@@ -3080,6 +3071,7 @@ async function loadFiliais() {
           <div class="filial-card-actions">
             <button type="button" class="btn btn-sm btn-primary btn-abrir-filial" data-id="${f.id}">Abrir</button>
             <button type="button" class="btn btn-sm btn-ghost btn-editar-filial" data-id="${f.id}">Editar / senha</button>
+            ${isAdmin() ? `<button type="button" class="btn btn-sm btn-ghost btn-limpar-frota-filial" data-id="${f.id}" data-nome="${escapeHtml(f.nome)}">Limpar frota</button>` : ''}
           </div>
         </div>
       `;
@@ -3089,6 +3081,7 @@ async function loadFiliais() {
     lista.querySelectorAll('.filial-card[data-id]').forEach((card) => {
       card.addEventListener('click', (e) => {
         if (e.target.closest('.btn-editar-filial')) return;
+        if (e.target.closest('.btn-limpar-frota-filial')) return;
         abrir(card.dataset.id);
       });
       card.addEventListener('keydown', (e) => {
@@ -3108,6 +3101,25 @@ async function loadFiliais() {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         abrirModalFilial(btn.dataset.id);
+      });
+    });
+    lista.querySelectorAll('.btn-limpar-frota-filial').forEach((btn) => {
+      btn.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const nome = btn.dataset.nome || 'esta filial';
+        if (!confirm(`Apagar TODOS os caminhões, pneus e histórico de ${nome}?\n\nLogin e WhatsApp da unidade ficam. Não dá para desfazer.`)) {
+          return;
+        }
+        try {
+          const data = await fetchJSON(`${API}/filiais/${btn.dataset.id}/limpar-frota`, {
+            method: 'POST',
+            body: '{}',
+          });
+          toast(data.mensagem || `Frota de ${nome} limpa`, 'success');
+          await loadFiliais();
+        } catch (err) {
+          toast(err.message, 'error');
+        }
       });
     });
   } catch (err) {
@@ -3185,20 +3197,9 @@ function abrirVeiculoNaUnidade(filialId, veiculoId) {
   abrirInspecaoVeiculoFilial(filialId, veiculoId);
 }
 
-function abrirPneusRecapagem() {
-  showView('pneus');
-  const filtro = document.getElementById('pneus-filtro-status');
-  if (filtro) filtro.value = 'recapagem';
-  loadPneus();
-}
-
 function renderPendenciaRows(itens, tipo) {
   if (!itens?.length) return '';
-  const titulo = tipo === 'troca'
-    ? 'Comprar / Trocar'
-    : tipo === 'recap'
-      ? 'Em recapagem'
-      : 'Monitorar';
+  const titulo = tipo === 'troca' ? 'Comprar / Trocar' : tipo === 'recap' ? 'Recapagem' : 'Monitorar';
   return `
     <div class="pendencia-grupo pendencia-${tipo}">
       <h4>${titulo} (${itens.length})</h4>
@@ -3206,17 +3207,13 @@ function renderPendenciaRows(itens, tipo) {
       <table class="historico-table unidade-table">
         <thead>
           <tr>
-            <th>${tipo === 'recap' ? 'Origem' : 'Veículo'}</th><th>Posição</th><th>Fogo</th><th>Sulco</th>
-            <th>Status</th><th>Diagnóstico</th><th>O que fazer</th><th>${tipo === 'recap' ? 'Envio' : 'Medição'}</th>
+            <th>Veículo</th><th>Posição</th><th>Fogo</th><th>Sulco</th>
+            <th>Status</th><th>Diagnóstico</th><th>O que fazer</th><th>Medição</th>
           </tr>
         </thead>
         <tbody>
           ${itens.map((p) => `
-            <tr class="unidade-pend-row" data-pend-tipo="${tipo}"
-                data-veiculo-id="${p.veiculo_id || ''}"
-                data-pneu-id="${p.pneu_id || ''}"
-                data-em-recap="${p.em_recapagem ? '1' : '0'}"
-                title="${tipo === 'recap' ? 'Abrir pneus em recapagem' : 'Abrir o veículo para análise'}">
+            <tr class="unidade-pend-row" data-pend-tipo="${tipo}" data-veiculo-id="${p.veiculo_id}" title="Abrir o veículo para análise">
               <td><strong>${escapeHtml(p.apelido || p.placa)}</strong><br><span class="hint">${escapeHtml(p.placa)}</span></td>
               <td>${escapeHtml(p.posicao_label || p.posicao || '—')}</td>
               <td>${escapeHtml(p.numero_fogo || '—')}</td>
@@ -3250,8 +3247,8 @@ function renderUnidadeKpis(data) {
         <span>Comprar</span>
       </button>
       <button type="button" class="unidade-kpi is-recap" data-unidade-tab="pendencias" data-pend-filtro="recap">
-        <strong>${c.pneus_para_recap ?? r.pneus_em_recapagem ?? 0}</strong>
-        <span>Em recap</span>
+        <strong>${c.pneus_para_recap ?? 0}</strong>
+        <span>Recap</span>
       </button>
       <button type="button" class="unidade-kpi is-mon" data-unidade-tab="pendencias" data-pend-filtro="monitorar">
         <strong>${c.pneus_monitorar ?? 0}</strong>
@@ -3321,7 +3318,7 @@ function renderUnidadeResumo(data) {
         <h4>Como ler esta tela</h4>
         <ol class="unidade-howto">
           <li>Os cartões do topo mostram o volume da unidade. Clique para filtrar.</li>
-          <li><strong>Pendências</strong> lista comprar, pneus em recapagem e o que monitorar.</li>
+          <li><strong>Pendências</strong> lista cada pneu a comprar, recapar ou acompanhar.</li>
           <li><strong>Frota</strong> abre o desenho do caminhão ao lado da lista para cruzar sulco e diagnóstico.</li>
         </ol>
         <p class="hint" style="margin-top:.75rem">${nPend} pneu(s) com ação pendente nesta unidade.</p>
@@ -3393,6 +3390,39 @@ function valorCampoWa(v) {
   return s;
 }
 
+function idGrupoCanonicoFront(v) {
+  const s = valorCampoWa(v);
+  if (!s) return '';
+  const gUs = s.match(/^([^@\s]+)@g\.us$/i);
+  if (gUs) return gUs[1].replace(/:[0-9]+$/, '');
+  if (/@g\.us$/i.test(s)) return s.replace(/@g\.us$/i, '').replace(/[^\d-]/g, '');
+  return s.replace(/[^\d-]/g, '') || s;
+}
+
+function jidsGrupoIguaisFront(a, b) {
+  if (!a || !b) return false;
+  if (valorCampoWa(a) === valorCampoWa(b)) return true;
+  const idA = idGrupoCanonicoFront(a);
+  const idB = idGrupoCanonicoFront(b);
+  return Boolean(idA && idB && idA === idB);
+}
+
+function rotuloGrupoWhatsapp(jid, nome) {
+  const n = valorCampoWa(nome);
+  if (n && n !== '(sem nome)' && n !== jid) return n;
+  return valorCampoWa(jid) || 'Grupo selecionado';
+}
+
+function htmlGrupoAtivoChatbot(jid, nome) {
+  if (!jid) {
+    return '<p class="hint" style="margin:0">Nenhum grupo selecionado — o chatbot não responde placas em grupos.</p>';
+  }
+  return `
+    <p class="cb-grupo-ativo-line"><strong>${escapeHtml(rotuloGrupoWhatsapp(jid, nome))}</strong></p>
+    <p class="hint" style="margin:.35rem 0 0">O chatbot só responde a placa neste grupo.</p>
+  `;
+}
+
 async function abrirDetalheFilial(id) {
   try {
     const data = await fetchJSON(`${API}/filiais/${id}`);
@@ -3445,7 +3475,7 @@ async function abrirDetalheFilial(id) {
           <div class="unidade-pend-filtros">
             <button type="button" class="unidade-chip ativo" data-pend-filtro="">Todas (${nPend})</button>
             <button type="button" class="unidade-chip" data-pend-filtro="troca">Comprar (${pend.troca?.length || 0})</button>
-            <button type="button" class="unidade-chip" data-pend-filtro="recap">Em recap (${pend.recap?.length || 0})</button>
+            <button type="button" class="unidade-chip" data-pend-filtro="recap">Recap (${pend.recap?.length || 0})</button>
             <button type="button" class="unidade-chip" data-pend-filtro="monitorar">Monitorar (${pend.monitorar?.length || 0})</button>
           </div>
           ${nPend
@@ -3489,13 +3519,7 @@ async function abrirDetalheFilial(id) {
     document.getElementById('unidade-frota-filtro')?.addEventListener('change', filtrarFrotaUnidade);
 
     el.querySelectorAll('.unidade-pend-row').forEach((row) => {
-      row.addEventListener('click', () => {
-        if (row.dataset.emRecap === '1' || row.dataset.pendTipo === 'recap') {
-          abrirPneusRecapagem();
-          return;
-        }
-        if (row.dataset.veiculoId) abrirVeiculoNaUnidade(id, row.dataset.veiculoId);
-      });
+      row.addEventListener('click', () => abrirVeiculoNaUnidade(id, row.dataset.veiculoId));
     });
     el.querySelectorAll('.unidade-prio-btn').forEach((btn) => {
       btn.addEventListener('click', () => abrirVeiculoNaUnidade(id, btn.dataset.veiculoId));
@@ -3519,17 +3543,18 @@ async function abrirDetalheFilial(id) {
 
 function renderChatbotPanelHtml(data) {
   const grupoAtual = valorCampoWa(data.whatsapp_grupo);
+  const grupoNome = valorCampoWa(data.whatsapp_grupo_nome);
   const chip = valorCampoWa(data.whatsapp);
   const alerta = valorCampoWa(data.whatsapp_alerta);
-  const temToken = Boolean(data.tem_wuzapi_token);
   const temGrupo = Boolean(grupoAtual);
+  const labelGrupo = rotuloGrupoWhatsapp(grupoAtual, grupoNome);
   return `
     <div class="filial-chatbot-panel cb-setup">
       <header class="cb-hero">
         <div class="cb-hero-text">
           <p class="cb-kicker">Chatbot da unidade</p>
           <h3>${escapeHtml(data.nome || 'Unidade')}${data.codigo ? ` <span class="cb-code">${escapeHtml(data.codigo)}</span>` : ''}</h3>
-          <p class="hint cb-hero-hint">Placa no grupo → link de medição no celular do borracheiro.</p>
+          <p class="hint cb-hero-hint">Placa no grupo → link de medição. Recap: <code>recap 08251227 Fornecedor 26/08/2026</code>.</p>
         </div>
         <div class="cb-status-card">
           <span id="fc-status" class="badge badge-sem_dado">Status…</span>
@@ -3547,23 +3572,16 @@ function renderChatbotPanelHtml(data) {
             <span class="cb-step-num">1</span>
             <div>
               <h4>Conectar o chip</h4>
-              <p class="hint">Gere o token (se precisar) e escaneie o QR com o WhatsApp do chip da unidade.</p>
+              <p class="hint">O token é gerado sozinho. Escaneie o QR com o WhatsApp do chip da unidade.</p>
             </div>
           </div>
           <div class="cb-step-body">
-            <div class="form-row cb-token-row">
-              <div class="form-group" style="flex:1;margin:0">
-                <label for="fc-wuzapi-token">Token WuzAPI</label>
-                <input type="password" id="fc-wuzapi-token" placeholder="${temToken ? '•••• token já cadastrado — deixe em branco' : 'Clique em Gerar token'}" autocomplete="off">
-              </div>
-              <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-gerar-token">${temToken ? 'Gerar de novo' : 'Gerar token'}</button>
-            </div>
             <div class="form-group">
               <label for="fc-whatsapp">Número do chip</label>
               <input type="tel" id="fc-whatsapp" class="mono" value="${escapeHtml(chip)}" placeholder="Com DDI, ex.: 5562999999999" inputmode="tel" autocomplete="tel">
               <small class="field-hint">Salva sozinho ao sair do campo. Se o QR conectar, o número do chip entra sozinho.</small>
             </div>
-            <p class="hint" id="fc-wuzapi-hint">Servidor do chatbot precisa estar no ar. Depois: Gerar token → Conectar / QR.</p>
+            <p class="hint" id="fc-wuzapi-hint">Servidor do chatbot precisa estar no ar. Clique em Conectar / QR — o token é criado automaticamente.</p>
             <div class="cb-qr-panel hidden" id="fc-qr-wrap">
               <h4 id="fc-qr-titulo">Escaneie o QR Code</h4>
               <p class="hint">No celular do chip: WhatsApp → Aparelhos conectados → Conectar um aparelho</p>
@@ -3580,21 +3598,34 @@ function renderChatbotPanelHtml(data) {
             <span class="cb-step-num">2</span>
             <div>
               <h4>Grupo da medição</h4>
-              <p class="hint">Grupo onde o borracheiro manda a placa. Ao selecionar, salva automaticamente.</p>
+              <p class="hint">Grupo onde o borracheiro manda a placa. Só este grupo recebe resposta do chatbot.</p>
             </div>
           </div>
           <div class="cb-step-body">
-            <div class="form-row" style="align-items:flex-end;gap:.5rem">
-              <div class="form-group" style="flex:1;margin:0">
-                <label for="fc-whatsapp-grupo">Grupo WhatsApp</label>
-                <select id="fc-whatsapp-grupo">
-                  <option value="">— Selecione o grupo —</option>
-                  ${grupoAtual ? `<option value="${escapeHtml(grupoAtual)}" selected>${escapeHtml(grupoAtual)}</option>` : ''}
-                </select>
+            <div class="cb-grupo-locked${temGrupo ? '' : ' hidden'}" id="fc-grupo-locked">
+              <div class="cb-grupo-ativo" id="fc-grupo-ativo">
+                ${htmlGrupoAtivoChatbot(grupoAtual, grupoNome)}
               </div>
-              <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-grupos">Atualizar lista</button>
+              <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-trocar-grupo">Escolher outro grupo</button>
             </div>
-            <small class="field-hint">O chip precisa estar no grupo. Conecte primeiro (passo 1), depois atualize a lista.</small>
+            <div class="cb-grupo-picker${temGrupo ? ' hidden' : ''}" id="fc-grupo-picker">
+              <div class="form-row" style="align-items:flex-end;gap:.5rem">
+                <div class="form-group" style="flex:1;margin:0">
+                  <label for="fc-whatsapp-grupo">Grupo WhatsApp</label>
+                  <select id="fc-whatsapp-grupo">
+                    <option value="">— Selecione o grupo —</option>
+                    ${grupoAtual ? `<option value="${escapeHtml(grupoAtual)}" selected data-nome="${escapeHtml(grupoNome)}">${escapeHtml(labelGrupo)}</option>` : ''}
+                  </select>
+                </div>
+                <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-grupos">Atualizar lista</button>
+              </div>
+              <div class="form-row" style="gap:.5rem;margin-top:.5rem">
+                <button type="button" class="btn btn-ghost btn-sm${temGrupo ? '' : ' hidden'}" id="btn-fc-cancelar-grupo">Cancelar</button>
+              </div>
+              <small class="field-hint">O chip precisa estar no grupo. Conecte primeiro (passo 1), depois escolha o grupo. A lista só abre aqui.</small>
+            </div>
+            <input type="hidden" id="fc-whatsapp-grupo-jid" value="${escapeHtml(grupoAtual)}">
+            <input type="hidden" id="fc-whatsapp-grupo-nome" value="${escapeHtml(grupoNome)}">
           </div>
         </li>
         <li class="cb-step cb-step-muted${alerta ? ' is-done' : ''}" id="fc-step-alerta">
@@ -3651,88 +3682,26 @@ function renderChatbotPanelHtml(data) {
 async function loadChatbotGerente() {
   const box = document.getElementById('chatbot-filial-panel');
   if (!box) return;
-  stopWaPoll();
   if (!isGerente()) {
     box.innerHTML = `<p class="hint login-erro">Somente o gerente da unidade configura o chatbot WhatsApp.</p>`;
     return;
   }
-
-  let filialId = currentUser?.filial_id || null;
-  let filiaisEscopo = [];
-  try {
-    filiaisEscopo = await fetchJSON(`${API}/filiais`);
-  } catch { /* ignore */ }
-
-  // Gerente multiunidade: se não tem filial_id, exige escolha (nunca assume a primeira)
+  let filialId = currentUser?.filial_id;
+  // Gerente multiunidade: pega a primeira do escopo
   if (!filialId) {
-    if (!filiaisEscopo.length) {
-      box.innerHTML = `<p class="hint login-erro">Seu login não está vinculado a uma filial. Peça ao admin para vincular.</p>`;
-      return;
-    }
-    if (filiaisEscopo.length === 1) {
-      filialId = filiaisEscopo[0].id;
-    } else {
-      const salva = sessionStorage.getItem('chatbot_filial_id');
-      const okSalva = filiaisEscopo.some((f) => String(f.id) === String(salva));
-      filialId = okSalva ? Number(salva) : null;
-      if (!filialId) {
-        box.innerHTML = `
-          <div class="filial-chatbot-panel">
-            <p class="hint">Seu perfil acessa várias unidades. Escolha qual chatbot configurar:</p>
-            <div class="form-group">
-              <label for="cb-filial-select">Unidade</label>
-              <select id="cb-filial-select">
-                <option value="">— selecione —</option>
-                ${filiaisEscopo.map((f) =>
-                  `<option value="${f.id}">${escapeHtml(f.nome)} (${escapeHtml(f.codigo || '')})</option>`
-                ).join('')}
-              </select>
-            </div>
-          </div>`;
-        document.getElementById('cb-filial-select')?.addEventListener('change', (e) => {
-          const id = e.target.value;
-          if (!id) return;
-          sessionStorage.setItem('chatbot_filial_id', id);
-          loadChatbotGerente();
-        });
-        return;
-      }
-    }
+    try {
+      const filiais = await fetchJSON(`${API}/filiais`);
+      filialId = filiais[0]?.id || null;
+    } catch { /* ignore */ }
   }
-
-  // Garante que a filial está no escopo do gerente
-  if (filiaisEscopo.length && !filiaisEscopo.some((f) => Number(f.id) === Number(filialId))) {
-    box.innerHTML = `<p class="hint login-erro">Filial fora do seu escopo.</p>`;
+  if (!filialId) {
+    box.innerHTML = `<p class="hint login-erro">Seu login não está vinculado a uma filial. Abra Minha unidade e peça ao admin para vincular.</p>`;
     return;
   }
-
   try {
     const data = await fetchJSON(`${API}/whatsapp/filial/${filialId}/config`);
-    let seletor = '';
-    if (!currentUser?.filial_id && filiaisEscopo.length > 1) {
-      seletor = `
-        <div class="form-group" style="margin-bottom:1rem">
-          <label for="cb-filial-select">Unidade do chatbot</label>
-          <select id="cb-filial-select">
-            ${filiaisEscopo.map((f) =>
-              `<option value="${f.id}" ${Number(f.id) === Number(filialId) ? 'selected' : ''}>${escapeHtml(f.nome)} (${escapeHtml(f.codigo || '')})</option>`
-            ).join('')}
-          </select>
-        </div>`;
-    }
-    box.innerHTML = seletor + renderChatbotPanelHtml(data);
-    if (seletor) {
-      document.getElementById('cb-filial-select')?.addEventListener('change', (e) => {
-        sessionStorage.setItem('chatbot_filial_id', e.target.value);
-        loadChatbotGerente();
-      });
-    }
+    box.innerHTML = renderChatbotPanelHtml(data);
     wireFilialChatbotPanel(filialId, data.nome, { alertasEnabled: Boolean(data.alertas_enabled) });
-    if (data.aviso_token) {
-      toast(data.aviso_token, 'success');
-    } else if (data.token_recem_criado || data.precisa_conectar) {
-      toast('Token desta unidade pronto — clique em Conectar / QR para iniciar.', 'success');
-    }
   } catch (err) {
     box.innerHTML = `<p class="hint login-erro">${escapeHtml(err.message)}</p>`;
   }
@@ -3811,22 +3780,6 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
     const stepGroup = document.getElementById('fc-step-group');
     try {
       const st = await fetchJSON(`${API}/whatsapp/filial/${filialId}/status`);
-      if (st.filial_id != null && Number(st.filial_id) !== Number(filialId)) return;
-
-      if (!st.configurado || st.precisa_conectar) {
-        statusEl.className = 'badge badge-sem_dado';
-        statusEl.textContent = st.configurado ? 'Desconectado' : 'Sem token';
-        if (detail) {
-          detail.textContent = st.mensagem
-            || (st.precisa_conectar
-              ? 'Token pronto. Clique em Conectar / QR com o chip desta unidade.'
-              : 'Gere o token desta unidade e conecte o chip dela.');
-        }
-        stepConnect?.classList.add('is-active');
-        stepConnect?.classList.remove('is-done');
-        return;
-      }
-
       if (st.loggedIn && st.phone) {
         const atual = String(document.getElementById('fc-whatsapp')?.value || '').replace(/\D/g, '');
         if (!chipSessaoAplicado || !atual) {
@@ -3837,20 +3790,27 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
       if (st.loggedIn) {
         statusEl.className = 'badge badge-ok';
         statusEl.textContent = 'Online';
-        if (detail) detail.textContent = 'Conectado. Atualize e escolha o grupo da medição.';
+        if (detail) detail.textContent = 'Conectado. O chatbot só responde no grupo escolhido abaixo.';
         stepConnect?.classList.add('is-done');
         stepConnect?.classList.remove('is-active');
         stepGroup?.classList.add('is-active');
-        carregarGrupos(true);
+        const jidSalvo = valorCampoWa(document.getElementById('fc-whatsapp-grupo-jid')?.value);
+        const pickerAberto = !document.getElementById('fc-grupo-picker')?.classList.contains('hidden');
+        if (!jidSalvo || pickerAberto) carregarGrupos(true);
       } else if (st.connected) {
         statusEl.className = 'badge badge-alerta';
         statusEl.textContent = 'Aguardando QR';
-        if (detail) detail.textContent = 'Escaneie o QR com o WhatsApp do chip desta unidade.';
+        if (detail) detail.textContent = 'Escaneie o QR com o WhatsApp do chip.';
+        stepConnect?.classList.add('is-active');
+      } else if (!st.configurado) {
+        statusEl.className = 'badge badge-sem_dado';
+        statusEl.textContent = 'Sem token';
+        if (detail) detail.textContent = 'Clique em Conectar / QR — o token é gerado automaticamente.';
         stepConnect?.classList.add('is-active');
       } else {
         statusEl.className = 'badge badge-sem_dado';
         statusEl.textContent = 'Desconectado';
-        if (detail) detail.textContent = 'Clique em Conectar / QR com o chip desta unidade.';
+        if (detail) detail.textContent = 'Servidor no ar? Clique em Conectar / QR.';
         stepConnect?.classList.add('is-active');
         stepConnect?.classList.remove('is-done');
       }
@@ -3957,32 +3917,72 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
   });
   carregarEnvios(true);
 
+  const lerGrupoSalvo = () => ({
+    jid: valorCampoWa(document.getElementById('fc-whatsapp-grupo-jid')?.value),
+    nome: valorCampoWa(document.getElementById('fc-whatsapp-grupo-nome')?.value),
+  });
+
+  const gravarGrupoSalvoUi = (jid, nome) => {
+    const jidEl = document.getElementById('fc-whatsapp-grupo-jid');
+    const nomeEl = document.getElementById('fc-whatsapp-grupo-nome');
+    if (jidEl) jidEl.value = jid || '';
+    if (nomeEl) nomeEl.value = nome || '';
+  };
+
+  const travarGrupoUi = (jid, nome) => {
+    gravarGrupoSalvoUi(jid, nome);
+    const badge = document.getElementById('fc-grupo-ativo');
+    if (badge) badge.innerHTML = htmlGrupoAtivoChatbot(jid, nome);
+    document.getElementById('fc-grupo-locked')?.classList.toggle('hidden', !jid);
+    document.getElementById('fc-grupo-picker')?.classList.toggle('hidden', Boolean(jid));
+    document.getElementById('btn-fc-cancelar-grupo')?.classList.toggle('hidden', !jid);
+    document.getElementById('fc-step-group')?.classList.toggle('is-done', Boolean(jid));
+  };
+
+  const abrirEscolhaGrupo = () => {
+    document.getElementById('fc-grupo-locked')?.classList.add('hidden');
+    document.getElementById('fc-grupo-picker')?.classList.remove('hidden');
+    const salvo = lerGrupoSalvo();
+    document.getElementById('btn-fc-cancelar-grupo')?.classList.toggle('hidden', !salvo.jid);
+    carregarGrupos(false);
+  };
+
   const carregarGrupos = async (silencioso = false) => {
     const sel = document.getElementById('fc-whatsapp-grupo');
     if (!sel) return;
-    const atual = valorCampoWa(sel.value);
+    const salvo = lerGrupoSalvo();
+    const atual = valorCampoWa(sel.value) || salvo.jid;
     try {
       if (!silencioso) toast('Buscando grupos no WhatsApp…');
       const data = await fetchJSON(`${API}/whatsapp/filial/${filialId}/grupos`);
       const grupos = data.grupos || [];
+      const selJid = valorCampoWa(data.selecionado) || atual;
+      const selNome = valorCampoWa(data.selecionado_nome) || salvo.nome;
       sel.innerHTML = '<option value="">— Selecione o grupo —</option>';
+      let achouAtual = false;
       for (const g of grupos) {
         const id = valorCampoWa(g.jid || g.id);
         if (!id) continue;
-        const nome = valorCampoWa(g.nome || g.name) || id;
+        const nome = valorCampoWa(g.nome || g.name);
         const opt = document.createElement('option');
         opt.value = id;
-        opt.textContent = `${nome} (${id})`;
-        if (atual && atual === id) opt.selected = true;
+        opt.dataset.nome = nome;
+        opt.textContent = (nome && nome !== '(sem nome)') ? nome : 'Grupo sem nome';
+        if (selJid && jidsGrupoIguaisFront(selJid, id)) {
+          opt.selected = true;
+          achouAtual = true;
+        }
         sel.appendChild(opt);
       }
-      if (atual && !grupos.some((g) => valorCampoWa(g.jid || g.id) === atual)) {
+      if (selJid && !achouAtual) {
         const opt = document.createElement('option');
-        opt.value = atual;
-        opt.textContent = `Salvo: ${atual}`;
+        opt.value = selJid;
+        opt.dataset.nome = selNome;
         opt.selected = true;
+        opt.textContent = rotuloGrupoWhatsapp(selJid, selNome);
         sel.appendChild(opt);
       }
+      if (selNome && selJid) gravarGrupoSalvoUi(selJid, selNome);
       if (!silencioso) {
         toast(grupos.length ? `${grupos.length} grupo(s) encontrado(s)` : 'Nenhum grupo — entre no grupo com o chip e tente de novo', grupos.length ? 'success' : 'error');
       }
@@ -3992,6 +3992,11 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
   };
 
   document.getElementById('btn-fc-grupos')?.addEventListener('click', () => carregarGrupos(false));
+  document.getElementById('btn-fc-trocar-grupo')?.addEventListener('click', () => abrirEscolhaGrupo());
+  document.getElementById('btn-fc-cancelar-grupo')?.addEventListener('click', () => {
+    const salvo = lerGrupoSalvo();
+    travarGrupoUi(salvo.jid, salvo.nome);
+  });
 
   const salvarCamposChatbot = async (body, { silencioso = false, mensagem } = {}) => {
     const data = await fetchJSON(`${API}/whatsapp/filiais-chatbot/${filialId}`, {
@@ -4001,17 +4006,6 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
     filiaisCache = [];
     if (!silencioso) toast(mensagem || data.mensagem || 'Salvo', 'success');
     return data;
-  };
-
-  const salvarTokenDigitado = async () => {
-    const tokenInput = document.getElementById('fc-wuzapi-token');
-    const tok = tokenInput?.value?.trim();
-    if (!tok) return;
-    await salvarCamposChatbot({ wuzapi_token: tok }, { silencioso: true });
-    tokenInput.value = '';
-    tokenInput.placeholder = '•••• (deixe em branco para manter)';
-    toast('Token WuzAPI salvo', 'success');
-    refreshStatus();
   };
 
   const carregarAlertaOpcoes = async (silencioso = false) => {
@@ -4078,13 +4072,20 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
   });
 
   document.getElementById('fc-whatsapp-grupo')?.addEventListener('change', async () => {
-    const grupo = document.getElementById('fc-whatsapp-grupo')?.value || null;
+    const sel = document.getElementById('fc-whatsapp-grupo');
+    const grupo = valorCampoWa(sel?.value) || null;
+    const nome = grupo ? valorCampoWa(sel?.selectedOptions?.[0]?.dataset?.nome) : null;
     try {
       toast(grupo ? 'Salvando grupo do chatbot…' : 'Removendo grupo…');
-      await salvarCamposChatbot({ whatsapp_grupo: grupo }, { silencioso: true });
-      document.getElementById('fc-step-group')?.classList.toggle('is-done', Boolean(grupo));
+      await salvarCamposChatbot({
+        whatsapp_grupo: grupo,
+        whatsapp_grupo_nome: nome || null,
+      }, { silencioso: true });
+      travarGrupoUi(grupo, nome);
       toast(
-        grupo ? 'Grupo salvo — envie a placa no WhatsApp' : 'Grupo removido',
+        grupo
+          ? `Grupo salvo: ${rotuloGrupoWhatsapp(grupo, nome)}. O chatbot só responde neste grupo.`
+          : 'Grupo removido — o chatbot não responde mais em grupos.',
         'success'
       );
     } catch (err) {
@@ -4092,54 +4093,8 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
     }
   });
 
-  document.getElementById('fc-wuzapi-token')?.addEventListener('change', async () => {
-    try {
-      await salvarTokenDigitado();
-    } catch (err) {
-      toast(err.message || 'Falha ao salvar o token', 'error');
-    }
-  });
-  document.getElementById('fc-wuzapi-token')?.addEventListener('keydown', (e) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      document.getElementById('fc-wuzapi-token')?.blur();
-    }
-  });
-
   document.getElementById('btn-fc-alerta-opcoes')?.addEventListener('click', () => carregarAlertaOpcoes(false));
   setTimeout(() => carregarAlertaOpcoes(true), 600);
-  document.getElementById('btn-fc-gerar-token')?.addEventListener('click', async () => {
-    try {
-      const btnGerar = document.getElementById('btn-fc-gerar-token');
-      const forcar = /de novo/i.test(btnGerar?.textContent || '');
-      toast(forcar ? 'Gerando novo token exclusivo…' : 'Gerando token no WuzAPI…');
-      const data = await fetchJSON(`${API}/whatsapp/filial/${filialId}/provisionar-token`, {
-        method: 'POST',
-        body: JSON.stringify({ forcar_novo: forcar }),
-      });
-      toast(data.mensagem || 'Token gerado', 'success');
-      const tokenInput = document.getElementById('fc-wuzapi-token');
-      if (tokenInput) {
-        tokenInput.value = '';
-        tokenInput.placeholder = '•••• token exclusivo — deixe em branco';
-      }
-      const hint = document.getElementById('fc-wuzapi-hint');
-      if (hint) {
-        hint.textContent = 'Token exclusivo OK. Clique em Conectar / QR com o chip desta unidade.';
-        hint.classList.remove('login-erro');
-      }
-      const statusEl = document.getElementById('fc-status');
-      if (statusEl) {
-        statusEl.className = 'badge badge-sem_dado';
-        statusEl.textContent = 'Desconectado';
-      }
-      document.getElementById('fc-step-connect')?.classList.remove('is-done');
-      document.getElementById('fc-step-connect')?.classList.add('is-active');
-      refreshStatus();
-    } catch (err) {
-      toast(err.message, 'error');
-    }
-  });
 
   document.getElementById('btn-fc-conectar')?.addEventListener('click', async () => {
     const btn = document.getElementById('btn-fc-conectar');
@@ -4167,7 +4122,8 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
         startWaPollFilial(filialId, nomeFilial);
       }
       refreshStatus();
-      if (data.loggedIn) setTimeout(() => carregarGrupos(true), 1200);
+      const jidSalvo = valorCampoWa(document.getElementById('fc-whatsapp-grupo-jid')?.value);
+      if (data.loggedIn && !jidSalvo) setTimeout(() => carregarGrupos(true), 1200);
     } catch (err) {
       abrirPainelQr(err.message || 'Falha ao gerar o QR', nomeFilial);
       const { status } = painelQrEls();
@@ -5145,23 +5101,12 @@ document.getElementById('btn-relatorio-refresh')?.addEventListener('click', () =
 function isRotaAcessoRapido() {
   const path = window.location.pathname.replace(/\/+$/, '') || '/';
   return path.endsWith('/veiculo-acesso-rapido')
-    || path.includes('/acesso-rapido')
-    || (window.location.search.includes('token=') && path.includes('acesso-rapido'));
-}
-
-function tipoRotaAcessoRapido() {
-  const path = window.location.pathname.replace(/\/+$/, '') || '/';
-  if (path.endsWith('/acesso-rapido/veiculo')) return 'cadastrar_veiculo';
-  if (path.endsWith('/acesso-rapido/pneu')) return 'cadastrar_pneu';
-  if (path.endsWith('/acesso-rapido/troca')) return 'troca';
-  if (path.endsWith('/veiculo-acesso-rapido')) return 'medir';
-  return null;
+    || window.location.search.includes('token=') && path.includes('acesso-rapido');
 }
 
 function mostrarErroToken(msg) {
   document.getElementById('app-login')?.classList.add('hidden');
   document.getElementById('app-shell')?.classList.remove('hidden');
-  finalizarBootVisual();
   document.getElementById('nav-tabs-filial')?.classList.add('hidden');
   document.getElementById('nav-tabs-admin')?.classList.add('hidden');
   document.getElementById('nav-tabs-gerente')?.classList.add('hidden');
@@ -5175,11 +5120,11 @@ function mostrarErroToken(msg) {
   showView('acesso-erro');
 }
 
-function prepararShellAcessoRapido(titulo) {
+async function bootAcessoRapido(token) {
   modoAcessoRapido = true;
+  tokenAcessoRapido = token;
   document.getElementById('app-login')?.classList.add('hidden');
   document.getElementById('app-shell')?.classList.remove('hidden');
-  finalizarBootVisual();
   document.getElementById('nav-tabs-filial')?.classList.add('hidden');
   document.getElementById('nav-tabs-admin')?.classList.add('hidden');
   document.getElementById('nav-tabs-gerente')?.classList.add('hidden');
@@ -5187,230 +5132,10 @@ function prepararShellAcessoRapido(titulo) {
   const label = document.getElementById('header-user-label');
   if (label) label.textContent = 'Acesso rápido · WhatsApp';
   const subtitle = document.getElementById('header-subtitle');
-  if (subtitle) subtitle.textContent = titulo || 'Link temporário';
-}
-
-async function bootArCadastroVeiculo(token) {
-  prepararShellAcessoRapido('Cadastrar caminhão');
-  showView('ar-veiculo');
-  try {
-    const data = await fetchJSON(`${API}/acesso-rapido?token=${encodeURIComponent(token)}`);
-    if (data.tipo && data.tipo !== 'cadastrar_veiculo') {
-      throw new Error('Este link não é de cadastro de caminhão');
-    }
-    const fil = document.getElementById('ar-veiculo-filial');
-    if (fil) fil.textContent = data.filial ? `${data.filial.nome} (${data.filial.codigo || ''})` : '';
-  } catch (err) {
-    mostrarErroToken(err.message);
-    return;
-  }
-
-  const form = document.getElementById('form-ar-veiculo');
-  form?.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const erro = document.getElementById('ar-veiculo-erro');
-    const ok = document.getElementById('ar-veiculo-ok');
-    erro?.classList.add('hidden');
-    if (ok) ok.textContent = '';
-    try {
-      const resp = await fetchJSON(`${API}/acesso-rapido/veiculo`, {
-        method: 'POST',
-        body: JSON.stringify({
-          token,
-          placa: document.getElementById('ar-v-placa')?.value,
-          apelido: document.getElementById('ar-v-apelido')?.value || null,
-          tipo: document.getElementById('ar-v-tipo')?.value,
-          km_atual: Number(document.getElementById('ar-v-km')?.value) || 0,
-        }),
-      });
-      if (ok) ok.textContent = resp.mensagem || 'Caminhão cadastrado! Pode fechar esta página.';
-      form.querySelector('button[type="submit"]')?.setAttribute('disabled', 'true');
-      toast(resp.mensagem || 'Salvo', 'success');
-    } catch (err) {
-      if (erro) {
-        erro.textContent = err.message;
-        erro.classList.remove('hidden');
-      }
-      toast(err.message, 'error');
-    }
-  }, { once: true });
-}
-
-async function bootArCadastroPneu(token) {
-  prepararShellAcessoRapido('Cadastrar pneu');
-  showView('ar-pneu');
-  try {
-    const data = await fetchJSON(`${API}/acesso-rapido?token=${encodeURIComponent(token)}`);
-    if (data.tipo && data.tipo !== 'cadastrar_pneu') {
-      throw new Error('Este link não é de cadastro de pneu');
-    }
-    const fil = document.getElementById('ar-pneu-filial');
-    if (fil) fil.textContent = data.filial ? `${data.filial.nome} (${data.filial.codigo || ''})` : '';
-  } catch (err) {
-    mostrarErroToken(err.message);
-    return;
-  }
-
-  const form = document.getElementById('form-ar-pneu');
-  form?.addEventListener('submit', async (e) => {
-    e.preventDefault();
-    const erro = document.getElementById('ar-pneu-erro');
-    const ok = document.getElementById('ar-pneu-ok');
-    erro?.classList.add('hidden');
-    if (ok) ok.textContent = '';
-    try {
-      const sulcoRaw = document.getElementById('ar-p-sulco')?.value;
-      const resp = await fetchJSON(`${API}/acesso-rapido/pneu`, {
-        method: 'POST',
-        body: JSON.stringify({
-          token,
-          numero_fogo: document.getElementById('ar-p-fogo')?.value,
-          modelo: document.getElementById('ar-p-modelo')?.value,
-          marca: document.getElementById('ar-p-marca')?.value || null,
-          tipo_pneu: document.getElementById('ar-p-tipo')?.value,
-          condicao: document.getElementById('ar-p-condicao')?.value,
-          sulco_inicial_mm: sulcoRaw === '' || sulcoRaw == null ? null : Number(String(sulcoRaw).replace(',', '.')),
-        }),
-      });
-      if (ok) ok.textContent = resp.mensagem || 'Pneu no estoque! Pode fechar esta página.';
-      form.querySelector('button[type="submit"]')?.setAttribute('disabled', 'true');
-      toast(resp.mensagem || 'Salvo', 'success');
-    } catch (err) {
-      if (erro) {
-        erro.textContent = err.message;
-        erro.classList.remove('hidden');
-      }
-      toast(err.message, 'error');
-    }
-  }, { once: true });
-}
-
-async function bootArTroca(token) {
-  prepararShellAcessoRapido('Troca de pneu');
-  showView('ar-troca');
-  let estado = { retirar: null, veiculo: null, estoque: [] };
-  let diagram = null;
-
-  const preencherEstoque = (lista) => {
-    const sel = document.getElementById('ar-troca-estoque');
-    if (!sel) return;
-    sel.innerHTML = (lista || []).map((p) =>
-      `<option value="${p.id}">${escapeHtml(p.numero_fogo)} — ${escapeHtml([p.marca, p.modelo].filter(Boolean).join(' ') || p.tipo_pneu)}</option>`
-    ).join('') || '<option value="">Estoque vazio</option>';
-  };
-
-  const pintarDiagrama = (veiculo) => {
-    const posicoesLayout = veiculo.posicoes_layout?.length
-      ? veiculo.posicoes_layout.map((p) => p.codigo)
-      : (veiculo.layout?.posicoes || (veiculo.pneus || []).map((p) => p.posicao));
-    const labels = {};
-    (veiculo.posicoes_layout || []).forEach((p) => { labels[p.codigo] = p.label || p.codigo; });
-    if (!diagram) {
-      diagram = new TruckDiagram('ar-troca-diagram', {
-        pickerHint: 'Toque no pneu montado para retirar',
-        onPneuClick: (pneu) => {
-          estado.retirar = { id: pneu.id, posicao: pneu.posicao, fogo: pneu.numero_fogo };
-          const st = document.getElementById('ar-troca-status');
-          if (st) st.textContent = `Retirar fogo ${pneu.numero_fogo} (${pneu.posicao}). Escolha o substituto do estoque.`;
-          document.getElementById('ar-troca-estoque-wrap')?.classList.remove('hidden');
-        },
-        onSlotClick: () => toast('Posição vazia — escolha um pneu montado', 'error'),
-      });
-    }
-    diagram.render(veiculo.pneus || [], labels, posicoesLayout);
-  };
+  if (subtitle) subtitle.textContent = 'Medição sem login — link temporário';
 
   try {
-    const data = await fetchJSON(`${API}/acesso-rapido?token=${encodeURIComponent(token)}`);
-    if (data.tipo && data.tipo !== 'troca') throw new Error('Este link não é de troca');
-    estado.veiculo = data.veiculo;
-    estado.estoque = data.estoque || [];
-    const tit = document.getElementById('ar-troca-titulo');
-    if (tit) tit.textContent = `Troca — ${data.veiculo?.placa || ''}`;
-    preencherEstoque(estado.estoque);
-    pintarDiagrama(data.veiculo);
-  } catch (err) {
-    mostrarErroToken(err.message);
-    return;
-  }
-
-  document.getElementById('btn-ar-troca-confirmar')?.addEventListener('click', async () => {
-    const erro = document.getElementById('ar-troca-erro');
-    const ok = document.getElementById('ar-troca-ok');
-    erro?.classList.add('hidden');
-    if (ok) ok.textContent = '';
-    if (!estado.retirar?.id) {
-      toast('Selecione o pneu a retirar no diagrama', 'error');
-      return;
-    }
-    const montarId = document.getElementById('ar-troca-estoque')?.value;
-    if (!montarId) {
-      toast('Escolha um pneu do estoque', 'error');
-      return;
-    }
-    try {
-      const resp = await fetchJSON(`${API}/acesso-rapido/troca`, {
-        method: 'POST',
-        body: JSON.stringify({
-          token,
-          retirar_pneu_id: estado.retirar.id,
-          montar_pneu_id: Number(montarId),
-        }),
-      });
-      if (ok) ok.textContent = resp.mensagem || 'Troca concluída!';
-      toast(resp.mensagem || 'Troca ok', 'success');
-      estado.retirar = null;
-      document.getElementById('ar-troca-estoque-wrap')?.classList.add('hidden');
-      const st = document.getElementById('ar-troca-status');
-      if (st) st.textContent = 'Troca feita. Pode trocar outro pneu ou fechar.';
-      if (resp.veiculo) {
-        estado.veiculo = resp.veiculo;
-        try {
-          const data = await fetchJSON(`${API}/acesso-rapido?token=${encodeURIComponent(token)}`);
-          estado.estoque = data.estoque || [];
-        } catch {
-          estado.estoque = [];
-        }
-        preencherEstoque(estado.estoque);
-        pintarDiagrama(resp.veiculo);
-      }
-    } catch (err) {
-      if (erro) {
-        erro.textContent = err.message;
-        erro.classList.remove('hidden');
-      }
-      toast(err.message, 'error');
-    }
-  });
-}
-
-async function bootAcessoRapido(token) {
-  const tipoPath = tipoRotaAcessoRapido();
-  if (tipoPath === 'cadastrar_veiculo') return bootArCadastroVeiculo(token);
-  if (tipoPath === 'cadastrar_pneu') return bootArCadastroPneu(token);
-  if (tipoPath === 'troca') return bootArTroca(token);
-
-  prepararShellAcessoRapido('Medição sem login — link temporário');
-  tokenAcessoRapido = token;
-
-  try {
-    // Preferir API unificada; fallback na rota antiga
-    let data;
-    try {
-      data = await fetchJSON(`${API}/acesso-rapido?token=${encodeURIComponent(token)}`);
-      if (data.tipo && data.tipo !== 'medir' && data.veiculo) {
-        // token tipado com veiculo embutido
-      } else if (data.tipo === 'cadastrar_veiculo') {
-        return bootArCadastroVeiculo(token);
-      } else if (data.tipo === 'cadastrar_pneu') {
-        return bootArCadastroPneu(token);
-      } else if (data.tipo === 'troca') {
-        return bootArTroca(token);
-      }
-      if (!data.id && data.veiculo) data = data.veiculo;
-    } catch {
-      data = await fetchJSON(`${API}/veiculos/acesso-rapido?token=${encodeURIComponent(token)}`);
-    }
+    const data = await fetchJSON(`${API}/veiculos/acesso-rapido?token=${encodeURIComponent(token)}`);
     if (data.posicoes) meta = { ...meta, posicoes: data.posicoes };
     if (data.limites) limitesAtuais = { ...limitesAtuais, ...data.limites };
     tokenAcessoRapido = data.token_acesso || token;
@@ -5472,14 +5197,16 @@ async function init() {
   }
 
   const saved = loadAuth();
-  if (saved?.token) {
+  if (saved?.token && saved?.usuario) {
     authToken = saved.token;
-    // Não pinta o header com usuário do localStorage — só após /auth/me
-    // (evita ficar preso no último login em cache enquanto a API valida)
+    currentUser = saved.usuario;
+    // Mostra o app na hora com o usuário em cache — evita flash do login
+    showAppShell();
     try {
       const me = await fetchJSON(`${API}/auth/me`);
       currentUser = me;
       saveAuth(authToken, me);
+      showAppShell(); // atualiza header/nav com dados frescos
       await bootApp();
       return;
     } catch {
