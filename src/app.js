@@ -1553,7 +1553,7 @@ async function salvarMedicaoTruck({ concluir = false } = {}) {
 async function registrarEventoPneu(tipo) {
   if (!pneuSelecionado || !veiculoAtual) return;
   const label = tipo === 'recap'
-    ? 'recapagem (volta ao estoque)'
+    ? 'envio à recapagem (sai do caminhão e fica em processo até voltar)'
     : 'descarte (envia ao estoque de descarte para definir o tratamento)';
   if (!confirm(`Registrar ${label} deste pneu?`)) return;
 
@@ -1576,6 +1576,13 @@ async function registrarEventoPneu(tipo) {
 
     toast(result.mensagem, 'success');
     await openVeiculoDetalhe(veiculoAtual.id, voltarPara);
+
+    if (tipo === 'recap' && confirm('Abrir a lista de pneus em recapagem?')) {
+      showView('pneus');
+      const filtro = document.getElementById('pneus-filtro-status');
+      if (filtro) filtro.value = 'recapagem';
+      await loadPneus();
+    }
 
     if (tipo === 'descarte' && confirm('Abrir o estoque de descarte para definir o tratamento deste pneu?')) {
       showView('pneus');
@@ -1627,12 +1634,15 @@ async function loadPneus() {
     const pneus = await fetchJSON(`${API}/pneus?${params}`);
     if (!pneus.length) {
       const vazioDescarte = status === 'descarte';
+      const vazioRecap = status === 'recapagem';
       lista.innerHTML = `
         <div class="empty-state">
           <h3>Nenhum pneu encontrado</h3>
           <p>${vazioDescarte
             ? 'Ainda não há pneus registrados como descarte nesta filial.'
-            : 'Cadastre pneus no estoque e depois monte no caminhão para medir.'}</p>
+            : vazioRecap
+              ? 'Nenhum pneu em processo de recapagem no momento.'
+              : 'Cadastre pneus no estoque e depois monte no caminhão para medir.'}</p>
         </div>`;
       return;
     }
@@ -1675,6 +1685,9 @@ async function loadPneus() {
             ${p.status_pneu === 'estoque'
               ? `<button type="button" class="btn btn-primary btn-sm" data-montar-pneu="${p.id}" data-fogo="${p.numero_fogo || ''}">Montar</button>`
               : ''}
+            ${p.status_pneu === 'recapagem'
+              ? `<button type="button" class="btn btn-primary btn-sm" data-devolver-recap="${p.id}" data-fogo="${escapeHtml(p.numero_fogo || '')}">Devolver ao estoque</button>`
+              : ''}
             ${p.status_pneu === 'descarte'
               ? `<button type="button" class="btn btn-primary btn-sm" data-tratamento-descarte="${p.id}"
                    data-fogo="${escapeHtml(p.numero_fogo || '')}"
@@ -1695,6 +1708,22 @@ async function loadPneus() {
     lista.querySelectorAll('[data-montar-pneu]').forEach((btn) => {
       btn.addEventListener('click', () => {
         abrirModalMontar(parseInt(btn.dataset.montarPneu, 10), btn.dataset.fogo || '');
+      });
+    });
+    lista.querySelectorAll('[data-devolver-recap]').forEach((btn) => {
+      btn.addEventListener('click', async () => {
+        const fogo = btn.dataset.fogo || '';
+        if (!confirm(`Devolver fogo ${fogo || btn.dataset.devolverRecap} ao estoque (recap concluído)?`)) return;
+        try {
+          await fetchJSON(`${API}/pneus/${btn.dataset.devolverRecap}/evento`, {
+            method: 'POST',
+            body: JSON.stringify({ tipo: 'retorno_recap' }),
+          });
+          toast('Pneu voltou ao estoque');
+          loadPneus();
+        } catch (err) {
+          toast(err.message, 'error');
+        }
       });
     });
     lista.querySelectorAll('[data-tratamento-descarte]').forEach((btn) => {
@@ -3023,9 +3052,20 @@ function abrirVeiculoNaUnidade(filialId, veiculoId) {
   abrirInspecaoVeiculoFilial(filialId, veiculoId);
 }
 
+function abrirPneusRecapagem() {
+  showView('pneus');
+  const filtro = document.getElementById('pneus-filtro-status');
+  if (filtro) filtro.value = 'recapagem';
+  loadPneus();
+}
+
 function renderPendenciaRows(itens, tipo) {
   if (!itens?.length) return '';
-  const titulo = tipo === 'troca' ? 'Comprar / Trocar' : tipo === 'recap' ? 'Recapagem' : 'Monitorar';
+  const titulo = tipo === 'troca'
+    ? 'Comprar / Trocar'
+    : tipo === 'recap'
+      ? 'Em recapagem'
+      : 'Monitorar';
   return `
     <div class="pendencia-grupo pendencia-${tipo}">
       <h4>${titulo} (${itens.length})</h4>
@@ -3033,13 +3073,17 @@ function renderPendenciaRows(itens, tipo) {
       <table class="historico-table unidade-table">
         <thead>
           <tr>
-            <th>Veículo</th><th>Posição</th><th>Fogo</th><th>Sulco</th>
-            <th>Status</th><th>Diagnóstico</th><th>O que fazer</th><th>Medição</th>
+            <th>${tipo === 'recap' ? 'Origem' : 'Veículo'}</th><th>Posição</th><th>Fogo</th><th>Sulco</th>
+            <th>Status</th><th>Diagnóstico</th><th>O que fazer</th><th>${tipo === 'recap' ? 'Envio' : 'Medição'}</th>
           </tr>
         </thead>
         <tbody>
           ${itens.map((p) => `
-            <tr class="unidade-pend-row" data-pend-tipo="${tipo}" data-veiculo-id="${p.veiculo_id}" title="Abrir o veículo para análise">
+            <tr class="unidade-pend-row" data-pend-tipo="${tipo}"
+                data-veiculo-id="${p.veiculo_id || ''}"
+                data-pneu-id="${p.pneu_id || ''}"
+                data-em-recap="${p.em_recapagem ? '1' : '0'}"
+                title="${tipo === 'recap' ? 'Abrir pneus em recapagem' : 'Abrir o veículo para análise'}">
               <td><strong>${escapeHtml(p.apelido || p.placa)}</strong><br><span class="hint">${escapeHtml(p.placa)}</span></td>
               <td>${escapeHtml(p.posicao_label || p.posicao || '—')}</td>
               <td>${escapeHtml(p.numero_fogo || '—')}</td>
@@ -3073,8 +3117,8 @@ function renderUnidadeKpis(data) {
         <span>Comprar</span>
       </button>
       <button type="button" class="unidade-kpi is-recap" data-unidade-tab="pendencias" data-pend-filtro="recap">
-        <strong>${c.pneus_para_recap ?? 0}</strong>
-        <span>Recap</span>
+        <strong>${c.pneus_para_recap ?? r.pneus_em_recapagem ?? 0}</strong>
+        <span>Em recap</span>
       </button>
       <button type="button" class="unidade-kpi is-mon" data-unidade-tab="pendencias" data-pend-filtro="monitorar">
         <strong>${c.pneus_monitorar ?? 0}</strong>
@@ -3144,7 +3188,7 @@ function renderUnidadeResumo(data) {
         <h4>Como ler esta tela</h4>
         <ol class="unidade-howto">
           <li>Os cartões do topo mostram o volume da unidade. Clique para filtrar.</li>
-          <li><strong>Pendências</strong> lista cada pneu a comprar, recapar ou acompanhar.</li>
+          <li><strong>Pendências</strong> lista comprar, pneus em recapagem e o que monitorar.</li>
           <li><strong>Frota</strong> abre o desenho do caminhão ao lado da lista para cruzar sulco e diagnóstico.</li>
         </ol>
         <p class="hint" style="margin-top:.75rem">${nPend} pneu(s) com ação pendente nesta unidade.</p>
@@ -3268,7 +3312,7 @@ async function abrirDetalheFilial(id) {
           <div class="unidade-pend-filtros">
             <button type="button" class="unidade-chip ativo" data-pend-filtro="">Todas (${nPend})</button>
             <button type="button" class="unidade-chip" data-pend-filtro="troca">Comprar (${pend.troca?.length || 0})</button>
-            <button type="button" class="unidade-chip" data-pend-filtro="recap">Recap (${pend.recap?.length || 0})</button>
+            <button type="button" class="unidade-chip" data-pend-filtro="recap">Em recap (${pend.recap?.length || 0})</button>
             <button type="button" class="unidade-chip" data-pend-filtro="monitorar">Monitorar (${pend.monitorar?.length || 0})</button>
           </div>
           ${nPend
@@ -3312,7 +3356,13 @@ async function abrirDetalheFilial(id) {
     document.getElementById('unidade-frota-filtro')?.addEventListener('change', filtrarFrotaUnidade);
 
     el.querySelectorAll('.unidade-pend-row').forEach((row) => {
-      row.addEventListener('click', () => abrirVeiculoNaUnidade(id, row.dataset.veiculoId));
+      row.addEventListener('click', () => {
+        if (row.dataset.emRecap === '1' || row.dataset.pendTipo === 'recap') {
+          abrirPneusRecapagem();
+          return;
+        }
+        if (row.dataset.veiculoId) abrirVeiculoNaUnidade(id, row.dataset.veiculoId);
+      });
     });
     el.querySelectorAll('.unidade-prio-btn').forEach((btn) => {
       btn.addEventListener('click', () => abrirVeiculoNaUnidade(id, btn.dataset.veiculoId));
