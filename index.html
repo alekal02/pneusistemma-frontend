@@ -1140,6 +1140,23 @@
     </form>
   </dialog>
 
+  <dialog id="modal-devolver-recap" class="modal">
+    <form id="form-devolver-recap" method="dialog">
+      <h3>Devolver recap ao estoque</h3>
+      <p class="hint" id="devolver-recap-label">Informe o sulco do pneu após o recap.</p>
+      <input type="hidden" id="devolver-recap-pneu-id" value="">
+      <div class="form-group">
+        <label for="devolver-recap-sulco">Sulco após recap (mm) *</label>
+        <input type="number" id="devolver-recap-sulco" min="1" max="30" step="0.1" required placeholder="Ex.: 14">
+        <p class="hint">Obrigatório — vira o sulco inicial do pneu no estoque.</p>
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="btn-cancelar-devolver-recap">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Devolver ao estoque</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="modal-montar" class="modal">
     <form id="form-montar" method="dialog">
       <h3>Montar pneu no veículo</h3>

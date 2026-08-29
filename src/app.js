@@ -1711,19 +1711,11 @@ async function loadPneus() {
       });
     });
     lista.querySelectorAll('[data-devolver-recap]').forEach((btn) => {
-      btn.addEventListener('click', async () => {
-        const fogo = btn.dataset.fogo || '';
-        if (!confirm(`Devolver fogo ${fogo || btn.dataset.devolverRecap} ao estoque (recap concluído)?`)) return;
-        try {
-          await fetchJSON(`${API}/pneus/${btn.dataset.devolverRecap}/evento`, {
-            method: 'POST',
-            body: JSON.stringify({ tipo: 'retorno_recap' }),
-          });
-          toast('Pneu voltou ao estoque');
-          loadPneus();
-        } catch (err) {
-          toast(err.message, 'error');
-        }
+      btn.addEventListener('click', () => {
+        abrirModalDevolverRecap({
+          id: parseInt(btn.dataset.devolverRecap, 10),
+          fogo: btn.dataset.fogo || '',
+        });
       });
     });
     lista.querySelectorAll('[data-tratamento-descarte]').forEach((btn) => {
@@ -1769,6 +1761,23 @@ function abrirModalTratamentoDescarte({ id, fogo, tratamento, obs }) {
   document.getElementById('tratamento-descarte-tipo').value = tratamento || 'pendente';
   document.getElementById('tratamento-descarte-obs').value = obs || '';
   modal.showModal();
+}
+
+function abrirModalDevolverRecap({ id, fogo }) {
+  const modal = document.getElementById('modal-devolver-recap');
+  if (!modal) return;
+  document.getElementById('devolver-recap-pneu-id').value = String(id);
+  document.getElementById('devolver-recap-label').textContent = fogo
+    ? `Fogo ${fogo} — informe o sulco medido após o recap para liberar no estoque.`
+    : 'Informe o sulco medido após o recap para liberar no estoque.';
+  const sulcoPadrao = limitesAtuais?.sulco_novo_mm ?? 14;
+  const input = document.getElementById('devolver-recap-sulco');
+  input.value = String(sulcoPadrao);
+  modal.showModal();
+  setTimeout(() => {
+    input.focus();
+    input.select();
+  }, 50);
 }
 
 function setTipoCondicaoEditaveis(editavel) {
@@ -1960,6 +1969,37 @@ document.getElementById('form-tratamento-descarte')?.addEventListener('submit', 
     });
     document.getElementById('modal-tratamento-descarte')?.close();
     toast(result.mensagem || 'Tratamento salvo', 'success');
+    loadPneus();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+});
+
+document.getElementById('btn-cancelar-devolver-recap')?.addEventListener('click', () => {
+  document.getElementById('modal-devolver-recap')?.close();
+});
+
+document.getElementById('form-devolver-recap')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const pneuId = parseInt(document.getElementById('devolver-recap-pneu-id').value, 10);
+  const sulco = parseFloat(document.getElementById('devolver-recap-sulco').value);
+  if (!pneuId) return toast('Pneu inválido', 'error');
+  if (!Number.isFinite(sulco) || sulco <= 0) {
+    return toast('Informe o sulco após o recap (mm)', 'error');
+  }
+  try {
+    const result = await fetchJSON(`${API}/pneus/${pneuId}/evento`, {
+      method: 'POST',
+      body: JSON.stringify({
+        tipo: 'retorno_recap',
+        sulco_mm: sulco,
+        detalhes: `Recap concluído · sulco ${sulco} mm · voltou ao estoque`,
+      }),
+    });
+    document.getElementById('modal-devolver-recap')?.close();
+    toast(result.mensagem || `Pneu no estoque com sulco ${sulco} mm`, 'success');
+    const filtro = document.getElementById('pneus-filtro-status');
+    if (filtro) filtro.value = 'estoque';
     loadPneus();
   } catch (err) {
     toast(err.message, 'error');
