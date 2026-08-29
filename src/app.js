@@ -3545,6 +3545,11 @@ async function loadChatbotGerente() {
       });
     }
     wireFilialChatbotPanel(filialId, data.nome, { alertasEnabled: Boolean(data.alertas_enabled) });
+    if (data.aviso_token) {
+      toast(data.aviso_token, 'success');
+    } else if (data.token_recem_criado || data.precisa_conectar) {
+      toast('Token desta unidade pronto — clique em Conectar / QR para iniciar.', 'success');
+    }
   } catch (err) {
     box.innerHTML = `<p class="hint login-erro">${escapeHtml(err.message)}</p>`;
   }
@@ -3625,11 +3630,14 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
       const st = await fetchJSON(`${API}/whatsapp/filial/${filialId}/status`);
       if (st.filial_id != null && Number(st.filial_id) !== Number(filialId)) return;
 
-      if (!st.configurado) {
+      if (!st.configurado || st.precisa_conectar) {
         statusEl.className = 'badge badge-sem_dado';
-        statusEl.textContent = 'Sem token';
+        statusEl.textContent = st.configurado ? 'Desconectado' : 'Sem token';
         if (detail) {
-          detail.textContent = st.mensagem || 'Gere o token desta unidade e conecte o chip dela.';
+          detail.textContent = st.mensagem
+            || (st.precisa_conectar
+              ? 'Token pronto. Clique em Conectar / QR com o chip desta unidade.'
+              : 'Gere o token desta unidade e conecte o chip dela.');
         }
         stepConnect?.classList.add('is-active');
         stepConnect?.classList.remove('is-done');
@@ -3919,22 +3927,31 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
   setTimeout(() => carregarAlertaOpcoes(true), 600);
   document.getElementById('btn-fc-gerar-token')?.addEventListener('click', async () => {
     try {
-      toast('Gerando token no WuzAPI…');
+      const btnGerar = document.getElementById('btn-fc-gerar-token');
+      const forcar = /de novo/i.test(btnGerar?.textContent || '');
+      toast(forcar ? 'Gerando novo token exclusivo…' : 'Gerando token no WuzAPI…');
       const data = await fetchJSON(`${API}/whatsapp/filial/${filialId}/provisionar-token`, {
         method: 'POST',
-        body: '{}',
+        body: JSON.stringify({ forcar_novo: forcar }),
       });
       toast(data.mensagem || 'Token gerado', 'success');
       const tokenInput = document.getElementById('fc-wuzapi-token');
       if (tokenInput) {
         tokenInput.value = '';
-        tokenInput.placeholder = '•••• (deixe em branco para manter)';
+        tokenInput.placeholder = '•••• token exclusivo — deixe em branco';
       }
       const hint = document.getElementById('fc-wuzapi-hint');
       if (hint) {
-        hint.textContent = 'Token OK. Agora clique em Conectar / QR.';
+        hint.textContent = 'Token exclusivo OK. Clique em Conectar / QR com o chip desta unidade.';
         hint.classList.remove('login-erro');
       }
+      const statusEl = document.getElementById('fc-status');
+      if (statusEl) {
+        statusEl.className = 'badge badge-sem_dado';
+        statusEl.textContent = 'Desconectado';
+      }
+      document.getElementById('fc-step-connect')?.classList.remove('is-done');
+      document.getElementById('fc-step-connect')?.classList.add('is-active');
       refreshStatus();
     } catch (err) {
       toast(err.message, 'error');
