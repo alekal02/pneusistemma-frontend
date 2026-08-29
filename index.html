@@ -1157,6 +1157,40 @@
     </form>
   </dialog>
 
+  <dialog id="modal-medir-estoque" class="modal">
+    <form id="form-medir-estoque" method="dialog">
+      <h3>Medir sulco (estoque)</h3>
+      <p class="hint" id="medir-estoque-label">Informe os 4 pontos ou o mesmo valor em todos.</p>
+      <input type="hidden" id="medir-estoque-pneu-id" value="">
+      <div class="form-row" style="display:grid;grid-template-columns:1fr 1fr;gap:.75rem">
+        <div class="form-group">
+          <label for="medir-estoque-ext">Externo (mm) *</label>
+          <input type="number" id="medir-estoque-ext" min="0" max="30" step="0.1" required>
+        </div>
+        <div class="form-group">
+          <label for="medir-estoque-cent">Central (mm)</label>
+          <input type="number" id="medir-estoque-cent" min="0" max="30" step="0.1">
+        </div>
+        <div class="form-group">
+          <label for="medir-estoque-int">Interno (mm)</label>
+          <input type="number" id="medir-estoque-int" min="0" max="30" step="0.1">
+        </div>
+        <div class="form-group">
+          <label for="medir-estoque-aux">Auxiliar (mm)</label>
+          <input type="number" id="medir-estoque-aux" min="0" max="30" step="0.1">
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="medir-estoque-obs">Observação</label>
+        <input type="text" id="medir-estoque-obs" placeholder="Ex.: medido na prateleira">
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="btn-cancelar-medir-estoque">Cancelar</button>
+        <button type="submit" class="btn btn-primary">Salvar medição</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="modal-montar" class="modal">
     <form id="form-montar" method="dialog">
       <h3>Montar pneu no veículo</h3>

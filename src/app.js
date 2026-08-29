@@ -1683,7 +1683,9 @@ async function loadPneus() {
               ? '<span class="badge badge-alerta">aguardando destino</span>'
               : ''}
             ${p.status_pneu === 'estoque'
-              ? `<button type="button" class="btn btn-primary btn-sm" data-montar-pneu="${p.id}" data-fogo="${p.numero_fogo || ''}">Montar</button>`
+              ? `<button type="button" class="btn btn-primary btn-sm" data-montar-pneu="${p.id}" data-fogo="${p.numero_fogo || ''}">Montar</button>
+                 <button type="button" class="btn btn-ghost btn-sm" data-medir-estoque="${p.id}" data-fogo="${escapeHtml(p.numero_fogo || '')}"
+                   data-sulco="${p.menor_sulco ?? p.sulco_inicial_mm ?? ''}">Medir sulco</button>`
               : ''}
             ${p.status_pneu === 'recapagem'
               ? `<button type="button" class="btn btn-primary btn-sm" data-devolver-recap="${p.id}" data-fogo="${escapeHtml(p.numero_fogo || '')}">Devolver ao estoque</button>`
@@ -1708,6 +1710,15 @@ async function loadPneus() {
     lista.querySelectorAll('[data-montar-pneu]').forEach((btn) => {
       btn.addEventListener('click', () => {
         abrirModalMontar(parseInt(btn.dataset.montarPneu, 10), btn.dataset.fogo || '');
+      });
+    });
+    lista.querySelectorAll('[data-medir-estoque]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        abrirModalMedirEstoque({
+          id: parseInt(btn.dataset.medirEstoque, 10),
+          fogo: btn.dataset.fogo || '',
+          sulco: btn.dataset.sulco || '',
+        });
       });
     });
     lista.querySelectorAll('[data-devolver-recap]').forEach((btn) => {
@@ -1778,6 +1789,24 @@ function abrirModalDevolverRecap({ id, fogo }) {
     input.focus();
     input.select();
   }, 50);
+}
+
+function abrirModalMedirEstoque({ id, fogo, sulco }) {
+  const modal = document.getElementById('modal-medir-estoque');
+  if (!modal) return;
+  document.getElementById('medir-estoque-pneu-id').value = String(id);
+  document.getElementById('medir-estoque-label').textContent = fogo
+    ? `Fogo ${fogo} — registre a medição atual (pode diferir do sulco cadastrado).`
+    : 'Registre a medição atual do pneu em estoque.';
+  const atual = sulco !== '' && sulco != null ? String(sulco) : '';
+  const padrao = atual || String(limitesAtuais?.sulco_novo_mm ?? 14);
+  ['medir-estoque-ext', 'medir-estoque-cent', 'medir-estoque-int', 'medir-estoque-aux'].forEach((idEl) => {
+    const el = document.getElementById(idEl);
+    if (el) el.value = padrao;
+  });
+  document.getElementById('medir-estoque-obs').value = '';
+  modal.showModal();
+  setTimeout(() => document.getElementById('medir-estoque-ext')?.focus(), 50);
 }
 
 function setTipoCondicaoEditaveis(editavel) {
@@ -2000,6 +2029,61 @@ document.getElementById('form-devolver-recap')?.addEventListener('submit', async
     toast(result.mensagem || `Pneu no estoque com sulco ${sulco} mm`, 'success');
     const filtro = document.getElementById('pneus-filtro-status');
     if (filtro) filtro.value = 'estoque';
+    loadPneus();
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+});
+
+document.getElementById('btn-cancelar-medir-estoque')?.addEventListener('click', () => {
+  document.getElementById('modal-medir-estoque')?.close();
+});
+
+// Replica o externo nos outros pontos vazios (medição rápida em estoque)
+document.getElementById('medir-estoque-ext')?.addEventListener('change', () => {
+  const v = document.getElementById('medir-estoque-ext')?.value;
+  if (v === '' || v == null) return;
+  ['medir-estoque-cent', 'medir-estoque-int', 'medir-estoque-aux'].forEach((id) => {
+    const el = document.getElementById(id);
+    if (el && (el.value === '' || el.value == null)) el.value = v;
+  });
+});
+
+document.getElementById('form-medir-estoque')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const pneuId = parseInt(document.getElementById('medir-estoque-pneu-id').value, 10);
+  const num = (id) => {
+    const v = parseFloat(document.getElementById(id)?.value);
+    return Number.isFinite(v) ? v : null;
+  };
+  let ext = num('medir-estoque-ext');
+  let cent = num('medir-estoque-cent');
+  let int_ = num('medir-estoque-int');
+  let aux = num('medir-estoque-aux');
+  if (ext != null) {
+    if (cent == null) cent = ext;
+    if (int_ == null) int_ = ext;
+    if (aux == null) aux = ext;
+  }
+  if (ext == null && cent == null && int_ == null && aux == null) {
+    return toast('Informe ao menos um sulco', 'error');
+  }
+  try {
+    const result = await fetchJSON(`${API}/medicoes`, {
+      method: 'POST',
+      body: JSON.stringify({
+        pneu_id: pneuId,
+        sulco_externo: ext,
+        sulco_central: cent,
+        sulco_interno: int_,
+        sulco_auxiliar: aux,
+        observacoes: document.getElementById('medir-estoque-obs')?.value?.trim() || 'Medição em estoque',
+        responsavel: 'estoque',
+      }),
+    });
+    document.getElementById('modal-medir-estoque')?.close();
+    const menor = result.menor_sulco ?? result.medicao?.menor_sulco;
+    toast(menor != null ? `Sulco atualizado: ${menor} mm` : 'Medição salva', 'success');
     loadPneus();
   } catch (err) {
     toast(err.message, 'error');
