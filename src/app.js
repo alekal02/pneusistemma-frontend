@@ -1834,7 +1834,16 @@ document.getElementById('btn-novo-pneu')?.addEventListener('click', abrirModalPn
 document.getElementById('btn-cancelar-pneu')?.addEventListener('click', () => {
   document.getElementById('modal-pneu').close();
 });
-document.getElementById('pneus-filtro-status')?.addEventListener('change', loadPneus);
+document.getElementById('pneus-filtro-status')?.addEventListener('change', () => {
+  const hint = document.getElementById('pneus-filtro-hint');
+  const status = document.getElementById('pneus-filtro-status')?.value;
+  if (hint) {
+    hint.classList.toggle('hidden', status !== 'recapagem');
+  }
+  loadPneus();
+});
+// hint só na aba recapagem
+document.getElementById('pneus-filtro-hint')?.classList.add('hidden');
 let pneusBuscaTimer;
 document.getElementById('pneus-busca')?.addEventListener('input', () => {
   clearTimeout(pneusBuscaTimer);
