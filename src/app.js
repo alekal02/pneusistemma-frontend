@@ -2884,7 +2884,7 @@ async function loadFiliais() {
           </div>
           <div class="compras-chip recap">
             <strong>${t.pneus_para_recap ?? 0}</strong>
-            <span>Recapagem</span>
+            <span>Em recapagem</span>
           </div>
           <div class="compras-chip monitorar">
             <strong>${t.pneus_monitorar ?? 0}</strong>
