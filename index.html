@@ -285,7 +285,7 @@
         <li class="ativo"><strong>Estoque</strong> — cadastre pneus avulsos aqui</li>
         <li><strong>Atalho</strong> — no veículo, clique no slot vazio e crie o pneu na hora</li>
       </ol>
-      <p class="hint">Use esta aba para estoque, recapagem (envio ao fornecedor) e pneus em descarte. Para montar rápido, prefira o diagrama do veículo.</p>
+      <p class="hint">Use esta aba para estoque, histórico e pneus em descarte (tratamento do destino). Para montar rápido, prefira o diagrama do veículo.</p>
       <details class="import-hint-details">
         <summary>Dica para importação CSV de pneus</summary>
         <p class="hint import-hint">Campos: nº de fogo, padrão (<code>direcional</code>, <code>misto</code>, <code>borrachudo</code>), condição.</p>
@@ -298,7 +298,6 @@
             <option value="todos">Todos</option>
             <option value="estoque" selected>Estoque</option>
             <option value="montado">Montados</option>
-            <option value="recapagem">Recapagem</option>
             <option value="descarte">Descarte</option>
           </select>
         </div>
@@ -490,9 +489,9 @@
                     <strong>Mudar posição</strong>
                     <span>Rodízio no caminhão</span>
                   </button>
-                  <button type="button" class="btn btn-ghost btn-sm" id="btn-truck-recap" title="Envia o pneu à recapagem com fornecedor e data">
-                    <strong>Enviar para recap</strong>
-                    <span>Fornecedor e data</span>
+                  <button type="button" class="btn btn-ghost btn-sm" id="btn-truck-recap" title="Registra que o pneu foi recapado">
+                    <strong>Registrar recap</strong>
+                    <span>Vida / condição</span>
                   </button>
                   <button type="button" class="btn btn-ghost btn-sm btn-danger-text" id="btn-truck-troca" title="Registra descarte do pneu">
                     <strong>Registrar descarte</strong>
@@ -594,7 +593,7 @@
     </section>
 
     <section id="view-alertas" class="view">
-      <h2>Alertas</h2>
+      <h2>Alertas de Desgaste</h2>
       <p class="hint" id="alertas-limites-hint"></p>
       <div id="alertas-lista" class="card-list"></div>
     </section>
@@ -1012,33 +1011,6 @@
       <button type="button" class="btn btn-primary" id="btn-pos-montar">Montar agora no veículo</button>
       <button type="button" class="btn btn-ghost" id="btn-pos-estoque">Deixar no estoque</button>
     </div>
-  </dialog>
-
-  <dialog id="modal-enviar-recap" class="modal">
-    <form id="form-enviar-recap" method="dialog">
-      <h3>Enviar para recap</h3>
-      <p class="hint" id="enviar-recap-label">Informe o fornecedor e a data do envio.</p>
-      <input type="hidden" id="enviar-recap-pneu-id" value="">
-      <input type="hidden" id="enviar-recap-origem" value="truck">
-      <div class="form-group">
-        <label for="enviar-recap-fornecedor">Fornecedor *</label>
-        <input type="text" id="enviar-recap-fornecedor" required maxlength="120" placeholder="Ex.: Bandag, Recapadora XYZ">
-      </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label for="enviar-recap-data">Data do envio *</label>
-          <input type="date" id="enviar-recap-data" required>
-        </div>
-      </div>
-      <div class="form-group">
-        <label for="enviar-recap-obs">Observação</label>
-        <textarea id="enviar-recap-obs" rows="2" placeholder="Opcional"></textarea>
-      </div>
-      <div class="modal-actions">
-        <button type="button" class="btn btn-ghost" id="btn-cancelar-enviar-recap">Cancelar</button>
-        <button type="submit" class="btn btn-primary">Registrar envio</button>
-      </div>
-    </form>
   </dialog>
 
   <dialog id="modal-tratamento-descarte" class="modal">
