@@ -2344,6 +2344,10 @@ function mostrarResultadoImport(elId, result) {
 
 async function importarCsvArquivo(file, endpoint, resultadoId, onOk) {
   if (!file) return;
+  if (/\.xlsx?$/i.test(file.name || '')) {
+    toast('Salve a planilha como CSV (Excel: Arquivo → Salvar como → CSV UTF-8) e importe de novo.', 'error');
+    return;
+  }
   try {
     const csv = await file.text();
     if (!csv.trim()) throw new Error('Arquivo vazio');

@@ -263,7 +263,11 @@
       </ol>
       <details class="import-hint-details">
         <summary>Dica para importação CSV de veículos</summary>
-        <p class="hint import-hint">Layouts aceitos: <code>truck_10</code>, <code>truck_8</code>, <code>truck_8_b</code>, <code>toco_6</code>.</p>
+        <p class="hint import-hint">
+          Baixe o modelo, preencha e salve como <strong>CSV UTF-8</strong> (não .xlsx).
+          Colunas: <code>placa</code>, <code>tipo</code> (<code>Truck / Tração</code> ou <code>Toco / Mini</code>),
+          <code>layout_pneus</code> (<code>truck_10</code>, <code>truck_8</code>, <code>truck_8_b</code>, <code>toco_6</code>, ou <code>6x2</code>/<code>6x4</code>).
+        </p>
       </details>
       <div id="import-resultado-veiculos" class="import-resultado hidden"></div>
       <div id="veiculos-lista" class="card-list"></div>
@@ -288,7 +292,11 @@
       <p class="hint">Use esta aba para estoque, recapagem (envio ao fornecedor) e pneus em descarte. Para montar rápido, prefira o diagrama do veículo.</p>
       <details class="import-hint-details">
         <summary>Dica para importação CSV de pneus</summary>
-        <p class="hint import-hint">Campos: nº de fogo, padrão (<code>direcional</code>, <code>misto</code>, <code>borrachudo</code>), condição.</p>
+        <p class="hint import-hint">
+          Baixe o modelo e salve como <strong>CSV UTF-8</strong>.
+          Colunas: <code>numero_fogo</code> (ou “Nº de fogo”), padrão (<code>direcional</code>, <code>misto</code>, <code>borrachudo</code>),
+          <code>condicao</code> (novo/recapado), <code>custo</code> (aceita 1.850,00).
+        </p>
       </details>
       <div id="import-resultado-pneus" class="import-resultado hidden"></div>
       <div class="pneus-toolbar">
