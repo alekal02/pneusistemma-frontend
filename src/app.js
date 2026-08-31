@@ -5111,6 +5111,7 @@ function isRotaAcessoRapido() {
 function mostrarErroToken(msg) {
   document.getElementById('app-login')?.classList.add('hidden');
   document.getElementById('app-shell')?.classList.remove('hidden');
+  finalizarBootVisual();
   document.getElementById('nav-tabs-filial')?.classList.add('hidden');
   document.getElementById('nav-tabs-admin')?.classList.add('hidden');
   document.getElementById('nav-tabs-gerente')?.classList.add('hidden');
@@ -5129,6 +5130,7 @@ async function bootAcessoRapido(token) {
   tokenAcessoRapido = token;
   document.getElementById('app-login')?.classList.add('hidden');
   document.getElementById('app-shell')?.classList.remove('hidden');
+  finalizarBootVisual();
   document.getElementById('nav-tabs-filial')?.classList.add('hidden');
   document.getElementById('nav-tabs-admin')?.classList.add('hidden');
   document.getElementById('nav-tabs-gerente')?.classList.add('hidden');
