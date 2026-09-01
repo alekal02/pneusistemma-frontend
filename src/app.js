@@ -862,6 +862,8 @@ function voltarDesenhoCampo({ toastProx = false } = {}) {
   document.getElementById('view-veiculo-detalhe')?.classList.remove('campo-medindo');
   document.getElementById('truck-campo-nav')?.classList.add('hidden');
   document.getElementById('truck-panel-form')?.classList.add('hidden');
+  document.getElementById('truck-montar-box')?.classList.add('hidden');
+  document.getElementById('truck-medicao-box')?.classList.add('hidden');
   document.querySelector('.truck-panel-empty')?.classList.remove('hidden');
   pneuSelecionado = null;
   slotPosicaoSelecionada = null;
@@ -872,7 +874,7 @@ function voltarDesenhoCampo({ toastProx = false } = {}) {
     const falta = (veiculoAtual?.pneus || []).filter((p) => !pneusMedidosSessao.has(p.id)).length;
     toast(
       falta
-        ? `Medição salva. Toque no próximo pneu (${falta} restante${falta > 1 ? 's' : ''}).`
+        ? `Volte ao desenho. Toque no próximo pneu (${falta} restante${falta > 1 ? 's' : ''}).`
         : 'Todos os pneus desta visita foram medidos.',
       'success'
     );
@@ -1302,16 +1304,10 @@ async function criarEMontarPneuTruck() {
           hr_veiculo: numOrNull('truck-hr') ?? veiculoAtual.hr_atual,
         }),
       });
-      toast(result.mensagem || 'Pneu montado', 'success');
-      const pos = slotPosicaoSelecionada;
       tokenAcessoRapido = result.token_acesso || tokenAcessoRapido;
       await openVeiculoDetalhe(result.veiculo?.id || veiculoAtual.id, 'acesso-rapido', result.veiculo);
-      const montado = veiculoAtual?.pneus?.find((p) => p.posicao === pos);
-      if (montado) {
-        truckDiagram?.setAtivo(montado.id);
-        selecionarPneuTruck(montado);
-        toast('Agora informe os sulcos deste pneu', 'success');
-      }
+      voltarDesenhoCampo();
+      toast('Pneu montado. Toque nele para medir o sulco, ou no + para o próximo.', 'success');
       return;
     }
 
@@ -1478,7 +1474,14 @@ function agendarAutoSave() {
 }
 
 async function salvarMedicaoTruck({ concluir = false } = {}) {
-  if (!pneuSelecionado || !veiculoAtual) return;
+  const voltarAoDesenho = () => {
+    if (concluir && modoAcessoRapido) voltarDesenhoCampo({ toastProx: true });
+  };
+
+  if (!pneuSelecionado || !veiculoAtual) {
+    voltarAoDesenho();
+    return;
+  }
 
   const pontos = pontosFromInputs('truck');
   const pressao = numOrNull('truck-pressao');
@@ -1488,6 +1491,7 @@ async function salvarMedicaoTruck({ concluir = false } = {}) {
   if (pontos.externo == null && pontos.central == null && pontos.interno == null && pontos.auxiliar == null) {
     document.getElementById('truck-save-status').textContent = 'Informe ao menos um sulco';
     document.getElementById('truck-save-status').className = 'hint save-status';
+    voltarAoDesenho();
     return;
   }
 
@@ -1647,9 +1651,9 @@ async function registrarEventoPneu(tipo) {
     });
   });
 
-document.getElementById('btn-truck-salvar-sulco')?.addEventListener('click', () => {
+document.getElementById('btn-truck-salvar-sulco')?.addEventListener('click', async () => {
   clearTimeout(autoSaveTimer);
-  salvarMedicaoTruck({ concluir: modoAcessoRapido });
+  await salvarMedicaoTruck({ concluir: modoAcessoRapido });
 });
 document.getElementById('btn-campo-voltar')?.addEventListener('click', () => {
   voltarDesenhoCampo();
