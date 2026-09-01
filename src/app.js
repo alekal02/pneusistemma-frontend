@@ -38,6 +38,31 @@ const LAYOUT_POR_TIPO = {
   'Toco / Mini': 'toco_6',
 };
 
+const POSICOES_TOCO = ['1E', '1D', '2EE', '2EI', '2DI', '2DE'];
+const POSICOES_TRUCK_10 = ['1E', '1D', '2EE', '2EI', '2DI', '2DE', '3EE', '3EI', '3DI', '3DE'];
+
+function layoutCompativelComTipoFront(tipo, layoutId) {
+  const t = String(tipo || '').toLowerCase();
+  const id = layoutId || 'truck_10';
+  if (t.includes('toco') || t.includes('mini')) return id === 'toco_6';
+  if (t.includes('truck')) return id === 'truck_10' || id === 'truck_8' || id === 'truck_8_b';
+  return true;
+}
+
+/** Posições do desenho: se o tipo (Toco/Truck) não bate com o layout gravado, usa o desenho do tipo. */
+function posicoesLayoutDoVeiculo(v) {
+  const fromApi = v.posicoes_layout?.length
+    ? v.posicoes_layout.map((p) => p.codigo)
+    : (v.layout?.posicoes || []);
+  if (layoutCompativelComTipoFront(v.tipo, v.layout_pneus) && fromApi.length) return fromApi;
+  const t = String(v.tipo || '').toLowerCase();
+  const alvo = LAYOUT_POR_TIPO[v.tipo]
+    || (t.includes('toco') || t.includes('mini') ? 'toco_6' : 'truck_10');
+  const layout = getLayoutById(alvo);
+  if (layout?.posicoes?.length) return layout.posicoes;
+  return alvo === 'toco_6' ? POSICOES_TOCO : POSICOES_TRUCK_10;
+}
+
 let veiculosCache = [];
 let filiaisCache = [];
 let tireMarker = null;
@@ -271,6 +296,13 @@ function normalizarTipoLabel(tipo) {
 function numOrNull(id) {
   const v = parseFloat(document.getElementById(id)?.value);
   return Number.isFinite(v) ? v : null;
+}
+
+function pressaoDoPneu(pneu) {
+  if (!pneu) return null;
+  const v = pneu.ult_pressao ?? pneu.ultima_medicao?.pressao_psi ?? pneu.pressao_psi;
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : null;
 }
 
 function atualizarPreviewLimites() {
@@ -863,8 +895,10 @@ async function openVeiculoDetalhe(id, origem = 'dashboard', dadosPreload = null)
       syncMarkersLimites();
     }
 
-    const layoutInfo = getLayoutById(v.layout_pneus);
-    const nPos = v.posicoes_layout?.length || v.layout?.posicoes?.length || v.pneus.length;
+    const posicoesLayout = posicoesLayoutDoVeiculo(v);
+    const layoutInfo = getLayoutById(v.layout_pneus)
+      || getLayoutById(LAYOUT_POR_TIPO[v.tipo] || (String(v.tipo || '').toLowerCase().includes('toco') ? 'toco_6' : 'truck_10'));
+    const nPos = posicoesLayout.length || v.pneus.length;
     document.getElementById('truck-header').innerHTML = `
       <h2>${v.apelido || v.placa}</h2>
       <p class="hint">${v.placa} · ${normalizarTipoLabel(v.tipo)} · ${v.km_atual?.toLocaleString('pt-BR') || 0} km
@@ -909,10 +943,6 @@ async function openVeiculoDetalhe(id, origem = 'dashboard', dadosPreload = null)
     document.querySelector('.truck-panel-empty').classList.remove('hidden');
     pneuSelecionado = null;
     slotPosicaoSelecionada = null;
-
-    const posicoesLayout = v.posicoes_layout?.length
-      ? v.posicoes_layout.map((p) => p.codigo)
-      : (v.layout?.posicoes || v.pneus.map((p) => p.posicao));
 
     if (!truckDiagram) {
       truckDiagram = new TruckDiagram('truck-diagram-container', {
@@ -975,7 +1005,9 @@ function formatUltimaMedicaoSulco(pneu) {
     u?.sulco_auxiliar ?? pneu.ult_sulco_aux,
   ].map((v) => (v != null ? `${v}` : '—')).join(' · ');
   const dataTxt = data ? formatDate(data) : '—';
-  return `${menor != null ? `${menor} mm` : '—'} (${pts}) · ${dataTxt}`;
+  const pressao = pressaoDoPneu(pneu);
+  const psiTxt = pressao != null ? ` · ${pressao} PSI` : '';
+  return `${menor != null ? `${menor} mm` : '—'} (${pts})${psiTxt} · ${dataTxt}`;
 }
 
 function atualizarResumoPneuTruck(pneu) {
@@ -1089,7 +1121,7 @@ function selecionarPneuTruck(pneu) {
   document.getElementById('truck-sulco-cent').value = pneu.ult_sulco_cent ?? '';
   document.getElementById('truck-sulco-int').value = pneu.ult_sulco_int ?? '';
   document.getElementById('truck-sulco-aux').value = pneu.ult_sulco_aux ?? '';
-  document.getElementById('truck-pressao').value = '';
+  document.getElementById('truck-pressao').value = pressaoDoPneu(pneu) ?? '';
   document.getElementById('truck-save-status').textContent = 'Preencha os sulcos — salva automaticamente';
   document.getElementById('truck-save-status').className = 'hint save-status';
 
@@ -1486,6 +1518,7 @@ async function salvarMedicaoTruck({ concluir = false } = {}) {
       ult_sulco_cent: pontos.central,
       ult_sulco_int: pontos.interno,
       ult_sulco_aux: pontos.auxiliar,
+      ult_pressao: pressao,
       menor_sulco: result.menor_sulco,
       status_sulco: result.status_sulco,
       diagnostico: result.diagnostico,
@@ -1501,6 +1534,7 @@ async function salvarMedicaoTruck({ concluir = false } = {}) {
         sulco_central: pontos.central,
         sulco_interno: pontos.interno,
         sulco_auxiliar: pontos.auxiliar,
+        pressao_psi: pressao,
         menor_sulco: result.menor_sulco,
       },
     };
@@ -1838,14 +1872,12 @@ function setTipoCondicaoEditaveis(editavel) {
   const hintTipo = document.getElementById('pneu-tipo-hint');
   const hintCond = document.getElementById('pneu-condicao-hint');
   if (hintTipo) {
-    hintTipo.textContent = editavel
-      ? 'Direcional = dianteira · Misto/Borrachudo = tração'
-      : 'Padrão fixo (não pode alterar)';
+    hintTipo.textContent = 'Direcional = dianteira · Misto/Borrachudo = tração';
   }
   if (hintCond) {
     hintCond.textContent = editavel
-      ? 'Não muda depois (exceto via Registrar recap)'
-      : 'Condição fixa — use Registrar recap';
+      ? 'Pode corrigir se cadastrou errado. Recapado não pode na dianteira.'
+      : 'Corrija se cadastrou errado. Recapado não pode na dianteira.';
   }
 }
 
@@ -1882,14 +1914,19 @@ async function abrirModalPneu(id) {
     if (avancado) {
       avancado.open = !!(p.dot || p.medida || p.sulco_inicial_mm || (p.vida_recap > 0));
     }
-    setTipoCondicaoEditaveis(false);
+    setTipoCondicaoEditaveis(true);
     document.getElementById('modal-pneu').showModal();
   } catch (err) {
     toast(err.message, 'error');
   }
 }
 
-document.getElementById('btn-novo-pneu')?.addEventListener('click', abrirModalPneuNovo);
+document.getElementById('pneu-condicao')?.addEventListener('change', (e) => {
+  const vida = document.getElementById('pneu-vida');
+  if (!vida) return;
+  if (e.target.value === 'novo') vida.value = '0';
+  else if (e.target.value === 'recapado' && (parseInt(vida.value, 10) || 0) < 1) vida.value = '1';
+});
 document.getElementById('btn-cancelar-pneu')?.addEventListener('click', () => {
   document.getElementById('modal-pneu').close();
 });
@@ -1911,15 +1948,13 @@ document.getElementById('form-pneu')?.addEventListener('submit', async (e) => {
     medida: document.getElementById('pneu-medida')?.value || null,
     custo: numOrNull('pneu-custo'),
     nota_fiscal: document.getElementById('pneu-nota').value || null,
+    tipo_pneu: document.getElementById('pneu-tipo').value,
+    condicao: document.getElementById('pneu-condicao').value,
     vida_recap: parseInt(document.getElementById('pneu-vida').value, 10),
     sulco_inicial_mm: numOrNull('pneu-sulco-inicial'),
   };
   if (!payload.modelo?.trim()) {
     return toast('Informe o modelo do pneu', 'error');
-  }
-  if (!id) {
-    payload.tipo_pneu = document.getElementById('pneu-tipo').value;
-    payload.condicao = document.getElementById('pneu-condicao').value;
   }
   try {
     if (id) {
@@ -2159,7 +2194,7 @@ async function abrirHistoricoPneu(pneuId) {
         <thead>
           <tr>
             <th>Data</th><th>Placa</th><th>1ª</th><th>2ª</th><th>3ª</th><th>4ª</th>
-            <th>Menor</th><th>Status</th><th>Diagnóstico</th><th>KM</th><th>Hr</th><th>mm/km</th>
+            <th>Menor</th><th>PSI</th><th>Status</th><th>Diagnóstico</th><th>KM</th><th>Hr</th><th>mm/km</th>
           </tr>
         </thead>
         <tbody>
@@ -2172,6 +2207,7 @@ async function abrirHistoricoPneu(pneuId) {
               <td>${m.sulco_interno ?? '-'}</td>
               <td>${m.sulco_auxiliar ?? '-'}</td>
               <td><strong>${m.menor_sulco ?? '-'}</strong></td>
+              <td>${m.pressao_psi != null ? m.pressao_psi : '-'}</td>
               <td>${badge(m.status_sulco)}</td>
               <td>${m.diagnostico_label || m.diagnostico || '-'}</td>
               <td>${m.km_veiculo?.toLocaleString('pt-BR') || '-'}</td>
@@ -4342,7 +4378,7 @@ function wireEdicaoVeiculoInspecao() {
     const placa = document.getElementById('insp-v-placa')?.value?.trim();
     if (!placa) return toast('Placa é obrigatória', 'error');
     try {
-      await fetchJSON(`${API}/filiais/${filialId}/veiculos/${veiculoId}`, {
+      const result = await fetchJSON(`${API}/filiais/${filialId}/veiculos/${veiculoId}`, {
         method: 'PUT',
         body: JSON.stringify({
           placa,
@@ -4357,7 +4393,7 @@ function wireEdicaoVeiculoInspecao() {
             : null,
         }),
       });
-      toast('Veículo atualizado', 'success');
+      toast(result.mensagem || 'Veículo atualizado', 'success');
       await recarregarInspecaoVeiculoFilial(filialId, veiculoId);
       const card = document.querySelector(`#filial-detalhe .veiculo-item[data-id="${veiculoId}"]`);
       if (card) {
@@ -4471,7 +4507,7 @@ async function abrirInspecaoVeiculoFilial(filialId, veiculoId) {
 
     inspecaoVeiculoCache = v;
     const labels = v.posicoes_labels || {};
-    const posicoes = v.posicoes_layout?.map((p) => p.codigo) || v.layout?.posicoes || [];
+    const posicoes = posicoesLayoutDoVeiculo(v);
     const nAnom = v.anomalias?.length || 0;
     const tiposOpts = (meta.tipos || ['Truck / Tração', 'Toco / Mini']).map((t) =>
       `<option value="${escapeHtml(t)}" ${t === v.tipo ? 'selected' : ''}>${escapeHtml(t)}</option>`
@@ -4492,7 +4528,7 @@ async function abrirInspecaoVeiculoFilial(filialId, veiculoId) {
       </div>
       <details class="form-avancado inspecao-corrigir">
         <summary>Corrigir dados do veículo (admin)</summary>
-        <p class="hint">Use se a placa, KM ou identificação foram cadastrados errados.</p>
+        <p class="hint">Use se a placa, KM ou identificação foram cadastrados errados. Ao mudar Truck ↔ Toco, o desenho dos pneus acompanha; pneus que não cabem no novo layout voltam ao estoque.</p>
         <div class="form-row">
           <div class="form-group">
             <label for="insp-v-placa">Placa *</label>
