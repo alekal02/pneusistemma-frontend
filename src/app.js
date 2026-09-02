@@ -881,7 +881,7 @@ async function openVeiculoDetalhe(id, origem = 'dashboard', dadosPreload = null)
         banner.classList.remove('hidden');
         banner.innerHTML = `
           <strong>Modo campo (WhatsApp)</strong>
-          <span>Toque no pneu para medir · ao concluir, volta ao desenho para o próximo</span>
+          <span>Toque no pneu para medir, enviar à recap, estoque ou descarte</span>
           <span id="truck-campo-resumo">${resumoSessaoCampo()}</span>`;
       } else if (v.pneus.length === 0) {
         banner.classList.remove('hidden');
@@ -1015,7 +1015,7 @@ function aplicarVisibilidadeAcessoRapido() {
   const empty = document.querySelector('.truck-panel-empty');
   if (empty) {
     empty.innerHTML = modoAcessoRapido
-      ? '<p>Toque em um pneu no desenho</p><p class="hint">Abre a medição na hora. Ao concluir, volta para o próximo.</p>'
+      ? '<p>Toque em um pneu no desenho</p><p class="hint">Medir sulco, enviar à recap, estoque ou descarte.</p>'
       : '<p>Clique em uma posição</p><p class="hint">Slot vazio (+) = colocar pneu · Pneu montado = medir sulco</p>';
   }
   const bar = document.getElementById('acesso-rapido-bar');

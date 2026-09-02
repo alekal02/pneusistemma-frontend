@@ -1,5 +1,5 @@
 :root {
-  /* Paleta corporativa — verde grama */
+  /* Paleta corporativa â verde grama */
   --brand: #2d8a3e;
   --brand-dark: #1b5e2a;
   --brand-deeper: #145223;
@@ -397,7 +397,7 @@ h3 {
 .badge-sem_dado { background: #e2e8f0; color: #475569; }
 .badge-vida { background: var(--primary-soft); color: var(--brand-dark); }
 
-/* Pneu grid no detalhe do veículo */
+/* Pneu grid no detalhe do veÃ­culo */
 .pneus-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
@@ -415,7 +415,7 @@ h3 {
 .sulco-valores { font-size: .8rem; color: var(--text-muted); }
 .sulco-valores span { display: block; }
 
-/* Medição layout */
+/* MediÃ§Ã£o layout */
 .medicao-layout {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -541,7 +541,7 @@ h3 {
 }
 .modal-actions { display: flex; justify-content: flex-end; gap: .5rem; margin-top: 1rem; }
 
-/* Histórico */
+/* HistÃ³rico */
 .historico-table { width: 100%; border-collapse: collapse; font-size: .85rem; margin-top: 1rem; }
 .historico-table th, .historico-table td { padding: .55rem .75rem; text-align: left; border-bottom: 1px solid var(--border); }
 .historico-table th {
@@ -599,7 +599,7 @@ h3 {
 }
 .alerta-card.critico { border-left-color: var(--critico); }
 
-/* Configurações */
+/* ConfiguraÃ§Ãµes */
 .config-layout {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -758,7 +758,7 @@ h3 {
 .dot-alerta { background: var(--alerta); }
 .dot-ok { background: var(--ok); }
 
-/* Vista do caminhão */
+/* Vista do caminhÃ£o */
 .truck-header { margin-bottom: 1rem; }
 .truck-header h2 { margin-bottom: .25rem; }
 
@@ -1525,7 +1525,7 @@ h3 {
   content: '+ ';
   color: #64748b;
 }
-.form-avancado[open] > summary::before { content: '− '; }
+.form-avancado[open] > summary::before { content: 'â '; }
 .form-avancado .form-row { margin-top: .5rem; }
 .import-hint-details {
   margin: .5rem 0 1rem;
@@ -1586,7 +1586,7 @@ h3 {
   letter-spacing: .04em;
 }
 
-/* Inspeção de veículo (admin / filiais) */
+/* InspeÃ§Ã£o de veÃ­culo (admin / filiais) */
 .filial-inspecao {
   margin-top: 1.5rem;
   padding-top: 1.35rem;
@@ -1765,7 +1765,7 @@ h3 {
   .login-card { padding: 1.75rem 1.25rem; }
 }
 
-/* Acesso rápido WhatsApp */
+/* Acesso rÃ¡pido WhatsApp */
 .acesso-rapido-bar {
   margin: .75rem 0 1rem;
   padding: .65rem 1rem;
@@ -1804,7 +1804,7 @@ h3 {
 #view-veiculo-detalhe.campo-medindo #truck-fluxo-banner,
 #view-veiculo-detalhe.campo-medindo #historico-pneu,
 #view-veiculo-detalhe.campo-medindo .pneu-info-fixa,
-#view-veiculo-detalhe.campo-medindo #truck-panel-acoes {
+#view-veiculo-detalhe.campo-medindo #truck-mini-marker {
   display: none;
 }
 #view-veiculo-detalhe.campo-medindo .truck-layout {
@@ -1819,6 +1819,11 @@ h3 {
   text-align: center;
   font-weight: 700;
 }
+#view-veiculo-detalhe.campo-medindo #truck-panel-acoes {
+  display: flex;
+  margin-top: .5rem;
+  padding-top: .65rem;
+}
 #view-veiculo-detalhe.campo-medindo #btn-truck-salvar-sulco {
   position: sticky;
   bottom: 12px;
@@ -1827,9 +1832,6 @@ h3 {
   padding: .95rem 1rem;
   font-size: 1.05rem;
   margin-top: .75rem;
-}
-#view-veiculo-detalhe.campo-medindo #truck-mini-marker {
-  min-height: 200px;
 }
 .erro-token-container {
   max-width: 420px;
@@ -2193,7 +2195,7 @@ h3 {
   opacity: .85;
 }
 
-/* Formul�rios acesso r�pido (cadastro / troca WhatsApp) */
+/* Formulários acesso rápido (cadastro / troca WhatsApp) */
 .ar-form-wrap {
   max-width: 28rem;
   margin: 1.5rem auto;
