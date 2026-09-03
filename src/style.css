@@ -2048,6 +2048,15 @@ h3 {
   color: #9a3412;
   vertical-align: middle;
 }
+.cb-pill-lock {
+  background: #dcfce7;
+  color: #166534;
+}
+.filial-chatbot-panel select:disabled {
+  cursor: not-allowed;
+  opacity: 1;
+  background: var(--surface-2);
+}
 .cb-check-list {
   display: flex;
   flex-direction: column;

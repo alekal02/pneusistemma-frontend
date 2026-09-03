@@ -3831,22 +3831,25 @@ function renderChatbotPanelHtml(data) {
           <div class="cb-step-head">
             <span class="cb-step-num">2</span>
             <div>
-              <h4>Grupo da medição</h4>
-              <p class="hint">Grupo onde o borracheiro manda a placa. Ao selecionar, salva automaticamente.</p>
+              <h4>Grupo da medição <span class="cb-pill cb-pill-lock${temGrupo ? '' : ' hidden'}" id="fc-grupo-pill">travado</span></h4>
+              <p class="hint">Grupo onde o borracheiro manda a placa. Ao selecionar, trava — o chatbot só responde neste grupo.</p>
             </div>
           </div>
           <div class="cb-step-body">
             <div class="form-row" style="align-items:flex-end;gap:.5rem">
               <div class="form-group" style="flex:1;margin:0">
                 <label for="fc-whatsapp-grupo">Grupo WhatsApp</label>
-                <select id="fc-whatsapp-grupo">
+                <select id="fc-whatsapp-grupo"${temGrupo ? ' disabled' : ''}>
                   <option value="">— Selecione o grupo —</option>
                   ${grupoAtual ? `<option value="${escapeHtml(grupoAtual)}" selected>${escapeHtml(grupoAtual)}</option>` : ''}
                 </select>
               </div>
-              <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-grupos">Atualizar lista</button>
+              <button type="button" class="btn btn-ghost btn-sm${temGrupo ? ' hidden' : ''}" id="btn-fc-grupos">Atualizar lista</button>
+              <button type="button" class="btn btn-sm${temGrupo ? '' : ' hidden'}" id="btn-fc-trocar-grupo">Escolher outro grupo</button>
             </div>
-            <small class="field-hint">O chip precisa estar no grupo. Conecte primeiro (passo 1), depois atualize a lista.</small>
+            <small class="field-hint" id="fc-grupo-trava-hint">${temGrupo
+              ? 'Grupo travado. O chatbot só responde neste grupo — comandos em outros grupos são ignorados.'
+              : 'O chip precisa estar no grupo. Conecte primeiro (passo 1), escolha o grupo e ele trava automaticamente.'}</small>
           </div>
         </li>
         <li class="cb-step cb-step-muted${alerta ? ' is-done' : ''}" id="fc-step-alerta">
@@ -3993,6 +3996,29 @@ async function loadChatbotGerente() {
 function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false } = {}) {
   const statusEl = document.getElementById('fc-status');
   let salvandoChipAuto = false;
+  let grupoSalvo = valorCampoWa(document.getElementById('fc-whatsapp-grupo')?.value);
+  let grupoTravado = Boolean(grupoSalvo);
+
+  const aplicarTravaGrupo = (travado) => {
+    const sel = document.getElementById('fc-whatsapp-grupo');
+    const temGrupo = Boolean(valorCampoWa(sel?.value) || grupoSalvo);
+    grupoTravado = Boolean(travado && temGrupo);
+    if (sel) sel.disabled = grupoTravado;
+    document.getElementById('btn-fc-grupos')?.classList.toggle('hidden', grupoTravado);
+    document.getElementById('btn-fc-trocar-grupo')?.classList.toggle('hidden', !grupoTravado);
+    document.getElementById('fc-grupo-pill')?.classList.toggle('hidden', !grupoTravado);
+    const hint = document.getElementById('fc-grupo-trava-hint');
+    if (hint) {
+      if (grupoTravado) {
+        hint.textContent = 'Grupo travado. O chatbot só responde neste grupo — comandos em outros grupos são ignorados.';
+      } else if (grupoSalvo) {
+        hint.textContent = 'Escolha o novo grupo. Até salvar, o chatbot continua no grupo atual.';
+      } else {
+        hint.textContent = 'O chip precisa estar no grupo. Conecte primeiro (passo 1), escolha o grupo e ele trava automaticamente.';
+      }
+    }
+  };
+  aplicarTravaGrupo(grupoTravado);
 
   const lerAlertasSelecionados = () => {
     const todos = [...document.querySelectorAll('#fc-alerta-lista input[type="checkbox"][data-valor]')];
@@ -4212,7 +4238,7 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
   const carregarGrupos = async (silencioso = false) => {
     const sel = document.getElementById('fc-whatsapp-grupo');
     if (!sel) return;
-    const atual = valorCampoWa(sel.value);
+    const atual = valorCampoWa(sel.value) || grupoSalvo;
     try {
       if (!silencioso) toast('Buscando grupos no WhatsApp…');
       const data = await fetchJSON(`${API}/whatsapp/filial/${filialId}/grupos`);
@@ -4244,6 +4270,11 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
   };
 
   document.getElementById('btn-fc-grupos')?.addEventListener('click', () => carregarGrupos(false));
+  document.getElementById('btn-fc-trocar-grupo')?.addEventListener('click', async () => {
+    aplicarTravaGrupo(false);
+    toast('Selecione o novo grupo. O chatbot continua no grupo atual até você escolher.');
+    await carregarGrupos(true);
+  });
 
   const salvarCamposChatbot = async (body, { silencioso = false, mensagem } = {}) => {
     const data = await fetchJSON(`${API}/whatsapp/filiais-chatbot/${filialId}`, {
@@ -4330,16 +4361,29 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
   });
 
   document.getElementById('fc-whatsapp-grupo')?.addEventListener('change', async () => {
-    const grupo = document.getElementById('fc-whatsapp-grupo')?.value || null;
+    const sel = document.getElementById('fc-whatsapp-grupo');
+    const grupo = valorCampoWa(sel?.value);
+    if (!grupo) {
+      if (sel) sel.value = grupoSalvo || '';
+      toast('Selecione um grupo da lista', 'error');
+      return;
+    }
+    if (grupo === grupoSalvo) {
+      aplicarTravaGrupo(true);
+      return;
+    }
     try {
-      toast(grupo ? 'Salvando grupo do chatbot…' : 'Removendo grupo…');
-      await salvarCamposChatbot({ whatsapp_grupo: grupo }, { silencioso: true });
-      document.getElementById('fc-step-group')?.classList.toggle('is-done', Boolean(grupo));
-      toast(
-        grupo ? 'Grupo salvo — envie a placa no WhatsApp' : 'Grupo removido',
-        'success'
-      );
+      toast('Salvando grupo do chatbot…');
+      const body = { whatsapp_grupo: grupo };
+      if (grupoSalvo) body.trocar_grupo = true;
+      await salvarCamposChatbot(body, { silencioso: true });
+      grupoSalvo = grupo;
+      document.getElementById('fc-step-group')?.classList.toggle('is-done', true);
+      aplicarTravaGrupo(true);
+      toast('Grupo travado — o chatbot só responde neste grupo', 'success');
     } catch (err) {
+      if (sel) sel.value = grupoSalvo || '';
+      aplicarTravaGrupo(Boolean(grupoSalvo));
       toast(err.message || 'Falha ao salvar grupo', 'error');
     }
   });
