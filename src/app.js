@@ -3332,6 +3332,9 @@ async function loadFiliais() {
           <div class="filial-card-actions">
             <button type="button" class="btn btn-sm btn-primary btn-abrir-filial" data-id="${f.id}">Abrir</button>
             <button type="button" class="btn btn-sm btn-ghost btn-editar-filial" data-id="${f.id}">Editar / senha</button>
+            ${isAdmin()
+              ? `<button type="button" class="btn btn-sm btn-danger-text btn-excluir-filial" data-id="${f.id}" data-nome="${escapeHtml(f.nome)}" data-codigo="${escapeHtml(f.codigo || '')}">Excluir</button>`
+              : ''}
           </div>
         </div>
       `;
@@ -3340,11 +3343,12 @@ async function loadFiliais() {
     const abrir = (id) => abrirDetalheFilial(id);
     lista.querySelectorAll('.filial-card[data-id]').forEach((card) => {
       card.addEventListener('click', (e) => {
-        if (e.target.closest('.btn-editar-filial')) return;
+        if (e.target.closest('.btn-editar-filial') || e.target.closest('.btn-excluir-filial')) return;
         abrir(card.dataset.id);
       });
       card.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' || e.key === ' ') {
+          if (e.target.closest('button')) return;
           e.preventDefault();
           abrir(card.dataset.id);
         }
@@ -3360,6 +3364,12 @@ async function loadFiliais() {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         abrirModalFilial(btn.dataset.id);
+      });
+    });
+    lista.querySelectorAll('.btn-excluir-filial').forEach((btn) => {
+      btn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        abrirModalExcluirFilial(btn.dataset.id, btn.dataset.nome, btn.dataset.codigo);
       });
     });
   } catch (err) {
@@ -3682,7 +3692,8 @@ async function abrirDetalheFilial(id) {
               Baixar PDF semanal
             </button>
             ${isAdmin()
-              ? `<button type="button" class="btn btn-ghost btn-sm btn-editar-filial-detalhe" data-id="${data.id}">Editar / senha</button>`
+              ? `<button type="button" class="btn btn-ghost btn-sm btn-editar-filial-detalhe" data-id="${data.id}">Editar / senha</button>
+                 <button type="button" class="btn btn-sm btn-danger-text btn-excluir-filial-detalhe" data-id="${data.id}" data-nome="${escapeHtml(data.nome)}" data-codigo="${escapeHtml(data.codigo || '')}">Excluir</button>`
               : ''}
           </div>
         </div>
@@ -3715,6 +3726,9 @@ async function abrirDetalheFilial(id) {
 
     document.getElementById('btn-fechar-detalhe-filial')?.addEventListener('click', () => fecharDetalheFilial());
     el.querySelector('.btn-editar-filial-detalhe')?.addEventListener('click', () => abrirModalFilial(id));
+    el.querySelector('.btn-excluir-filial-detalhe')?.addEventListener('click', () => {
+      abrirModalExcluirFilial(id, data.nome, data.codigo);
+    });
     document.getElementById('btn-pdf-semanal')?.addEventListener('click', () => {
       baixarPdfSemanalUnidade(id);
     });
@@ -4937,6 +4951,19 @@ async function abrirInspecaoVeiculoFilial(filialId, veiculoId) {
   }
 }
 
+function abrirModalExcluirFilial(id, nome, codigo) {
+  if (!isAdmin()) return toast('Só o administrador pode excluir uma unidade', 'error');
+  const modal = document.getElementById('modal-excluir-filial');
+  if (!modal) return toast('Modal de exclusão não encontrado — recarregue a página', 'error');
+  document.getElementById('excluir-filial-id').value = id;
+  document.getElementById('excluir-filial-senha').value = '';
+  const rotulo = [nome, codigo].filter(Boolean).join(' · ');
+  document.getElementById('excluir-filial-aviso').textContent =
+    `Excluir “${rotulo}” apaga veículos, pneus, medições, chatbot e logins dessa unidade. Não dá para desfazer.`;
+  modal.showModal();
+  document.getElementById('excluir-filial-senha')?.focus();
+}
+
 async function abrirModalFilial(id = null) {
   const modal = document.getElementById('modal-filial');
   document.getElementById('form-filial').reset();
@@ -4991,6 +5018,36 @@ async function abrirModalFilial(id = null) {
 document.getElementById('btn-nova-filial')?.addEventListener('click', () => abrirModalFilial());
 document.getElementById('btn-cancelar-filial')?.addEventListener('click', () => {
   document.getElementById('modal-filial').close();
+});
+
+document.getElementById('btn-cancelar-excluir-filial')?.addEventListener('click', () => {
+  document.getElementById('modal-excluir-filial')?.close();
+});
+
+document.getElementById('form-excluir-filial')?.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const id = document.getElementById('excluir-filial-id')?.value;
+  const senha = document.getElementById('excluir-filial-senha')?.value || '';
+  if (!id) return;
+  if (!senha) return toast('Informe a senha de administrador', 'error');
+  const btn = document.getElementById('btn-confirmar-excluir-filial');
+  try {
+    if (btn) btn.disabled = true;
+    const data = await fetchJSON(`${API}/filiais/${id}`, {
+      method: 'DELETE',
+      body: JSON.stringify({ senha_admin: senha }),
+    });
+    document.getElementById('modal-excluir-filial')?.close();
+    document.getElementById('excluir-filial-senha').value = '';
+    filiaisCache = [];
+    fecharDetalheFilial();
+    toast(data.mensagem || 'Unidade excluída', 'success');
+    await loadFiliais();
+  } catch (err) {
+    toast(err.message || 'Falha ao excluir a unidade', 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 });
 
 document.getElementById('form-filial')?.addEventListener('submit', async (e) => {

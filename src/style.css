@@ -1235,6 +1235,9 @@ h3 {
   color: #475569;
 }
 .filial-card-actions { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .25rem; }
+.filial-card-actions .btn-danger-text {
+  border: 1px solid transparent;
+}
 .text-critico { color: #b91c1c; }
 .text-troca { color: #991b1b; }
 .text-recap { color: #3730a3; }

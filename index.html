@@ -1026,6 +1026,22 @@
     </form>
   </dialog>
 
+  <dialog id="modal-excluir-filial" class="modal">
+    <form id="form-excluir-filial" method="dialog">
+      <h3>Excluir unidade</h3>
+      <p class="hint" id="excluir-filial-aviso">Esta ação apaga a unidade e todos os dados dela no banco. Não dá para desfazer.</p>
+      <input type="hidden" id="excluir-filial-id" value="">
+      <div class="form-group">
+        <label for="excluir-filial-senha">Senha de administrador *</label>
+        <input type="password" id="excluir-filial-senha" required autocomplete="current-password" placeholder="Sua senha de admin">
+      </div>
+      <div class="modal-actions">
+        <button type="button" class="btn btn-ghost" id="btn-cancelar-excluir-filial">Cancelar</button>
+        <button type="submit" class="btn btn-danger-text" id="btn-confirmar-excluir-filial">Excluir definitivamente</button>
+      </div>
+    </form>
+  </dialog>
+
   <dialog id="modal-pneu" class="modal">
     <form id="form-pneu" method="dialog">
       <h3 id="modal-pneu-titulo">Novo pneu no estoque</h3>
