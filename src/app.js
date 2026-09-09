@@ -159,6 +159,61 @@ async function fetchJSON(url, options = {}) {
   return data;
 }
 
+function textoHintFogo(info) {
+  if (!info?.padrao) {
+    return 'Padrão: código da unidade + sequência (ex.: 0110-0001). Vazio gera o próximo.';
+  }
+  if (info.ultimo) {
+    return info.padrao_obrigatorio
+      ? `Padrão ${info.padrao}. Último cadastrado: ${info.ultimo} → próximo: ${info.proximo}`
+      : `Sugestão ${info.proximo} (último no padrão: ${info.ultimo}). Outros formatos antigos ainda são aceitos.`;
+  }
+  return info.padrao_obrigatorio
+    ? `Nenhum pneu neste padrão. Primeiro número: ${info.proximo}`
+    : `Sugestão ${info.proximo}. Outros formatos antigos ainda são aceitos.`;
+}
+
+async function fetchProximoFogo() {
+  if (modoAcessoRapido && tokenAcessoRapido) {
+    return fetchJSON(`${API}/acesso-rapido/proximo-fogo?token=${encodeURIComponent(tokenAcessoRapido)}`);
+  }
+  return fetchJSON(`${API}/pneus/proximo-fogo`);
+}
+
+async function gerarMarcaFogoNoCampo(inputId, hintId, btn) {
+  if (btn) btn.disabled = true;
+  try {
+    const dados = await fetchProximoFogo();
+    if (!dados?.proximo) {
+      toast('Não foi possível gerar a marca de fogo. Confira o código da filial.', 'error');
+      return null;
+    }
+    const input = document.getElementById(inputId);
+    if (input) {
+      input.value = dados.proximo;
+      input.placeholder = dados.proximo;
+      input.focus();
+      input.select();
+    }
+    const hint = document.getElementById(hintId);
+    if (hint) hint.textContent = textoHintFogo(dados);
+    const detalhe = dados.ultimo
+      ? `última cadastrada: ${dados.ultimo}`
+      : 'nenhum pneu neste padrão — começa em 0001';
+    toast(`Marca gerada: ${dados.proximo} (${detalhe})`, 'success');
+    return dados;
+  } catch (err) {
+    toast(err.message || 'Falha ao gerar marca de fogo', 'error');
+    return null;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function mostrarBotaoGerarFogo(visivel) {
+  document.getElementById('btn-gerar-fogo')?.classList.toggle('hidden', !visivel);
+}
+
 async function fetchConfiguracoes() {
   try {
     return await fetchJSON(`${API}/configuracoes`);
@@ -1195,10 +1250,14 @@ async function selecionarSlotVazio(posicao) {
   if (!modoAcessoRapido) {
     await carregarSelectEstoque();
   }
+  const hintFogo = document.getElementById('truck-novo-fogo-hint');
+  if (hintFogo) {
+    hintFogo.textContent = 'Clique para analisar o código da unidade e a última marca cadastrada (ex.: 0110-0001).';
+  }
   const hint = document.getElementById('truck-montar-hint');
   if (hint) {
     hint.textContent = modoAcessoRapido
-      ? 'Preencha fogo, padrão e modelo e toque em “Criar e montar”.'
+      ? 'Gere a marca de fogo, informe modelo e toque em “Criar e montar”.'
       : 'Posição vazia — coloque um pneu aqui.';
   }
   entrarMedicaoCampo();
@@ -1240,7 +1299,6 @@ function setMontarTab(tab) {
 async function criarEMontarPneuTruck() {
   if (!veiculoAtual || !slotPosicaoSelecionada) return;
   const fogo = document.getElementById('truck-novo-fogo')?.value?.trim();
-  if (!fogo) return toast('Informe o nº de fogo', 'error');
   const modelo = document.getElementById('truck-novo-modelo')?.value?.trim();
   if (!modelo) return toast('Informe o modelo do pneu', 'error');
 
@@ -2093,7 +2151,7 @@ function setTipoCondicaoEditaveis(editavel) {
   }
 }
 
-function abrirModalPneuNovo() {
+async function abrirModalPneuNovo() {
   document.getElementById('modal-pneu-titulo').textContent = 'Novo pneu no estoque';
   document.getElementById('pneu-edit-id').value = '';
   document.getElementById('form-pneu').reset();
@@ -2103,6 +2161,11 @@ function abrirModalPneuNovo() {
   const avancado = document.getElementById('pneu-avancado');
   if (avancado) avancado.open = false;
   setTipoCondicaoEditaveis(true);
+  mostrarBotaoGerarFogo(true);
+  const hintFogo = document.getElementById('pneu-fogo-hint');
+  if (hintFogo) {
+    hintFogo.textContent = 'Clique para analisar o código da unidade e a última marca cadastrada (ex.: 0110-0001).';
+  }
   document.getElementById('modal-pneu').showModal();
 }
 
@@ -2127,6 +2190,9 @@ async function abrirModalPneu(id) {
       avancado.open = !!(p.dot || p.medida || p.sulco_inicial_mm || (p.vida_recap > 0));
     }
     setTipoCondicaoEditaveis(false);
+    mostrarBotaoGerarFogo(false);
+    const hintFogo = document.getElementById('pneu-fogo-hint');
+    if (hintFogo) hintFogo.textContent = 'Identificação única do pneu nesta unidade.';
     document.getElementById('modal-pneu').showModal();
   } catch (err) {
     toast(err.message, 'error');
@@ -2134,6 +2200,15 @@ async function abrirModalPneu(id) {
 }
 
 document.getElementById('btn-novo-pneu')?.addEventListener('click', abrirModalPneuNovo);
+document.getElementById('btn-gerar-fogo')?.addEventListener('click', (e) => {
+  gerarMarcaFogoNoCampo('pneu-fogo', 'pneu-fogo-hint', e.currentTarget);
+});
+document.getElementById('btn-truck-gerar-fogo')?.addEventListener('click', (e) => {
+  gerarMarcaFogoNoCampo('truck-novo-fogo', 'truck-novo-fogo-hint', e.currentTarget);
+});
+document.getElementById('btn-ar-gerar-fogo')?.addEventListener('click', (e) => {
+  gerarMarcaFogoNoCampo('ar-p-fogo', 'ar-p-fogo-hint', e.currentTarget);
+});
 document.getElementById('btn-cancelar-pneu')?.addEventListener('click', () => {
   document.getElementById('modal-pneu').close();
 });

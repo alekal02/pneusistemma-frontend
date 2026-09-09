@@ -350,8 +350,12 @@
 
               <div id="truck-montar-novo" class="montar-tab-panel">
                 <div class="form-group">
-                  <label for="truck-novo-fogo">Nº de fogo *</label>
-                  <input type="text" id="truck-novo-fogo" required placeholder="Identificação do pneu" autocomplete="off">
+                  <label for="truck-novo-fogo">Nº de fogo</label>
+                  <div class="fogo-gerar-row">
+                    <input type="text" id="truck-novo-fogo" placeholder="0110-0001" autocomplete="off">
+                    <button type="button" class="btn btn-primary btn-sm" id="btn-truck-gerar-fogo">Gerar marca de fogo</button>
+                  </div>
+                  <small class="field-hint" id="truck-novo-fogo-hint">Clique para analisar o código da unidade e a última marca cadastrada (ex.: 0110-0001).</small>
                 </div>
                 <div class="form-row">
                   <div class="form-group">
@@ -574,8 +578,12 @@
         <p class="hint" id="ar-pneu-filial"></p>
         <form id="form-ar-pneu">
           <div class="form-group">
-            <label for="ar-p-fogo">Nº de fogo *</label>
-            <input type="text" id="ar-p-fogo" required autocomplete="off">
+            <label for="ar-p-fogo">Nº de fogo</label>
+            <div class="fogo-gerar-row">
+              <input type="text" id="ar-p-fogo" placeholder="0110-0001" autocomplete="off">
+              <button type="button" class="btn btn-primary btn-sm" id="btn-ar-gerar-fogo">Gerar marca de fogo</button>
+            </div>
+            <small class="field-hint" id="ar-p-fogo-hint">Clique para analisar o código da unidade e a última marca cadastrada (ex.: 0110-0001).</small>
           </div>
           <div class="form-group">
             <label for="ar-p-modelo">Modelo *</label>
@@ -1074,8 +1082,12 @@
       <h3 id="modal-pneu-titulo">Novo pneu no estoque</h3>
       <input type="hidden" id="pneu-edit-id" value="">
       <div class="form-group">
-        <label for="pneu-fogo">Nº de fogo *</label>
-        <input type="text" id="pneu-fogo" required placeholder="Identificação única do pneu">
+        <label for="pneu-fogo">Nº de fogo</label>
+        <div class="fogo-gerar-row">
+          <input type="text" id="pneu-fogo" placeholder="0110-0001" autocomplete="off">
+          <button type="button" class="btn btn-primary btn-sm" id="btn-gerar-fogo">Gerar marca de fogo</button>
+        </div>
+        <small class="field-hint" id="pneu-fogo-hint">Clique para analisar o código da unidade e a última marca cadastrada (ex.: 0110-0001).</small>
       </div>
       <div class="form-row">
         <div class="form-group">
