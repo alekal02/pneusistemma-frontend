@@ -551,6 +551,9 @@
             <select id="ar-v-tipo">
               <option value="Truck / Tração">Truck / Tração</option>
               <option value="Toco / Mini">Toco / Mini</option>
+              <option value="Compactador">Compactador</option>
+              <option value="Utilitário / Varredeira">Utilitário / Varredeira</option>
+              <option value="Trator">Trator</option>
             </select>
           </div>
           <div class="form-group">
@@ -718,7 +721,7 @@
       <h2>Limites e o que fazer</h2>
       <p class="hint">
         Defina até quantos mm cada faixa vale e escreva <strong>o que deve ser feito</strong> quando a medição cair nela.
-        Vale para toda a frota.
+        Caminhões, compactadores e utilitários usam as faixas abaixo. Tratores têm mm próprios no card <strong>Pneus de trator</strong>.
       </p>
 
       <div class="config-layout">
@@ -812,6 +815,30 @@
             <div class="form-group">
               <label for="cfg-acao-ok-instrucao">O que fazer nesta medição</label>
               <textarea id="cfg-acao-ok-instrucao" rows="2" maxlength="240" placeholder="Ex: Manter em operação"></textarea>
+            </div>
+          </article>
+
+          <article class="faixa-card faixa-trator">
+            <header>
+              <span class="faixa-badge">Pneus de trator</span>
+            </header>
+            <p class="hint" style="margin-top:0">
+              Mesmos 4 pontos de sulco; os mm abaixo valem só para veículos tipo Trator.
+              Valores iniciais são placeholders — ajuste quando tiver a régua da operação.
+            </p>
+            <div class="form-row">
+              <div class="form-group">
+                <label for="cfg-trator-critico">Crítico até (mm)</label>
+                <input type="number" id="cfg-trator-critico" step="0.1" min="0" max="50" placeholder="10">
+              </div>
+              <div class="form-group">
+                <label for="cfg-trator-alerta">Monitorar até (mm)</label>
+                <input type="number" id="cfg-trator-alerta" step="0.1" min="0" max="50" placeholder="15">
+              </div>
+              <div class="form-group">
+                <label for="cfg-trator-novo">Pneu novo (mm)</label>
+                <input type="number" id="cfg-trator-novo" step="0.1" min="0" max="80" placeholder="25">
+              </div>
             </div>
           </article>
 
