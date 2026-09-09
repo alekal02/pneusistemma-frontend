@@ -3276,6 +3276,14 @@ function fecharDetalheFilial() {
 async function loadFiliais() {
   if (!isGestao()) return;
   try {
+    if (isGerente() && !isAdmin()) {
+      const filiaisLeve = await fetchJSON(`${API}/filiais?leve=1`);
+      filiaisCache = filiaisLeve;
+      if (filiaisLeve.length === 1) {
+        await abrirDetalheFilial(filiaisLeve[0].id);
+        return;
+      }
+    }
     const [filiais, compras] = await Promise.all([
       fetchJSON(`${API}/filiais`),
       fetchJSON(`${API}/filiais/compras/consolidado`),
