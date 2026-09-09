@@ -350,12 +350,8 @@
 
               <div id="truck-montar-novo" class="montar-tab-panel">
                 <div class="form-group">
-                  <label for="truck-novo-fogo">Nº de fogo</label>
-                  <div class="fogo-gerar-row">
-                    <input type="text" id="truck-novo-fogo" placeholder="0110-0001" autocomplete="off">
-                    <button type="button" class="btn btn-primary btn-sm" id="btn-truck-gerar-fogo">Gerar marca de fogo</button>
-                  </div>
-                  <small class="field-hint" id="truck-novo-fogo-hint">Clique para analisar o código da unidade e a última marca cadastrada (ex.: 0110-0001).</small>
+                  <label for="truck-novo-fogo">Nº de fogo *</label>
+                  <input type="text" id="truck-novo-fogo" required placeholder="Identificação do pneu" autocomplete="off">
                 </div>
                 <div class="form-row">
                   <div class="form-group">
@@ -555,9 +551,6 @@
             <select id="ar-v-tipo">
               <option value="Truck / Tração">Truck / Tração</option>
               <option value="Toco / Mini">Toco / Mini</option>
-              <option value="Compactador">Compactador</option>
-              <option value="Utilitário / Varredeira">Utilitário / Varredeira</option>
-              <option value="Trator">Trator</option>
             </select>
           </div>
           <div class="form-group">
@@ -578,12 +571,8 @@
         <p class="hint" id="ar-pneu-filial"></p>
         <form id="form-ar-pneu">
           <div class="form-group">
-            <label for="ar-p-fogo">Nº de fogo</label>
-            <div class="fogo-gerar-row">
-              <input type="text" id="ar-p-fogo" placeholder="0110-0001" autocomplete="off">
-              <button type="button" class="btn btn-primary btn-sm" id="btn-ar-gerar-fogo">Gerar marca de fogo</button>
-            </div>
-            <small class="field-hint" id="ar-p-fogo-hint">Clique para analisar o código da unidade e a última marca cadastrada (ex.: 0110-0001).</small>
+            <label for="ar-p-fogo">Nº de fogo *</label>
+            <input type="text" id="ar-p-fogo" required autocomplete="off">
           </div>
           <div class="form-group">
             <label for="ar-p-modelo">Modelo *</label>
@@ -729,7 +718,7 @@
       <h2>Limites e o que fazer</h2>
       <p class="hint">
         Defina até quantos mm cada faixa vale e escreva <strong>o que deve ser feito</strong> quando a medição cair nela.
-        Caminhões, compactadores e utilitários usam as faixas abaixo. Tratores têm mm próprios no card <strong>Pneus de trator</strong>.
+        Vale para toda a frota.
       </p>
 
       <div class="config-layout">
@@ -823,30 +812,6 @@
             <div class="form-group">
               <label for="cfg-acao-ok-instrucao">O que fazer nesta medição</label>
               <textarea id="cfg-acao-ok-instrucao" rows="2" maxlength="240" placeholder="Ex: Manter em operação"></textarea>
-            </div>
-          </article>
-
-          <article class="faixa-card faixa-trator">
-            <header>
-              <span class="faixa-badge">Pneus de trator</span>
-            </header>
-            <p class="hint" style="margin-top:0">
-              Mesmos 4 pontos de sulco; os mm abaixo valem só para veículos tipo Trator.
-              Valores iniciais são placeholders — ajuste quando tiver a régua da operação.
-            </p>
-            <div class="form-row">
-              <div class="form-group">
-                <label for="cfg-trator-critico">Crítico até (mm)</label>
-                <input type="number" id="cfg-trator-critico" step="0.1" min="0" max="50" placeholder="10">
-              </div>
-              <div class="form-group">
-                <label for="cfg-trator-alerta">Monitorar até (mm)</label>
-                <input type="number" id="cfg-trator-alerta" step="0.1" min="0" max="50" placeholder="15">
-              </div>
-              <div class="form-group">
-                <label for="cfg-trator-novo">Pneu novo (mm)</label>
-                <input type="number" id="cfg-trator-novo" step="0.1" min="0" max="80" placeholder="25">
-              </div>
             </div>
           </article>
 
@@ -1082,12 +1047,8 @@
       <h3 id="modal-pneu-titulo">Novo pneu no estoque</h3>
       <input type="hidden" id="pneu-edit-id" value="">
       <div class="form-group">
-        <label for="pneu-fogo">Nº de fogo</label>
-        <div class="fogo-gerar-row">
-          <input type="text" id="pneu-fogo" placeholder="0110-0001" autocomplete="off">
-          <button type="button" class="btn btn-primary btn-sm" id="btn-gerar-fogo">Gerar marca de fogo</button>
-        </div>
-        <small class="field-hint" id="pneu-fogo-hint">Clique para analisar o código da unidade e a última marca cadastrada (ex.: 0110-0001).</small>
+        <label for="pneu-fogo">Nº de fogo *</label>
+        <input type="text" id="pneu-fogo" required placeholder="Identificação única do pneu">
       </div>
       <div class="form-row">
         <div class="form-group">
@@ -1105,7 +1066,7 @@
             <option value="novo">Novo</option>
             <option value="recapado">Recapado</option>
           </select>
-          <small class="field-hint" id="pneu-condicao-hint">Não muda depois (exceto via Registrar recap)</small>
+          <small class="field-hint" id="pneu-condicao-hint">Novo ou recapado — pode corrigir na edição</small>
         </div>
       </div>
       <div class="form-row">

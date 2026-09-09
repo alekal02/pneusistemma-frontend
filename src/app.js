@@ -36,15 +36,11 @@ let sessaoCampoVeiculoId = null;
 const LAYOUT_POR_TIPO = {
   'Truck / Tração': 'truck_10',
   'Toco / Mini': 'toco_6',
-  Compactador: 'compactador',
-  'Utilitário / Varredeira': 'utilitario_4',
-  Trator: 'trator_4',
 };
 
 let veiculosCache = [];
 let filiaisCache = [];
 let tireMarker = null;
-let limitesPainelBackup = null;
 let limitesAtuais = {
   sulco_critico_mm: 3.0,
   sulco_alerta_mm: 8.0,
@@ -157,61 +153,6 @@ async function fetchJSON(url, options = {}) {
     throw err;
   }
   return data;
-}
-
-function textoHintFogo(info) {
-  if (!info?.padrao) {
-    return 'Padrão: código da unidade + sequência (ex.: 0110-0001). Vazio gera o próximo.';
-  }
-  if (info.ultimo) {
-    return info.padrao_obrigatorio
-      ? `Padrão ${info.padrao}. Último cadastrado: ${info.ultimo} → próximo: ${info.proximo}`
-      : `Sugestão ${info.proximo} (último no padrão: ${info.ultimo}). Outros formatos antigos ainda são aceitos.`;
-  }
-  return info.padrao_obrigatorio
-    ? `Nenhum pneu neste padrão. Primeiro número: ${info.proximo}`
-    : `Sugestão ${info.proximo}. Outros formatos antigos ainda são aceitos.`;
-}
-
-async function fetchProximoFogo() {
-  if (modoAcessoRapido && tokenAcessoRapido) {
-    return fetchJSON(`${API}/acesso-rapido/proximo-fogo?token=${encodeURIComponent(tokenAcessoRapido)}`);
-  }
-  return fetchJSON(`${API}/pneus/proximo-fogo`);
-}
-
-async function gerarMarcaFogoNoCampo(inputId, hintId, btn) {
-  if (btn) btn.disabled = true;
-  try {
-    const dados = await fetchProximoFogo();
-    if (!dados?.proximo) {
-      toast('Não foi possível gerar a marca de fogo. Confira o código da filial.', 'error');
-      return null;
-    }
-    const input = document.getElementById(inputId);
-    if (input) {
-      input.value = dados.proximo;
-      input.placeholder = dados.proximo;
-      input.focus();
-      input.select();
-    }
-    const hint = document.getElementById(hintId);
-    if (hint) hint.textContent = textoHintFogo(dados);
-    const detalhe = dados.ultimo
-      ? `última cadastrada: ${dados.ultimo}`
-      : 'nenhum pneu neste padrão — começa em 0001';
-    toast(`Marca gerada: ${dados.proximo} (${detalhe})`, 'success');
-    return dados;
-  } catch (err) {
-    toast(err.message || 'Falha ao gerar marca de fogo', 'error');
-    return null;
-  } finally {
-    if (btn) btn.disabled = false;
-  }
-}
-
-function mostrarBotaoGerarFogo(visivel) {
-  document.getElementById('btn-gerar-fogo')?.classList.toggle('hidden', !visivel);
 }
 
 async function fetchConfiguracoes() {
@@ -368,13 +309,11 @@ function atualizarPreviewLimites() {
 }
 
 function hintLimites() {
-  const { sulco_critico_mm: c, sulco_alerta_mm: a, prazo_recap_dias: p, acoes, trator } = limitesAtuais;
+  const { sulco_critico_mm: c, sulco_alerta_mm: a, prazo_recap_dias: p, acoes } = limitesAtuais;
   const t = acoes?.troca?.label || 'Trocar';
   const m = acoes?.monitorar?.label || 'Monitorar';
   const o = acoes?.ok?.label || 'OK';
-  const caminhao = `Caminhões: ≤ ${c} mm → ${t} · > ${c}–${a} mm → ${m} (recap ${p || 15}d) · > ${a} mm → ${o}`;
-  if (!trator?.sulco_critico_mm) return caminhao;
-  return `${caminhao} · Tratores: ≤ ${trator.sulco_critico_mm} mm / ${trator.sulco_alerta_mm} mm / novo ~${trator.sulco_novo_mm} mm`;
+  return `≤ ${c} mm → ${t} · > ${c}–${a} mm → ${m} (recap ${p || 15}d) · > ${a} mm → ${o}`;
 }
 
 function mostrarAcaoInstrucao(pneuOuResult) {
@@ -601,11 +540,6 @@ document.getElementById('form-login')?.addEventListener('submit', async (e) => {
 });
 
 document.getElementById('btn-voltar-dashboard').addEventListener('click', () => {
-  if (limitesPainelBackup) {
-    limitesAtuais = limitesPainelBackup;
-    limitesPainelBackup = null;
-    syncMarkersLimites();
-  }
   showView(voltarPara);
   if (voltarPara === 'dashboard') loadDashboard();
   else if (voltarPara === 'acoes') loadAcoes();
@@ -921,7 +855,6 @@ async function openVeiculoDetalhe(id, origem = 'dashboard', dadosPreload = null)
 
     if (v.posicoes) meta = { ...meta, posicoes: v.posicoes };
     if (v.limites) {
-      if (!limitesPainelBackup) limitesPainelBackup = { ...limitesAtuais };
       limitesAtuais = { ...limitesAtuais, ...v.limites };
       syncMarkersLimites();
     }
@@ -979,7 +912,6 @@ async function openVeiculoDetalhe(id, origem = 'dashboard', dadosPreload = null)
 
     if (!truckDiagram) {
       truckDiagram = new TruckDiagram('truck-diagram-container', {
-        layoutId: v.layout_pneus,
         onPneuClick: (pneu) => selecionarPneuTruck(pneu),
         onSlotClick: (posicao) => selecionarSlotVazio(posicao),
       });
@@ -987,7 +919,7 @@ async function openVeiculoDetalhe(id, origem = 'dashboard', dadosPreload = null)
     truckDiagram.pickerHint = modoAcessoRapido
       ? 'Toque no pneu para abrir a medição. Ao concluir, volta para o próximo.'
       : 'Clique no pneu para medir ou no slot vazio para montar:';
-    truckDiagram.render(v.pneus, meta.posicoes, posicoesLayout, { layoutId: v.layout_pneus });
+    truckDiagram.render(v.pneus, meta.posicoes, posicoesLayout);
     marcarPneusMedidosSessao();
 
     document.getElementById('truck-km').value = v.km_atual || '';
@@ -1250,14 +1182,10 @@ async function selecionarSlotVazio(posicao) {
   if (!modoAcessoRapido) {
     await carregarSelectEstoque();
   }
-  const hintFogo = document.getElementById('truck-novo-fogo-hint');
-  if (hintFogo) {
-    hintFogo.textContent = 'Clique para analisar o código da unidade e a última marca cadastrada (ex.: 0110-0001).';
-  }
   const hint = document.getElementById('truck-montar-hint');
   if (hint) {
     hint.textContent = modoAcessoRapido
-      ? 'Gere a marca de fogo, informe modelo e toque em “Criar e montar”.'
+      ? 'Preencha fogo, padrão e modelo e toque em “Criar e montar”.'
       : 'Posição vazia — coloque um pneu aqui.';
   }
   entrarMedicaoCampo();
@@ -1299,6 +1227,7 @@ function setMontarTab(tab) {
 async function criarEMontarPneuTruck() {
   if (!veiculoAtual || !slotPosicaoSelecionada) return;
   const fogo = document.getElementById('truck-novo-fogo')?.value?.trim();
+  if (!fogo) return toast('Informe o nº de fogo', 'error');
   const modelo = document.getElementById('truck-novo-modelo')?.value?.trim();
   if (!modelo) return toast('Informe o modelo do pneu', 'error');
 
@@ -2146,12 +2075,12 @@ function setTipoCondicaoEditaveis(editavel) {
   }
   if (hintCond) {
     hintCond.textContent = editavel
-      ? 'Não muda depois (exceto via Registrar recap)'
+      ? 'Novo ou recapado — pode corrigir na edição'
       : 'Condição fixa — use Registrar recap';
   }
 }
 
-async function abrirModalPneuNovo() {
+function abrirModalPneuNovo() {
   document.getElementById('modal-pneu-titulo').textContent = 'Novo pneu no estoque';
   document.getElementById('pneu-edit-id').value = '';
   document.getElementById('form-pneu').reset();
@@ -2161,11 +2090,6 @@ async function abrirModalPneuNovo() {
   const avancado = document.getElementById('pneu-avancado');
   if (avancado) avancado.open = false;
   setTipoCondicaoEditaveis(true);
-  mostrarBotaoGerarFogo(true);
-  const hintFogo = document.getElementById('pneu-fogo-hint');
-  if (hintFogo) {
-    hintFogo.textContent = 'Clique para analisar o código da unidade e a última marca cadastrada (ex.: 0110-0001).';
-  }
   document.getElementById('modal-pneu').showModal();
 }
 
@@ -2189,10 +2113,7 @@ async function abrirModalPneu(id) {
     if (avancado) {
       avancado.open = !!(p.dot || p.medida || p.sulco_inicial_mm || (p.vida_recap > 0));
     }
-    setTipoCondicaoEditaveis(false);
-    mostrarBotaoGerarFogo(false);
-    const hintFogo = document.getElementById('pneu-fogo-hint');
-    if (hintFogo) hintFogo.textContent = 'Identificação única do pneu nesta unidade.';
+    setTipoCondicaoEditaveis(true);
     document.getElementById('modal-pneu').showModal();
   } catch (err) {
     toast(err.message, 'error');
@@ -2200,15 +2121,6 @@ async function abrirModalPneu(id) {
 }
 
 document.getElementById('btn-novo-pneu')?.addEventListener('click', abrirModalPneuNovo);
-document.getElementById('btn-gerar-fogo')?.addEventListener('click', (e) => {
-  gerarMarcaFogoNoCampo('pneu-fogo', 'pneu-fogo-hint', e.currentTarget);
-});
-document.getElementById('btn-truck-gerar-fogo')?.addEventListener('click', (e) => {
-  gerarMarcaFogoNoCampo('truck-novo-fogo', 'truck-novo-fogo-hint', e.currentTarget);
-});
-document.getElementById('btn-ar-gerar-fogo')?.addEventListener('click', (e) => {
-  gerarMarcaFogoNoCampo('ar-p-fogo', 'ar-p-fogo-hint', e.currentTarget);
-});
 document.getElementById('btn-cancelar-pneu')?.addEventListener('click', () => {
   document.getElementById('modal-pneu').close();
 });
@@ -2245,10 +2157,8 @@ document.getElementById('form-pneu')?.addEventListener('submit', async (e) => {
   if (!payload.modelo?.trim()) {
     return toast('Informe o modelo do pneu', 'error');
   }
-  if (!id) {
-    payload.tipo_pneu = document.getElementById('pneu-tipo').value;
-    payload.condicao = document.getElementById('pneu-condicao').value;
-  }
+  payload.tipo_pneu = document.getElementById('pneu-tipo').value;
+  payload.condicao = document.getElementById('pneu-condicao').value;
   try {
     if (id) {
       await fetchJSON(`${API}/pneus/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
@@ -2598,9 +2508,7 @@ function renderLayoutTags(posicoes, containerId) {
 
 function layoutsParaTipo(tipo) {
   if (tipo === 'Toco / Mini') return ['toco_6'];
-  if (tipo === 'Compactador') return ['compactador'];
-  if (tipo === 'Utilitário / Varredeira') return ['utilitario_4'];
-  if (tipo === 'Trator') return ['trator_4'];
+  // Truck / Tração: eixos com 2 ou 4 pneus
   return ['truck_10', 'truck_8', 'truck_8_b'];
 }
 
@@ -2612,7 +2520,7 @@ function preencherSelectLayouts(selectId, selectedId, { soTruckToco = false, tip
     const ids = layoutsParaTipo(tipo || document.getElementById('v-tipo')?.value || 'Truck / Tração');
     lista = meta.layouts.filter((l) => ids.includes(l.id));
     if (!lista.length) lista = meta.layouts.filter((l) =>
-      ['truck_10', 'truck_8', 'truck_8_b', 'toco_6', 'compactador', 'utilitario_4', 'trator_4'].includes(l.id)
+      l.id === 'truck_10' || l.id === 'truck_8' || l.id === 'truck_8_b' || l.id === 'toco_6'
     );
   }
   sel.innerHTML = lista.map((l) =>
@@ -2637,7 +2545,6 @@ function onLayoutSelectChange(selectId, descId, previewId, diagramId = null) {
       posicoes: layout.posicoes,
       labels: meta.posicoes || {},
       papeis: meta.papeis || {},
-      layoutId: layout.id,
     });
   }
 }
@@ -2803,7 +2710,7 @@ document.getElementById('v-layout')?.addEventListener('change', () => {
 
 document.getElementById('v-tipo')?.addEventListener('change', (e) => {
   const tipo = e.target.value;
-  const sugestao = LAYOUT_POR_TIPO[tipo] || 'truck_10';
+  const sugestao = LAYOUT_POR_TIPO[tipo] || (tipo === 'Toco / Mini' ? 'toco_6' : 'truck_10');
   preencherSelectLayouts('v-layout', sugestao, { soTruckToco: true, tipo });
 });
 
@@ -3102,13 +3009,6 @@ async function loadConfiguracoes() {
     document.getElementById('cfg-prazo-recap').value = config.prazo_recap_dias ?? 15;
     document.getElementById('cfg-novo').value = config.sulco_novo_mm ?? 14;
     document.getElementById('cfg-max-recaps').value = config.max_recaps ?? 6;
-    const tr = config.trator || {};
-    const elTc = document.getElementById('cfg-trator-critico');
-    const elTa = document.getElementById('cfg-trator-alerta');
-    const elTn = document.getElementById('cfg-trator-novo');
-    if (elTc) elTc.value = tr.sulco_critico_mm ?? 10;
-    if (elTa) elTa.value = tr.sulco_alerta_mm ?? 15;
-    if (elTn) elTn.value = tr.sulco_novo_mm ?? 25;
     document.getElementById('cfg-tolerancia').value = config.diagnostico_tolerancia_mm ?? 1;
     document.getElementById('cfg-rodizio-desvio').value = config.rodizio_desvio_mm ?? 4;
     document.getElementById('cfg-rodizio-similaridade').value = config.rodizio_similaridade_mm ?? 2.5;
@@ -3176,17 +3076,6 @@ document.getElementById('btn-salvar-config')?.addEventListener('click', async ()
       },
     },
   };
-
-  const tc = parseFloat(document.getElementById('cfg-trator-critico')?.value);
-  const ta = parseFloat(document.getElementById('cfg-trator-alerta')?.value);
-  const tn = parseFloat(document.getElementById('cfg-trator-novo')?.value);
-  if (Number.isFinite(tc) && Number.isFinite(ta) && Number.isFinite(tn)) {
-    payload.trator = {
-      sulco_critico_mm: tc,
-      sulco_alerta_mm: ta,
-      sulco_novo_mm: tn,
-    };
-  }
 
   if (!Number.isFinite(payload.sulco_critico_mm) || !Number.isFinite(payload.sulco_alerta_mm)) {
     return toast('Informe valores válidos em mm', 'error');
@@ -3351,14 +3240,6 @@ function fecharDetalheFilial() {
 async function loadFiliais() {
   if (!isGestao()) return;
   try {
-    if (isGerente() && !isAdmin()) {
-      const filiaisLeve = await fetchJSON(`${API}/filiais?leve=1`);
-      filiaisCache = filiaisLeve;
-      if (filiaisLeve.length === 1) {
-        await abrirDetalheFilial(filiaisLeve[0].id);
-        return;
-      }
-    }
     const [filiais, compras] = await Promise.all([
       fetchJSON(`${API}/filiais`),
       fetchJSON(`${API}/filiais/compras/consolidado`),
@@ -4940,7 +4821,7 @@ async function abrirInspecaoVeiculoFilial(filialId, veiculoId) {
     const labels = v.posicoes_labels || {};
     const posicoes = v.posicoes_layout?.map((p) => p.codigo) || v.layout?.posicoes || [];
     const nAnom = v.anomalias?.length || 0;
-    const tiposOpts = (meta.tipos || ['Truck / Tração', 'Toco / Mini', 'Compactador', 'Utilitário / Varredeira', 'Trator']).map((t) =>
+    const tiposOpts = (meta.tipos || ['Truck / Tração', 'Toco / Mini']).map((t) =>
       `<option value="${escapeHtml(t)}" ${t === v.tipo ? 'selected' : ''}>${escapeHtml(t)}</option>`
     ).join('');
 
@@ -5033,7 +4914,6 @@ async function abrirInspecaoVeiculoFilial(filialId, veiculoId) {
     };
 
     inspecaoDiagram = new TruckDiagram('filial-inspecao-diagram', {
-      layoutId: v.layout_pneus,
       pickerHint: 'Clique no pneu colorido para ver a anomalia e o que fazer:',
       onPneuClick: (pneu) => setPainel(pneu),
       onSlotClick: () => {
@@ -5043,7 +4923,7 @@ async function abrirInspecaoVeiculoFilial(filialId, veiculoId) {
         }
       },
     });
-    inspecaoDiagram.render(v.pneus, labels, posicoes, { layoutId: v.layout_pneus });
+    inspecaoDiagram.render(v.pneus, labels, posicoes);
 
     box.querySelectorAll('.inspecao-anomalia-item').forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -5671,10 +5551,6 @@ async function bootArCadastroVeiculo(token) {
     }
     const fil = document.getElementById('ar-veiculo-filial');
     if (fil) fil.textContent = data.filial ? `${data.filial.nome} (${data.filial.codigo || ''})` : '';
-    const selTipo = document.getElementById('ar-v-tipo');
-    if (selTipo && Array.isArray(data.tipos) && data.tipos.length) {
-      selTipo.innerHTML = data.tipos.map((t) => `<option value="${t}">${t}</option>`).join('');
-    }
   } catch (err) {
     mostrarErroToken(err.message);
     return;
@@ -5782,7 +5658,6 @@ async function bootArTroca(token) {
     (veiculo.posicoes_layout || []).forEach((p) => { labels[p.codigo] = p.label || p.codigo; });
     if (!diagram) {
       diagram = new TruckDiagram('ar-troca-diagram', {
-        layoutId: veiculo.layout_pneus,
         pickerHint: 'Toque no pneu montado para retirar',
         onPneuClick: (pneu) => {
           estado.retirar = { id: pneu.id, posicao: pneu.posicao, fogo: pneu.numero_fogo };
@@ -5793,7 +5668,7 @@ async function bootArTroca(token) {
         onSlotClick: () => toast('Posição vazia — escolha um pneu montado', 'error'),
       });
     }
-    diagram.render(veiculo.pneus || [], labels, posicoesLayout, { layoutId: veiculo.layout_pneus });
+    diagram.render(veiculo.pneus || [], labels, posicoesLayout);
   };
 
   try {

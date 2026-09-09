@@ -52,21 +52,6 @@ const COORDS_PNEU = {
   ESTEPE: { cx: 530, cy: 250, w: 44, h: 58, short: 'EST' },
 };
 
-/** Trator 4 pneus: dianteiros menores, traseiros maiores */
-const COORDS_TRATOR = {
-  '1E': { cx: 185, cy: 145, w: 44, h: 56, short: '1E' },
-  '1D': { cx: 415, cy: 145, w: 44, h: 56, short: '1D' },
-  '2E': { cx: 150, cy: 320, w: 74, h: 90, short: '2E' },
-  '2D': { cx: 450, cy: 320, w: 74, h: 90, short: '2D' },
-};
-
-function coordsPneu(codigo, index, total, layoutId) {
-  if (String(layoutId || '') === 'trator_4' && COORDS_TRATOR[codigo]) {
-    return COORDS_TRATOR[codigo];
-  }
-  return COORDS_PNEU[codigo] || coordsFallback(index, total);
-}
-
 function coordsFallback(index, total) {
   const cols = Math.min(total, 4);
   const col = index % cols;
@@ -175,57 +160,27 @@ function silhuetaCaminhao(eixos) {
   </g>`;
 }
 
-/** Silhueta vista de cima — capô à frente, corpo curto, traseira larga */
-function silhuetaTrator() {
-  return `
-  <g class="truck-ghost" pointer-events="none">
-    <path d="M250 52 L350 52 Q368 52 368 70 L368 175 Q368 192 350 192 L250 192 Q232 192 232 175
-             L232 70 Q232 52 250 52 Z"
-          fill="#94a3b8" fill-opacity="0.14" stroke="#475569" stroke-width="2.2" stroke-opacity="0.6"/>
-    <rect x="248" y="68" width="104" height="42" rx="8"
-          fill="#38bdf8" fill-opacity="0.18" stroke="#64748b" stroke-width="1.4" stroke-opacity="0.5"/>
-    <rect x="258" y="118" width="84" height="58" rx="6"
-          fill="#64748b" fill-opacity="0.08" stroke="#64748b" stroke-width="1" stroke-opacity="0.35"/>
-    <rect x="230" y="198" width="140" height="155" rx="16"
-          fill="#64748b" fill-opacity="0.08" stroke="#475569" stroke-width="2.2" stroke-opacity="0.55"/>
-    <path d="M238 353 L362 353 Q378 353 378 368 L378 392 Q378 408 362 408 L238 408 Q222 408 222 392
-             L222 368 Q222 353 238 353 Z"
-          fill="#64748b" fill-opacity="0.06" stroke="#475569" stroke-width="2" stroke-opacity="0.5"/>
-  </g>`;
-}
-
-function ehLayoutTrator(layoutId) {
-  return String(layoutId || '').startsWith('trator');
-}
-
-function buildSchemaSvg(pneusSvg, posicoes, layoutId = null) {
+function buildSchemaSvg(pneusSvg, posicoes) {
   const eixos = eixosPresentes(posicoes);
-  const trator = ehLayoutTrator(layoutId);
   const lines = [];
   if (eixos.e1) {
-    const x1 = trator ? 185 : 170;
-    const x2 = trator ? 415 : 430;
-    lines.push(`<line x1="${x1}" y1="145" x2="${x2}" y2="145" stroke="#94a3b8" stroke-width="5" stroke-linecap="round" opacity="0.5"/>`);
+    lines.push(`<line x1="170" y1="145" x2="430" y2="145" stroke="#94a3b8" stroke-width="5" stroke-linecap="round" opacity="0.5"/>`);
     lines.push(`<text x="300" y="108" text-anchor="middle" class="axis-label">Eixo 1</text>`);
   }
   if (eixos.e2) {
-    const x1 = trator ? 150 : 130;
-    const x2 = trator ? 450 : 470;
-    lines.push(`<line x1="${x1}" y1="320" x2="${x2}" y2="320" stroke="#94a3b8" stroke-width="5" stroke-linecap="round" opacity="0.5"/>`);
+    lines.push(`<line x1="130" y1="320" x2="470" y2="320" stroke="#94a3b8" stroke-width="5" stroke-linecap="round" opacity="0.5"/>`);
     lines.push(`<text x="300" y="288" text-anchor="middle" class="axis-label">Eixo 2</text>`);
   }
-  if (eixos.e3 && !trator) {
+  if (eixos.e3) {
     lines.push(`<line x1="130" y1="420" x2="470" y2="420" stroke="#94a3b8" stroke-width="5" stroke-linecap="round" opacity="0.5"/>`);
     lines.push(`<text x="300" y="388" text-anchor="middle" class="axis-label">Eixo 3</text>`);
   }
 
-  const h = eixos.e3 && !trator ? 540 : eixos.e2 ? 440 : 280;
-  const silhueta = trator ? silhuetaTrator() : silhuetaCaminhao(eixos);
-  const aria = trator ? 'Trator — clique no pneu ou posição vazia' : 'Caminhão — clique no pneu ou posição vazia';
+  const h = eixos.e3 ? 540 : eixos.e2 ? 440 : 280;
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 ${h}" class="truck-svg"
-     role="img" aria-label="${aria}">
+     role="img" aria-label="Caminhão — clique no pneu ou posição vazia">
   <style>
     .axis-label { font-family: Segoe UI, system-ui, sans-serif; font-size: 11px; font-weight: 600; fill: #94a3b8; }
     .orient { font-family: Segoe UI, system-ui, sans-serif; font-size: 11px; font-weight: 700; fill: #94a3b8; }
@@ -236,7 +191,7 @@ function buildSchemaSvg(pneusSvg, posicoes, layoutId = null) {
   <text x="22" y="${h / 2}" text-anchor="middle" class="orient" transform="rotate(-90 22 ${h / 2})">ESQ</text>
   <text x="578" y="${h / 2}" text-anchor="middle" class="orient" transform="rotate(90 578 ${h / 2})">DIR</text>
 
-  ${silhueta}
+  ${silhuetaCaminhao(eixos)}
 
   ${lines.join('\n  ')}
 
@@ -310,7 +265,6 @@ export function renderLayoutPreview(container, {
   posicoes = [],
   labels = {},
   papeis = {},
-  layoutId = null,
 } = {}) {
   if (!container) return;
   if (!posicoes.length) {
@@ -319,7 +273,7 @@ export function renderLayoutPreview(container, {
   }
 
   const slotsSvg = posicoes.map((codigo, i) => {
-    const coord = coordsPneu(codigo, i, posicoes.length, layoutId);
+    const coord = COORDS_PNEU[codigo] || coordsFallback(i, posicoes.length);
     const nome = labels[codigo] || codigo;
     const papel = papeis[codigo] || 'tracao';
     return renderSlotPreview(codigo, coord, nome, papel);
@@ -337,33 +291,28 @@ export function renderLayoutPreview(container, {
     return tipoEixo;
   };
 
+  // Override axis labels in buildSchemaSvg by injecting role into custom version
   const eixosData = eixosPresentes(posicoes);
-  const trator = ehLayoutTrator(layoutId);
   const lines = [];
   if (eixosData.e1) {
     const role = roleEixo(['1E', '1D', 'DE', 'DD', 'D']);
-    const x1 = trator ? 185 : 170;
-    const x2 = trator ? 415 : 430;
-    lines.push(`<line x1="${x1}" y1="145" x2="${x2}" y2="145" stroke="#94a3b8" stroke-width="5" stroke-linecap="round" opacity="0.5"/>`);
+    lines.push(`<line x1="170" y1="145" x2="430" y2="145" stroke="#94a3b8" stroke-width="5" stroke-linecap="round" opacity="0.5"/>`);
     lines.push(`<text x="300" y="108" text-anchor="middle" class="axis-label">Eixo 1${role ? ` · ${role}` : ''}</text>`);
   }
   if (eixosData.e2) {
     const role = roleEixo(['2E', '2D', '2EE', '2EI', '2DI', '2DE', 'E2EE', 'E2EI', 'E2DI', 'E2DE', 'TEE', 'TEI', 'TDI', 'TDE', 'TE', 'TD', 'T']);
-    const x1 = trator ? 150 : 130;
-    const x2 = trator ? 450 : 470;
-    lines.push(`<line x1="${x1}" y1="320" x2="${x2}" y2="320" stroke="#94a3b8" stroke-width="5" stroke-linecap="round" opacity="0.5"/>`);
+    lines.push(`<line x1="130" y1="320" x2="470" y2="320" stroke="#94a3b8" stroke-width="5" stroke-linecap="round" opacity="0.5"/>`);
     lines.push(`<text x="300" y="288" text-anchor="middle" class="axis-label">Eixo 2${role ? ` · ${role}` : ''}</text>`);
   }
-  if (eixosData.e3 && !trator) {
+  if (eixosData.e3) {
     const role = roleEixo(['3E', '3D', '3EE', '3EI', '3DI', '3DE', 'E3EE', 'E3EI', 'E3DI', 'E3DE']);
     lines.push(`<line x1="130" y1="420" x2="470" y2="420" stroke="#94a3b8" stroke-width="5" stroke-linecap="round" opacity="0.5"/>`);
     lines.push(`<text x="300" y="388" text-anchor="middle" class="axis-label">Eixo 3${role ? ` · ${role}` : ''}</text>`);
   }
 
-  const h = eixosData.e3 && !trator ? 540 : eixosData.e2 ? 440 : 280;
+  const h = eixosData.e3 ? 540 : eixosData.e2 ? 440 : 280;
   const nDir = posicoes.filter((p) => (papeis[p] || '') === 'direcional').length;
   const nTrac = posicoes.filter((p) => (papeis[p] || '') === 'tracao').length;
-  const silhueta = trator ? silhuetaTrator() : silhuetaCaminhao(eixos);
 
   container.innerHTML = `
     <div class="layout-diagram-wrap">
@@ -375,7 +324,7 @@ export function renderLayoutPreview(container, {
         </style>
         <rect width="600" height="${h}" fill="#f8fafc" rx="12"/>
         <text x="300" y="28" text-anchor="middle" class="orient">▲ FRENTE</text>
-        ${silhueta}
+        ${silhuetaCaminhao(eixos)}
         ${lines.join('\n        ')}
         ${slotsSvg}
         <g transform="translate(20, ${h - 22})" font-family="Segoe UI,system-ui,sans-serif" font-size="11">
@@ -385,9 +334,7 @@ export function renderLayoutPreview(container, {
           <text x="148" y="2" fill="#475569">Tração (${nTrac})</text>
         </g>
       </svg>
-      <p class="hint layout-diagram-hint">${trator
-        ? 'Trator: dianteiros menores e traseiros maiores. A medição usa faixas de sulco próprias.'
-        : 'Confira os eixos de tração (verde claro) e o dianteiro (verde escuro). Troque o layout se o caminhão for diferente.'}</p>
+      <p class="hint layout-diagram-hint">Confira os eixos de tração (verde claro) e o dianteiro (verde escuro). Troque o layout se o caminhão for diferente.</p>
     </div>`;
 }
 
@@ -402,7 +349,6 @@ export class TruckDiagram {
     this.slots = [];
     this.labels = {};
     this.posicoesLayout = [];
-    this.layoutId = options.layoutId || null;
     this.pneuAtivo = null;
     this.slotAtivo = null;
   }
@@ -411,12 +357,10 @@ export class TruckDiagram {
    * @param {Array} pneus montados
    * @param {Object} labels mapa posicao → nome
    * @param {string[]} posicoesLayout códigos do layout (slots)
-   * @param {{ layoutId?: string }} [opts]
    */
-  render(pneus, labels = {}, posicoesLayout = null, opts = {}) {
+  render(pneus, labels = {}, posicoesLayout = null) {
     this.pneus = pneus || [];
     this.labels = labels;
-    if (opts.layoutId !== undefined) this.layoutId = opts.layoutId || null;
     if (posicoesLayout?.length) {
       this.posicoesLayout = posicoesLayout;
     } else {
@@ -446,7 +390,7 @@ export class TruckDiagram {
     this.slots = this._buildSlots();
     let nMontado = 0;
     const items = this.slots.map((p) => {
-      const coord = coordsPneu(p.posicao, p._idx, this.slots.length, this.layoutId);
+      const coord = COORDS_PNEU[p.posicao] || coordsFallback(p._idx, this.slots.length);
       const nome = this.labels[p.posicao] || p.posicao_label || p.posicao;
       if (p.vazio) {
         const ativo = this.slotAtivo === p.posicao ? ' pneu-ativo' : '';
@@ -469,7 +413,7 @@ export class TruckDiagram {
 
     this.container.innerHTML = `
       <div class="truck-diagram-inner">
-        ${buildSchemaSvg(items.map((x) => x.marcador).join(''), this.posicoesLayout, this.layoutId)}
+        ${buildSchemaSvg(items.map((x) => x.marcador).join(''), this.posicoesLayout)}
         <div class="tire-picker" role="listbox" aria-label="Selecionar posição">
           <p class="tire-picker-hint">${this.pickerHint}</p>
           <div class="tire-picker-grid">
