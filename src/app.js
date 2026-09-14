@@ -3467,7 +3467,7 @@ function startWaPollFilial(filialId, nome) {
     } catch {
       // ignore
     }
-  }, 3000);
+  }, 2000);
 }
 
 document.getElementById('btn-wa-qr-fechar')?.addEventListener('click', () => {
