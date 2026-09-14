@@ -146,6 +146,9 @@ async function fetchJSON(url, options = {}) {
     if (e?.name === 'AbortError') {
       throw new Error('O servidor demorou demais. Clique de novo em Gerar QR.');
     }
+    if (/Failed to fetch|NetworkError|Load failed|ERR_FAILED/i.test(String(e?.message || e))) {
+      throw new Error('O servidor do sistema não respondeu. Aguarde uns segundos e tente de novo.');
+    }
     throw e;
   }
   if (timer) clearTimeout(timer);
@@ -165,6 +168,9 @@ async function fetchJSON(url, options = {}) {
       showLogin();
     }
     throw new Error(data.erro || (isLogin ? 'Login ou senha inválidos' : 'Sessão expirada — faça login novamente'));
+  }
+  if (resp.status === 502 || resp.status === 503 || resp.status === 504) {
+    throw new Error('O servidor do sistema está reiniciando. Aguarde uns segundos e clique de novo.');
   }
   if (!resp.ok) {
     const msg = data.erro || (resp.status === 404
@@ -3455,7 +3461,7 @@ function startWaPollFilial(filialId, nome) {
     } catch {
       // ignore
     }
-  }, 2000);
+  }, 3000);
 }
 
 document.getElementById('btn-wa-qr-fechar')?.addEventListener('click', () => {
