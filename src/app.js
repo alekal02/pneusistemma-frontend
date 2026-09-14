@@ -4459,6 +4459,15 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
       }
 
       if (st.connected && !st.loggedIn) {
+        const chipJaTem = String(st.chip_salvo || st.whatsapp || document.getElementById('fc-whatsapp')?.value || '').replace(/\D/g, '');
+        if (chipJaTem.length >= 10) {
+          aplicarEstadoTela({
+            online: false,
+            instavel: true,
+            detalhe: 'Chip já cadastrado nesta unidade. Confirmando a sessão — não é preciso outro QR.',
+          });
+          return;
+        }
         if (st.qr_erro && !st.qrcode) {
           aplicarEstadoTela({
             online: false,
@@ -4783,8 +4792,8 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
   document.getElementById('btn-fc-gerar-token')?.addEventListener('click', async () => {
     try {
       const btnGerar = document.getElementById('btn-fc-gerar-token');
-      const forcar = /de novo/i.test(btnGerar?.textContent || '');
-      toast(forcar ? 'Gerando novo token exclusivo…' : 'Gerando token no WuzAPI…');
+      const forcar = false;
+      toast('Reparando a sessão desta unidade…');
       const data = await fetchJSON(`${API}/whatsapp/filial/${filialId}/provisionar-token`, {
         method: 'POST',
         body: JSON.stringify({ forcar_novo: forcar }),
@@ -4822,13 +4831,18 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
     }
     try {
       if (btn) btn.disabled = true;
-      abrirPainelQr('Gerando QR Code… isso pode levar alguns segundos.', nomeFilial);
-      toast(`Conectando chatbot ${nomeFilial}…`);
+      const temChip = String(document.getElementById('fc-whatsapp')?.value || '').replace(/\D/g, '').length >= 10;
+      if (!temChip) abrirPainelQr('Gerando QR Code… isso pode levar alguns segundos.', nomeFilial);
+      toast(temChip ? `Confirmando chatbot ${nomeFilial}…` : `Conectando chatbot ${nomeFilial}…`);
       const data = await fetchJSON(`${API}/whatsapp/filial/${filialId}/connect`, {
         method: 'POST',
         body: '{}',
       });
-      mostrarQrFilial(data, nomeFilial);
+      if (data.loggedIn && !data.sessao_alheia && !data.token_compartilhado) {
+        document.getElementById('fc-qr-wrap')?.classList.add('hidden');
+      } else {
+        mostrarQrFilial(data, nomeFilial);
+      }
       if (data.loggedIn && data.phone && !data.sessao_alheia && !data.token_compartilhado) {
         chipSessaoAplicado = false;
         await aplicarNumeroChip(data.phone, { salvar: true, forcar: true });
