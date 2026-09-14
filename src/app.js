@@ -4307,11 +4307,18 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
       }
       return;
     }
-    if (instavel && estadoOnline) {
+    if (instavel) {
+      if (estadoOnline) {
+        statusEl.className = '';
+        statusEl.textContent = 'Conectado';
+        pintarHero('is-warn');
+        if (detail) detail.textContent = detalhe || 'Confirmando o chip… se isto persistir, o servidor do WhatsApp pode estar lento.';
+        return;
+      }
       statusEl.className = '';
-      statusEl.textContent = 'Conectado';
+      statusEl.textContent = 'Verificando';
       pintarHero('is-warn');
-      if (detail) detail.textContent = detalhe || 'Confirmando o chip… se isto persistir, o servidor do WhatsApp pode estar lento.';
+      if (detail) detail.textContent = detalhe || 'Confirmando o chip no servidor… o WhatsApp do celular pode já estar conectado.';
       return;
     }
     estadoOnline = false;
@@ -4417,11 +4424,14 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
 
       if (st.instavel || !st.configurado) {
         falhasOff += 1;
-        if (estadoOnline && falhasOff < 3) {
+        const chipSalvo = String(st.chip_salvo || st.whatsapp || '').replace(/\D/g, '');
+        if ((estadoOnline || chipSalvo.length >= 10) && falhasOff < 5) {
           aplicarEstadoTela({
             online: false,
             instavel: true,
-            detalhe: st.mensagem || 'Confirmando o chip…',
+            detalhe: estadoOnline
+              ? (st.mensagem || 'Confirmando o chip…')
+              : 'Confirmando o chip no servidor… o WhatsApp do celular pode já estar conectado.',
           });
           return;
         }
