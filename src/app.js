@@ -3367,6 +3367,10 @@ function startWaPollFilial(filialId, nome) {
       if (Number(waPollFilialId) !== Number(filialId)) return;
       const data = await fetchJSON(`${API}/whatsapp/filial/${filialId}/status?qr=1`);
       if (data.filial_id != null && Number(data.filial_id) !== Number(filialId)) return;
+      if (data.token_compartilhado || data.sessao_alheia) {
+        if (data.qrcode || data.qr_erro) mostrarQrFilial(data, nome);
+        return;
+      }
       if (data.qrcode || data.qr_erro) mostrarQrFilial(data, nome);
       if (data.loggedIn) {
         toast(`Chatbot ${nome} conectado!`, 'success');
@@ -4377,6 +4381,15 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
       const st = await fetchJSON(`${API}/whatsapp/filial/${filialId}/status`);
       if (st.filial_id != null && Number(st.filial_id) !== Number(filialId)) return;
 
+      if (st.token_compartilhado || st.sessao_alheia) {
+        aplicarEstadoTela({
+          online: false,
+          detalhe: st.mensagem || 'Cada unidade precisa do próprio chip. Clique em Conectar chip e escaneie o QR desta filial.',
+        });
+        atualizarLinhaChip(st.chip_salvo || st.whatsapp);
+        return;
+      }
+
       if (st.loggedIn && st.phone) {
         const atual = String(document.getElementById('fc-whatsapp')?.value || '').replace(/\D/g, '');
         if (!chipSessaoAplicado || !atual) {
@@ -4784,13 +4797,13 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
         body: '{}',
       });
       mostrarQrFilial(data, nomeFilial);
-      if (data.phone) {
+      if (data.loggedIn && data.phone && !data.sessao_alheia && !data.token_compartilhado) {
         chipSessaoAplicado = false;
         await aplicarNumeroChip(data.phone, { salvar: true, forcar: true });
         chipSessaoAplicado = true;
         atualizarLinhaChip(data.phone);
       }
-      if (data.loggedIn) {
+      if (data.loggedIn && !data.sessao_alheia && !data.token_compartilhado) {
         toast(data.mensagem || `Chatbot ${nomeFilial} já está conectado`, 'success');
         aplicarEstadoTela({ online: true, detalhe: data.mensagem });
         gruposJaPedidos = false;
