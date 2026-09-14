@@ -3317,6 +3317,26 @@ function painelQrEls() {
   };
 }
 
+function qrPainelAberto() {
+  const wrap = document.getElementById('fc-qr-wrap') || document.getElementById('wa-qr-wrap');
+  return Boolean(wrap && !wrap.classList.contains('hidden'));
+}
+
+function qrImagemVisivel() {
+  const img = document.getElementById('fc-qr-img') || document.getElementById('wa-qr-img');
+  return Boolean(img && !img.classList.contains('hidden') && img.getAttribute('src'));
+}
+
+function estadoDaRespostaWa(st = {}) {
+  if (st.estado) return st.estado;
+  if (st.loggedIn && !st.sessao_alheia && !st.token_compartilhado) return 'conectado';
+  if (st.sessao_alheia || st.token_compartilhado) return 'precisa_qr';
+  if (st.infra_wuzapi) return 'servidor_indisponivel';
+  if (st.configurado === false) return 'precisa_token';
+  if (st.qrcode || (st.connected && !st.loggedIn)) return 'aguardando_qr';
+  return 'offline';
+}
+
 function abrirPainelQr(mensagem, nomeFilial) {
   const { wrap, img, titulo, status } = painelQrEls();
   if (titulo) titulo.textContent = `Escaneie com o chip da unidade${nomeFilial ? ` (${nomeFilial})` : ''}`;
@@ -3353,9 +3373,9 @@ function mostrarQrFilial(data, nomeFilial) {
 
   if (data?.qr_erro && status) {
     wrap?.classList.remove('hidden');
-    img?.classList.add('hidden');
+    if (!qrImagemVisivel()) img?.classList.add('hidden');
     status.textContent = data.qr_erro;
-    status.classList.add('login-erro');
+    status.classList.toggle('login-erro', Boolean(data.infra_wuzapi));
   }
 }
 
@@ -3371,11 +3391,6 @@ function startWaPollFilial(filialId, nome) {
         if (data.qrcode || data.qr_erro) mostrarQrFilial(data, nome);
         return;
       }
-      if (data.infra_wuzapi) {
-        mostrarQrFilial(data, nome);
-        return;
-      }
-      if (data.qrcode || data.qr_erro) mostrarQrFilial(data, nome);
       if (data.loggedIn) {
         toast(`Chatbot ${nome} conectado!`, 'success');
         document.getElementById('fc-qr-wrap')?.classList.add('hidden');
@@ -3410,7 +3425,10 @@ function startWaPollFilial(filialId, nome) {
         document.getElementById('chatbot-filial-panel')?.dispatchEvent(new CustomEvent('wa-chip-ok', {
           detail: { phone },
         }));
+        return;
       }
+      if (data.infra_wuzapi && qrImagemVisivel()) return;
+      if (data.qrcode || data.qr_erro) mostrarQrFilial(data, nome);
     } catch {
       // ignore
     }
@@ -4039,7 +4057,7 @@ function renderChatbotPanelHtml(data) {
         <p class="hint">No celular do chip: WhatsApp → Aparelhos conectados → Conectar um aparelho</p>
         <p class="hint" id="fc-qr-status">Gerando QR Code…</p>
         <img id="fc-qr-img" class="wa-qr-img hidden" alt="QR Code WhatsApp">
-        <p class="hint">O QR expira em poucos segundos. Se falhar, clique em Conectar chip de novo.</p>
+        <p class="hint">Se o QR expirar, clique em “Gerar QR de novo”. Não use Trocar chip só porque deu erro.</p>
         <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-qr-fechar">Fechar QR</button>
       </div>
 
@@ -4105,10 +4123,10 @@ function renderChatbotPanelHtml(data) {
         <summary>Ajustes avançados</summary>
         <div class="form-row cb-token-row" style="margin-top:.85rem">
           <div class="form-group" style="flex:1;margin:0">
-            <label for="fc-wuzapi-token">Token do servidor (WuzAPI)</label>
-            <input type="password" id="fc-wuzapi-token" placeholder="${temToken ? '•••• já cadastrado — deixe em branco' : 'Clique em Gerar token'}" autocomplete="off">
+            <label for="fc-wuzapi-token">Token do servidor (só suporte)</label>
+            <input type="password" id="fc-wuzapi-token" placeholder="${temToken ? '•••• já cadastrado — deixe em branco' : 'Preenchido automaticamente ao conectar'}" autocomplete="off">
           </div>
-          <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-gerar-token">${temToken ? 'Gerar de novo' : 'Gerar token'}</button>
+          <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-gerar-token">${temToken ? 'Reparar sessão' : 'Preparar sessão'}</button>
         </div>
         <div class="form-group">
           <label for="fc-whatsapp">Número do chip</label>
@@ -4116,8 +4134,8 @@ function renderChatbotPanelHtml(data) {
           <small class="field-hint">Preenchido sozinho ao conectar. Só altere se o número estiver errado.</small>
         </div>
         <p class="hint" id="fc-wuzapi-hint">${temToken
-          ? 'Token desta unidade já existe. Use “Gerar de novo” só se o suporte pedir — isso desconecta o chip.'
-          : 'Se Conectar chip falhar, gere o token e tente outra vez.'}</p>
+          ? 'A sessão desta unidade já existe. “Reparar sessão” só se o suporte pedir — na maioria dos erros, use Conectar chip.'
+          : 'Clique em Conectar chip. O sistema prepara a sessão sozinho.'}</p>
       </details>
       <p class="hint hidden" id="fc-step-connect"></p>
     </div>
@@ -4393,13 +4411,16 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
     if (document.getElementById('fc-hero')?.dataset.modo === 'is-online') {
       estadoOnline = true;
     }
+    if (silencioso && qrPainelAberto()) return;
     try {
       const st = await fetchJSON(`${API}/whatsapp/filial/${filialId}/status`);
       if (st.filial_id != null && Number(st.filial_id) !== Number(filialId)) return;
+      const estado = estadoDaRespostaWa(st);
 
-      if (st.token_compartilhado || st.sessao_alheia) {
+      if (estado === 'precisa_qr' || st.token_compartilhado || st.sessao_alheia) {
         aplicarEstadoTela({
           online: false,
+          aguardandoQr: Boolean(st.qrcode),
           detalhe: st.mensagem || 'Cada unidade precisa do próprio chip. Clique em Conectar chip e escaneie o QR desta filial.',
         });
         atualizarLinhaChip(st.chip_salvo || st.whatsapp);
@@ -4417,7 +4438,7 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
         atualizarLinhaChip(st.chip_salvo || st.whatsapp);
       }
 
-      if (st.loggedIn) {
+      if (estado === 'conectado' || st.loggedIn) {
         aplicarEstadoTela({
           online: true,
           detalhe: st.phone
@@ -4431,36 +4452,21 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
         return;
       }
 
-      if (st.infra_wuzapi || st.instavel || !st.configurado) {
+      if (estado === 'servidor_indisponivel' || st.infra_wuzapi || st.instavel) {
         falhasOff += 1;
-        const chipSalvo = String(st.chip_salvo || st.whatsapp || '').replace(/\D/g, '');
         const detalheInfra = st.qr_erro || st.mensagem
-          || 'Servidor do WhatsApp instável. Nada foi apagado nas filiais. Tente de novo em instantes.';
-        if (st.infra_wuzapi || ((estadoOnline || chipSalvo.length >= 10) && falhasOff < 5)) {
-          aplicarEstadoTela({
-            online: false,
-            instavel: true,
-            detalhe: st.infra_wuzapi
-              ? detalheInfra
-              : (estadoOnline
-                ? (st.mensagem || 'Confirmando o chip…')
-                : 'Confirmando o chip no servidor… o WhatsApp do celular pode já estar conectado.'),
-          });
-          return;
-        }
+          || 'Servidor do WhatsApp lento. O chip pode continuar no ar — aguarde e atualize o status.';
         aplicarEstadoTela({
           online: false,
-          instavel: Boolean(st.infra_wuzapi || st.instavel),
-          detalhe: st.configurado
-            ? detalheInfra
-            : 'Falta o token desta unidade — abra Ajustes avançados e gere o token.',
+          instavel: true,
+          detalhe: detalheInfra,
         });
         return;
       }
 
-      if (st.connected && !st.loggedIn) {
+      if (estado === 'aguardando_qr' || (st.connected && !st.loggedIn)) {
         const chipJaTem = String(st.chip_salvo || st.whatsapp || document.getElementById('fc-whatsapp')?.value || '').replace(/\D/g, '');
-        if (chipJaTem.length >= 10) {
+        if (chipJaTem.length >= 10 && !st.qrcode) {
           aplicarEstadoTela({
             online: false,
             instavel: true,
@@ -4468,20 +4474,24 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
           });
           return;
         }
-        if (st.qr_erro && !st.qrcode) {
-          aplicarEstadoTela({
-            online: false,
-            instavel: true,
-            detalhe: st.qr_erro,
-          });
-          return;
-        }
-        aplicarEstadoTela({ online: false, aguardandoQr: true });
+        aplicarEstadoTela({
+          online: false,
+          aguardandoQr: true,
+          detalhe: st.qr_erro || 'Escaneie o QR com o WhatsApp do chip desta unidade.',
+        });
+        return;
+      }
+
+      if (estado === 'precisa_token') {
+        aplicarEstadoTela({
+          online: false,
+          detalhe: 'Clique em Conectar chip — o sistema prepara a sessão desta unidade sozinho.',
+        });
         return;
       }
 
       falhasOff += 1;
-      if (estadoOnline && falhasOff < 3) {
+      if (estadoOnline && falhasOff < 4) {
         aplicarEstadoTela({
           online: false,
           instavel: true,
@@ -4495,7 +4505,7 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
       });
     } catch (err) {
       falhasOff += 1;
-      if (estadoOnline && falhasOff < 3) {
+      if (estadoOnline && falhasOff < 4) {
         aplicarEstadoTela({
           online: false,
           instavel: true,
@@ -4505,7 +4515,8 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
       }
       aplicarEstadoTela({
         online: false,
-        detalhe: err?.message || 'Falha ao consultar o WhatsApp.',
+        instavel: true,
+        detalhe: 'Não foi possível consultar o WhatsApp agora. O chip pode continuar no ar.',
       });
       if (!silencioso) {
         const hint = document.getElementById('fc-wuzapi-hint');
@@ -4518,7 +4529,7 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
   };
   refreshStatus({ silencioso: true });
   if (waStatusWatchTimer) clearInterval(waStatusWatchTimer);
-  waStatusWatchTimer = setInterval(() => refreshStatus({ silencioso: true }), 8000);
+  waStatusWatchTimer = setInterval(() => refreshStatus({ silencioso: true }), 12000);
 
   const renderEnvioItem = (item, { reenviar = false } = {}) => `
     <div class="wa-envio-item" data-id="${item.id}">
@@ -4792,31 +4803,28 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
   document.getElementById('btn-fc-gerar-token')?.addEventListener('click', async () => {
     try {
       const btnGerar = document.getElementById('btn-fc-gerar-token');
-      const forcar = false;
-      toast('Reparando a sessão desta unidade…');
+      if (btnGerar?.textContent && /reparar/i.test(btnGerar.textContent)) {
+        if (!confirm('Reparar só se o suporte pedir. Isso não troca o chip. Continuar?')) return;
+      }
+      toast('Verificando a sessão desta unidade…');
       const data = await fetchJSON(`${API}/whatsapp/filial/${filialId}/provisionar-token`, {
         method: 'POST',
-        body: JSON.stringify({ forcar_novo: forcar }),
+        body: JSON.stringify({ forcar_novo: false }),
       });
-      toast(data.mensagem || 'Token gerado', 'success');
+      toast(data.mensagem || 'Sessão verificada', 'success');
       const tokenInput = document.getElementById('fc-wuzapi-token');
       if (tokenInput) {
         tokenInput.value = '';
-        tokenInput.placeholder = '•••• token exclusivo — deixe em branco';
+        tokenInput.placeholder = '•••• sessão desta unidade — deixe em branco';
       }
       const hint = document.getElementById('fc-wuzapi-hint');
       if (hint) {
-        hint.textContent = 'Token exclusivo OK. Clique em Conectar / QR com o chip desta unidade.';
+        hint.textContent = data.precisa_conectar
+          ? 'Sessão pronta. Clique em Conectar chip e escaneie o QR desta unidade.'
+          : 'Sessão desta unidade ok. Use Conectar chip só se o status não estiver Conectado.';
         hint.classList.remove('login-erro');
       }
-      const statusEl = document.getElementById('fc-status');
-      if (statusEl) {
-        statusEl.className = '';
-        statusEl.textContent = 'Desconectado';
-      }
-      document.getElementById('fc-hero')?.classList.add('is-off');
-      document.getElementById('fc-hero')?.classList.remove('is-online', 'is-wait', 'is-warn');
-      refreshStatus();
+      await refreshStatus({ silencioso: true });
     } catch (err) {
       toast(err.message, 'error');
     }
@@ -4831,14 +4839,18 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
     }
     try {
       if (btn) btn.disabled = true;
-      const temChip = String(document.getElementById('fc-whatsapp')?.value || '').replace(/\D/g, '').length >= 10;
-      if (!temChip) abrirPainelQr('Gerando QR Code… isso pode levar alguns segundos.', nomeFilial);
-      toast(temChip ? `Confirmando chatbot ${nomeFilial}…` : `Conectando chatbot ${nomeFilial}…`);
+      const forcarQr = /gerar qr/i.test(btn?.textContent || '');
+      abrirPainelQr(
+        forcarQr ? 'Gerando um QR novo…' : 'Gerando QR Code… isso pode levar alguns segundos.',
+        nomeFilial
+      );
+      toast(forcarQr ? `Gerando QR de ${nomeFilial}…` : `Conectando chatbot ${nomeFilial}…`);
       const data = await fetchJSON(`${API}/whatsapp/filial/${filialId}/connect`, {
         method: 'POST',
-        body: '{}',
+        body: JSON.stringify({ forcar_qr: forcarQr }),
       });
-      if (data.loggedIn && !data.sessao_alheia && !data.token_compartilhado) {
+      const estado = estadoDaRespostaWa(data);
+      if ((estado === 'conectado' || data.loggedIn) && !data.sessao_alheia && !data.token_compartilhado) {
         document.getElementById('fc-qr-wrap')?.classList.add('hidden');
       } else {
         mostrarQrFilial(data, nomeFilial);
@@ -4849,30 +4861,37 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
         chipSessaoAplicado = true;
         atualizarLinhaChip(data.phone);
       }
-      if (data.loggedIn && !data.sessao_alheia && !data.token_compartilhado) {
+      if ((estado === 'conectado' || data.loggedIn) && !data.sessao_alheia && !data.token_compartilhado) {
         toast(data.mensagem || `Chatbot ${nomeFilial} já está conectado`, 'success');
         aplicarEstadoTela({ online: true, detalhe: data.mensagem });
         gruposJaPedidos = false;
         setTimeout(() => carregarGrupos(true), 800);
-      } else if (data.infra_wuzapi) {
+      } else if (estado === 'servidor_indisponivel' || data.infra_wuzapi) {
         aplicarEstadoTela({
           online: false,
           instavel: true,
-          detalhe: data.qr_erro || data.mensagem || 'Servidor do WhatsApp instável. Nada foi apagado. Tente de novo em instantes.',
+          detalhe: data.qr_erro || data.mensagem || 'Servidor do WhatsApp lento. O chip pode continuar no ar.',
         });
-        toast(data.qr_erro || data.mensagem || 'Não foi possível gerar o QR', 'error');
-      } else if (data.qrcode) {
-        toast('Escaneie o QR com o WhatsApp do chip', 'success');
+        toast(data.qr_erro || data.mensagem || 'Servidor do WhatsApp lento. Tente de novo em instantes.', 'error');
+      } else if (data.qrcode || estado === 'aguardando_qr') {
+        aplicarEstadoTela({
+          online: false,
+          aguardandoQr: true,
+          detalhe: data.qrcode
+            ? 'QR pronto — escaneie no celular do chip.'
+            : (data.qr_erro || 'Aguardando o QR. Se não aparecer, clique em Gerar QR de novo.'),
+        });
+        if (data.qrcode) toast('Escaneie o QR com o WhatsApp do chip', 'success');
         startWaPollFilial(filialId, nomeFilial);
       } else {
-        toast(data.mensagem || 'Não foi possível gerar o QR', 'error');
         aplicarEstadoTela({
           online: false,
-          instavel: true,
-          detalhe: data.qr_erro || data.mensagem || 'Não foi possível gerar o QR. Nada foi apagado nas filiais.',
+          aguardandoQr: true,
+          detalhe: data.qr_erro || data.mensagem || 'Aguardando o QR. Clique em Gerar QR de novo se não aparecer.',
         });
+        startWaPollFilial(filialId, nomeFilial);
+        toast(data.mensagem || 'Aguardando o QR…', 'success');
       }
-      if (!data.infra_wuzapi) await refreshStatus({ silencioso: true });
     } catch (err) {
       const msg = err.message || 'Falha ao gerar o QR';
       aplicarEstadoTela({
