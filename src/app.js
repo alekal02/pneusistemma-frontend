@@ -3375,7 +3375,7 @@ function mostrarQrFilial(data, nomeFilial) {
     wrap?.classList.remove('hidden');
     if (!qrImagemVisivel()) img?.classList.add('hidden');
     status.textContent = data.qr_erro;
-    status.classList.toggle('login-erro', Boolean(data.infra_wuzapi));
+    status.classList.toggle('login-erro', Boolean(data.infra_wuzapi) && !/Gerar QR/i.test(data.qr_erro || ''));
   }
 }
 
@@ -4864,41 +4864,42 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
     }
     try {
       if (btn) btn.disabled = true;
-      const forcarQr = /gerar qr/i.test(btn?.textContent || '');
+      const temChip = String(document.getElementById('fc-whatsapp')?.value || '').replace(/\D/g, '').length >= 10;
+      const forcarQr = /gerar qr/i.test(btn?.textContent || '') || !temChip;
       abrirPainelQr(
-        forcarQr ? 'Gerando um QR novo…' : 'Gerando QR Code… isso pode levar alguns segundos.',
+        forcarQr ? 'Gerando QR Code… pode levar alguns segundos.' : 'Gerando QR Code… isso pode levar alguns segundos.',
         nomeFilial
       );
-      toast(forcarQr ? `Gerando QR de ${nomeFilial}…` : `Conectando chatbot ${nomeFilial}…`);
+      toast(temChip && !forcarQr ? `Conectando chatbot ${nomeFilial}…` : `Gerando QR de ${nomeFilial}…`);
       const data = await fetchJSON(`${API}/whatsapp/filial/${filialId}/connect`, {
         method: 'POST',
         body: JSON.stringify({ forcar_qr: forcarQr }),
       });
       const estado = estadoDaRespostaWa(data);
-      if ((estado === 'conectado' || data.loggedIn) && !data.sessao_alheia && !data.token_compartilhado) {
+      if ((estado === 'conectado' || data.loggedIn) && !data.sessao_alheia && !data.token_compartilhado && temChip) {
         document.getElementById('fc-qr-wrap')?.classList.add('hidden');
       } else {
         mostrarQrFilial(data, nomeFilial);
       }
-      if (data.loggedIn && data.phone && !data.sessao_alheia && !data.token_compartilhado) {
+      if (data.loggedIn && data.phone && !data.sessao_alheia && !data.token_compartilhado && temChip) {
         chipSessaoAplicado = false;
         await aplicarNumeroChip(data.phone, { salvar: true, forcar: true });
         chipSessaoAplicado = true;
         atualizarLinhaChip(data.phone);
       }
-      if ((estado === 'conectado' || data.loggedIn) && !data.sessao_alheia && !data.token_compartilhado) {
+      if ((estado === 'conectado' || data.loggedIn) && !data.sessao_alheia && !data.token_compartilhado && temChip) {
         toast(data.mensagem || `Chatbot ${nomeFilial} já está conectado`, 'success');
         aplicarEstadoTela({ online: true, detalhe: data.mensagem });
         gruposJaPedidos = false;
         setTimeout(() => carregarGrupos(true), 800);
-      } else if (estado === 'servidor_indisponivel' || data.infra_wuzapi) {
+      } else if ((estado === 'servidor_indisponivel' || data.infra_wuzapi) && temChip) {
         aplicarEstadoTela({
           online: false,
           instavel: true,
           detalhe: data.qr_erro || data.mensagem || 'Servidor do WhatsApp lento. O chip pode continuar no ar.',
         });
         toast(data.qr_erro || data.mensagem || 'Servidor do WhatsApp lento. Tente de novo em instantes.', 'error');
-      } else if (data.qrcode || estado === 'aguardando_qr') {
+      } else if (data.qrcode || estado === 'aguardando_qr' || !temChip) {
         aplicarEstadoTela({
           online: false,
           aguardandoQr: true,
@@ -4907,6 +4908,7 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
             : (data.qr_erro || 'Aguardando o QR. Se não aparecer, clique em Gerar QR de novo.'),
         });
         if (data.qrcode) toast('Escaneie o QR com o WhatsApp do chip', 'success');
+        else toast('Gerando QR… se não aparecer, clique em Gerar QR de novo');
         startWaPollFilial(filialId, nomeFilial);
       } else {
         aplicarEstadoTela({
