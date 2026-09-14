@@ -3418,9 +3418,12 @@ function startWaPollFilial(filialId, nome) {
       if (data.loggedIn) {
         const chipTela = String(document.getElementById('fc-whatsapp')?.value || '').replace(/\D/g, '');
         const phoneResp = String(data.phone || '').replace(/\D/g, '');
+        const resetando = Boolean(sessionStorage.getItem(`wa_forcar_qr_${filialId}`));
+        if (resetando && !qrImagemVisivel()) return;
         if (qrPainelAberto() && !qrImagemVisivel() && chipTela.length < 10 && phoneResp.length < 10) {
           return;
         }
+        sessionStorage.removeItem(`wa_forcar_qr_${filialId}`);
         toast(`Chatbot ${nome} conectado!`, 'success');
         document.getElementById('fc-qr-wrap')?.classList.add('hidden');
         document.getElementById('wa-qr-wrap')?.classList.add('hidden');
@@ -4077,7 +4080,7 @@ function renderChatbotPanelHtml(data) {
         </div>
         <div class="wa-hero-actions">
           <button type="button" class="btn btn-primary" id="btn-fc-conectar">Conectar chip</button>
-          <button type="button" class="btn btn-ghost${!chip && !temGrupo ? ' hidden' : ''}" id="btn-fc-desconectar">Trocar chip</button>
+          <button type="button" class="btn btn-ghost" id="btn-fc-desconectar">Desconectar sessão</button>
         </div>
       </header>
 
@@ -4316,10 +4319,8 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
     if (hero) hero.dataset.modo = modo || '';
   };
 
-  const atualizarBotaoTrocar = (online) => {
-    const temChip = Boolean(valorCampoWa(document.getElementById('fc-whatsapp')?.value));
-    const visivel = Boolean(online || temChip || grupoSalvo);
-    document.getElementById('btn-fc-desconectar')?.classList.toggle('hidden', !visivel);
+  const atualizarBotaoTrocar = () => {
+    document.getElementById('btn-fc-desconectar')?.classList.remove('hidden');
   };
 
   const atualizarLinhaChip = (phone) => {
@@ -4484,6 +4485,14 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
       }
 
       if (estado === 'conectado' || st.loggedIn) {
+        if (sessionStorage.getItem(`wa_forcar_qr_${filialId}`) && !qrImagemVisivel()) {
+          aplicarEstadoTela({
+            online: false,
+            aguardandoQr: true,
+            detalhe: 'Sessão anterior foi limpa. Gere o QR e escaneie com o chip desta unidade.',
+          });
+          return;
+        }
         aplicarEstadoTela({
           online: true,
           aviso: Boolean(st.chip_presumido),
@@ -4685,6 +4694,15 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
     try {
       if (!silencioso) toast('Buscando grupos no WhatsApp…');
       const data = await fetchJSON(`${API}/whatsapp/filial/${filialId}/grupos`);
+      if (data.precisa_qr) {
+        aplicarEstadoTela({
+          online: false,
+          aguardandoQr: true,
+          detalhe: data.erro || 'Sessão do WhatsApp não está ativa. Desconecte e gere o QR.',
+        });
+        if (!silencioso) toast(data.erro || 'Sessão inativa. Desconecte e gere o QR de novo.', 'error');
+        return;
+      }
       const grupos = data.grupos || [];
       sel.innerHTML = '<option value="">— Selecione o grupo —</option>';
       for (const g of grupos) {
@@ -4991,7 +5009,7 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
   }
 
   document.getElementById('btn-fc-desconectar')?.addEventListener('click', async () => {
-    if (!confirm('Desconectar este chip? Número e grupo salvos serão apagados. Use só para trocar de celular.')) return;
+    if (!confirm('Desconectar e limpar a sessão desta unidade no WhatsApp? Número e grupo serão apagados. Em seguida o sistema gera um QR novo.')) return;
     const btn = document.getElementById('btn-fc-desconectar');
     try {
       if (btn) btn.disabled = true;
@@ -5007,11 +5025,14 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
       document.getElementById('fc-qr-wrap')?.classList.add('hidden');
       document.getElementById('wa-qr-wrap')?.classList.add('hidden');
 
+      toast('Encerrando sessão no WhatsApp…');
       const data = await fetchJSON(`${API}/whatsapp/filial/${filialId}/disconnect`, {
         method: 'POST',
         body: '{}',
+        timeoutMs: 25_000,
       });
-      toast(data.mensagem || 'Número e grupo apagados — conecte o próximo chip', 'success');
+      sessionStorage.setItem(`wa_forcar_qr_${filialId}`, '1');
+      toast(data.mensagem || 'Sessão limpa. Gerando QR…', 'success');
       if (data.aviso) toast(data.aviso, 'warning');
       filiaisCache = [];
       await loadChatbotGerente();
@@ -5026,6 +5047,12 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
     document.getElementById('fc-qr-wrap')?.classList.add('hidden');
     stopWaQrPoll();
   });
+
+  if (sessionStorage.getItem(`wa_forcar_qr_${filialId}`)) {
+    setTimeout(() => {
+      solicitarQr({ forcar: true });
+    }, 600);
+  }
 }
 
 let inspecaoDiagram = null;
