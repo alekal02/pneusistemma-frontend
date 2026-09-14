@@ -427,10 +427,15 @@
 
               <div id="truck-montar-estoque" class="montar-tab-panel hidden">
                 <div class="form-group">
+                  <label for="truck-estoque-busca">Buscar no estoque</label>
+                  <input type="search" id="truck-estoque-busca" placeholder="Fogo, marca, modelo…" autocomplete="off">
+                </div>
+                <div class="form-group">
                   <label for="truck-estoque-select">Pneu do estoque</label>
-                  <select id="truck-estoque-select">
+                  <select id="truck-estoque-select" size="6" class="estoque-select-lista">
                     <option value="">Carregando...</option>
                   </select>
+                  <small class="field-hint" id="truck-estoque-hint">Digite para filtrar a lista e clique no pneu.</small>
                 </div>
                 <button type="button" class="btn btn-primary btn-sm" id="btn-truck-montar">Montar neste veículo</button>
                 <p class="hint"><a href="#" id="link-ir-pneus">Ver todos os pneus na aba Pneus</a></p>
@@ -1261,8 +1266,12 @@
       <h3>Trocar pneu</h3>
       <p class="hint" id="trocar-estoque-resumo">Retira o pneu atual e monta outro do estoque na mesma posição.</p>
       <div class="form-group">
+        <label for="trocar-estoque-busca">Buscar no estoque</label>
+        <input type="search" id="trocar-estoque-busca" placeholder="Fogo, marca, modelo…" autocomplete="off">
+      </div>
+      <div class="form-group">
         <label for="trocar-estoque-select">Pneu do estoque *</label>
-        <select id="trocar-estoque-select" required></select>
+        <select id="trocar-estoque-select" required size="6" class="estoque-select-lista"></select>
       </div>
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost" id="btn-trocar-estoque-cancelar">Cancelar</button>

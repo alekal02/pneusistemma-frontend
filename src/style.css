@@ -1521,6 +1521,13 @@ h3 {
 .montar-tab-panel .form-group {
   margin-bottom: .65rem;
 }
+.estoque-select-lista {
+  width: 100%;
+  min-height: 8.2rem;
+  max-height: 11rem;
+  font-size: .82rem;
+  line-height: 1.35;
+}
 .form-avancado {
   margin: .35rem 0 .85rem;
   border: 1px solid #e2e8f0;

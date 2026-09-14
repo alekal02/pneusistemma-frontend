@@ -1295,6 +1295,9 @@ function setMontarTab(tab) {
   });
   document.getElementById('truck-montar-novo')?.classList.toggle('hidden', tab !== 'novo');
   document.getElementById('truck-montar-estoque')?.classList.toggle('hidden', tab !== 'estoque');
+  if (tab === 'estoque') {
+    setTimeout(() => document.getElementById('truck-estoque-busca')?.focus(), 40);
+  }
 }
 
 async function criarEMontarPneuTruck() {
@@ -1378,25 +1381,93 @@ async function criarEMontarPneuTruck() {
   }
 }
 
+let estoqueMontarCache = [];
+let estoqueTrocaCache = [];
+
+function normalizarBuscaPneu(s) {
+  return String(s || '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+function rotuloPneuEstoque(p) {
+  return [
+    p.numero_fogo ? `Fogo ${p.numero_fogo}` : `#${p.id}`,
+    p.marca,
+    p.modelo,
+    p.condicao === 'recapado' ? (p.vida_label || 'Recap') : 'Novo',
+    p.padrao_label || labelPadraoPneu(p.tipo_pneu),
+  ].filter(Boolean).join(' · ');
+}
+
+function pneuEstoqueCombinaBusca(p, q) {
+  if (!q) return true;
+  const hay = normalizarBuscaPneu([
+    p.numero_fogo, p.id, p.marca, p.modelo, p.dot, p.medida,
+    p.condicao, p.vida_label, p.padrao_label, p.tipo_pneu,
+  ].filter(Boolean).join(' '));
+  return q.split(/\s+/).every((term) => hay.includes(term));
+}
+
+function preencherSelectPneusEstoque(select, lista, busca, hintEl) {
+  if (!select) return;
+  const q = normalizarBuscaPneu(busca);
+  const atual = select.value;
+  const filtrada = lista.filter((p) => pneuEstoqueCombinaBusca(p, q));
+
+  if (!lista.length) {
+    select.innerHTML = '<option value="">Nenhum pneu no estoque</option>';
+    if (hintEl) hintEl.textContent = 'Cadastre um pneu na aba Pneus para montar daqui.';
+    return;
+  }
+  if (!filtrada.length) {
+    select.innerHTML = `<option value="">Nenhum pneu com “${escapeHtml(String(busca || '').trim())}”</option>`;
+    if (hintEl) hintEl.textContent = 'Nada encontrado. Apague a busca para ver a lista completa.';
+    return;
+  }
+
+  const placeholder = q
+    ? `${filtrada.length} de ${lista.length} no estoque`
+    : `Selecione... (${lista.length} no estoque)`;
+  select.innerHTML = `<option value="">${placeholder}</option>` + filtrada.map((p) =>
+    `<option value="${p.id}">${escapeHtml(rotuloPneuEstoque(p))}</option>`
+  ).join('');
+
+  if (atual && filtrada.some((p) => String(p.id) === String(atual))) {
+    select.value = atual;
+  } else if (q && filtrada.length === 1) {
+    select.value = String(filtrada[0].id);
+  }
+
+  if (hintEl) {
+    hintEl.textContent = q && filtrada.length === 1
+      ? 'Um pneu encontrado — já está selecionado. Clique em Montar.'
+      : 'Digite para filtrar a lista e clique no pneu.';
+  }
+}
+
+function atualizarListaEstoqueMontar() {
+  preencherSelectPneusEstoque(
+    document.getElementById('truck-estoque-select'),
+    estoqueMontarCache,
+    document.getElementById('truck-estoque-busca')?.value || '',
+    document.getElementById('truck-estoque-hint'),
+  );
+}
+
 async function carregarSelectEstoque() {
+  const buscaEl = document.getElementById('truck-estoque-busca');
+  if (buscaEl) buscaEl.value = '';
   const select = document.getElementById('truck-estoque-select');
   try {
     const lista = await fetchJSON(`${API}/pneus?status=estoque`);
-    if (!lista.length) {
-      select.innerHTML = '<option value="">Nenhum pneu no estoque</option>';
-      return;
-    }
-    select.innerHTML = '<option value="">Selecione...</option>' + lista.map((p) => {
-      const label = [
-        p.numero_fogo ? `Fogo ${p.numero_fogo}` : `#${p.id}`,
-        p.marca,
-        p.condicao === 'recapado' ? (p.vida_label || 'Recap') : 'Novo',
-        p.padrao_label || labelPadraoPneu(p.tipo_pneu),
-      ].filter(Boolean).join(' · ');
-      return `<option value="${p.id}">${label}</option>`;
-    }).join('');
+    estoqueMontarCache = Array.isArray(lista) ? lista : [];
+    atualizarListaEstoqueMontar();
   } catch (err) {
-    select.innerHTML = `<option value="">Erro: ${err.message}</option>`;
+    estoqueMontarCache = [];
+    if (select) select.innerHTML = `<option value="">Erro: ${escapeHtml(err.message)}</option>`;
   }
 }
 
@@ -1542,16 +1613,12 @@ async function abrirModalTrocarEstoque() {
       toast('Estoque vazio — cadastre um pneu antes de trocar', 'error');
       return;
     }
-    sel.innerHTML = '<option value="">Selecione...</option>' + lista.map((p) => {
-      const label = [
-        p.numero_fogo ? `Fogo ${p.numero_fogo}` : `#${p.id}`,
-        p.marca,
-        p.modelo,
-        p.condicao === 'recapado' ? 'Recap' : 'Novo',
-      ].filter(Boolean).join(' · ');
-      return `<option value="${p.id}">${escapeHtml(label)}</option>`;
-    }).join('');
+    estoqueTrocaCache = lista;
+    const buscaEl = document.getElementById('trocar-estoque-busca');
+    if (buscaEl) buscaEl.value = '';
+    preencherSelectPneusEstoque(sel, estoqueTrocaCache, '');
     document.getElementById('modal-trocar-estoque')?.showModal();
+    setTimeout(() => buscaEl?.focus(), 40);
   } catch (err) {
     toast(err.message, 'error');
   }
@@ -1922,6 +1989,20 @@ document.getElementById('btn-truck-montar')?.addEventListener('click', montarPne
 document.getElementById('btn-truck-criar-montar')?.addEventListener('click', criarEMontarPneuTruck);
 document.querySelectorAll('.montar-tab').forEach((btn) => {
   btn.addEventListener('click', () => setMontarTab(btn.dataset.montarTab));
+});
+document.getElementById('truck-estoque-busca')?.addEventListener('input', atualizarListaEstoqueMontar);
+document.getElementById('truck-estoque-busca')?.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    montarPneuDoEstoque();
+  }
+});
+document.getElementById('trocar-estoque-busca')?.addEventListener('input', () => {
+  preencherSelectPneusEstoque(
+    document.getElementById('trocar-estoque-select'),
+    estoqueTrocaCache,
+    document.getElementById('trocar-estoque-busca')?.value || '',
+  );
 });
 document.getElementById('link-ir-pneus')?.addEventListener('click', (e) => {
   e.preventDefault();
