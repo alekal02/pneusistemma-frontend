@@ -3371,6 +3371,10 @@ function startWaPollFilial(filialId, nome) {
         if (data.qrcode || data.qr_erro) mostrarQrFilial(data, nome);
         return;
       }
+      if (data.infra_wuzapi) {
+        mostrarQrFilial(data, nome);
+        return;
+      }
       if (data.qrcode || data.qr_erro) mostrarQrFilial(data, nome);
       if (data.loggedIn) {
         toast(`Chatbot ${nome} conectado!`, 'success');
@@ -4308,6 +4312,11 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
       return;
     }
     if (instavel) {
+      if (btnConn) {
+        btnConn.textContent = 'Tentar de novo';
+        btnConn.classList.add('btn-primary');
+        btnConn.classList.remove('btn-ghost');
+      }
       if (estadoOnline) {
         statusEl.className = '';
         statusEl.textContent = 'Conectado';
@@ -4422,29 +4431,42 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
         return;
       }
 
-      if (st.instavel || !st.configurado) {
+      if (st.infra_wuzapi || st.instavel || !st.configurado) {
         falhasOff += 1;
         const chipSalvo = String(st.chip_salvo || st.whatsapp || '').replace(/\D/g, '');
-        if ((estadoOnline || chipSalvo.length >= 10) && falhasOff < 5) {
+        const detalheInfra = st.qr_erro || st.mensagem
+          || 'Servidor do WhatsApp instável. Nada foi apagado nas filiais. Tente de novo em instantes.';
+        if (st.infra_wuzapi || ((estadoOnline || chipSalvo.length >= 10) && falhasOff < 5)) {
           aplicarEstadoTela({
             online: false,
             instavel: true,
-            detalhe: estadoOnline
-              ? (st.mensagem || 'Confirmando o chip…')
-              : 'Confirmando o chip no servidor… o WhatsApp do celular pode já estar conectado.',
+            detalhe: st.infra_wuzapi
+              ? detalheInfra
+              : (estadoOnline
+                ? (st.mensagem || 'Confirmando o chip…')
+                : 'Confirmando o chip no servidor… o WhatsApp do celular pode já estar conectado.'),
           });
           return;
         }
         aplicarEstadoTela({
           online: false,
+          instavel: Boolean(st.infra_wuzapi || st.instavel),
           detalhe: st.configurado
-            ? (st.mensagem || 'Servidor do WhatsApp instável. Tente de novo em instantes.')
+            ? detalheInfra
             : 'Falta o token desta unidade — abra Ajustes avançados e gere o token.',
         });
         return;
       }
 
       if (st.connected && !st.loggedIn) {
+        if (st.qr_erro && !st.qrcode) {
+          aplicarEstadoTela({
+            online: false,
+            instavel: true,
+            detalhe: st.qr_erro,
+          });
+          return;
+        }
         aplicarEstadoTela({ online: false, aguardandoQr: true });
         return;
       }
@@ -4818,19 +4840,36 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
         aplicarEstadoTela({ online: true, detalhe: data.mensagem });
         gruposJaPedidos = false;
         setTimeout(() => carregarGrupos(true), 800);
+      } else if (data.infra_wuzapi) {
+        aplicarEstadoTela({
+          online: false,
+          instavel: true,
+          detalhe: data.qr_erro || data.mensagem || 'Servidor do WhatsApp instável. Nada foi apagado. Tente de novo em instantes.',
+        });
+        toast(data.qr_erro || data.mensagem || 'Não foi possível gerar o QR', 'error');
       } else if (data.qrcode) {
         toast('Escaneie o QR com o WhatsApp do chip', 'success');
         startWaPollFilial(filialId, nomeFilial);
       } else {
         toast(data.mensagem || 'Não foi possível gerar o QR', 'error');
-        startWaPollFilial(filialId, nomeFilial);
+        aplicarEstadoTela({
+          online: false,
+          instavel: true,
+          detalhe: data.qr_erro || data.mensagem || 'Não foi possível gerar o QR. Nada foi apagado nas filiais.',
+        });
       }
-      await refreshStatus({ silencioso: true });
+      if (!data.infra_wuzapi) await refreshStatus({ silencioso: true });
     } catch (err) {
-      abrirPainelQr(err.message || 'Falha ao gerar o QR', nomeFilial);
+      const msg = err.message || 'Falha ao gerar o QR';
+      aplicarEstadoTela({
+        online: false,
+        instavel: true,
+        detalhe: msg,
+      });
+      abrirPainelQr(msg, nomeFilial);
       const { status } = painelQrEls();
       status?.classList.add('login-erro');
-      toast(err.message, 'error');
+      toast(msg, 'error');
     } finally {
       if (btn) btn.disabled = false;
     }
