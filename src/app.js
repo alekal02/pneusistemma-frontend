@@ -3415,6 +3415,9 @@ function startWaPollFilial(filialId, nome) {
         if (data.qrcode || data.qr_erro) mostrarQrFilial(data, nome);
         return;
       }
+      if (data.qrcode) {
+        mostrarQrFilial(data, nome);
+      }
       if (data.loggedIn) {
         const chipTela = String(document.getElementById('fc-whatsapp')?.value || '').replace(/\D/g, '');
         const phoneResp = String(data.phone || '').replace(/\D/g, '');
@@ -4939,6 +4942,7 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
       detalhe: 'Gerando QR… pode levar até 30 segundos.',
     });
     toast(`Gerando QR de ${nomeFilial}… aguarde uns segundos`);
+    startWaPollFilial(filialId, nomeFilial);
     try {
       const data = await fetchJSON(`${API}/whatsapp/filial/${filialId}/connect`, {
         method: 'POST',
