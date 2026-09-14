@@ -3454,7 +3454,7 @@ function startWaPollFilial(filialId, nome) {
     } catch {
       // ignore
     }
-  }, 2500);
+  }, 2000);
 }
 
 document.getElementById('btn-wa-qr-fechar')?.addEventListener('click', () => {
@@ -4907,19 +4907,18 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
       || !temChip
       || qrPainelAberto()
       || /gerar qr/i.test(btnHero?.textContent || '');
-    abrirPainelQr('Gerando QR Code… isso leva alguns segundos.', nomeFilial);
+    abrirPainelQr('Gerando QR Code… pode levar até 30 segundos.', nomeFilial);
     aplicarEstadoTela({
       online: false,
       aguardandoQr: true,
-      detalhe: 'Gerando QR… se não aparecer, clique de novo.',
+      detalhe: 'Gerando QR… pode levar até 30 segundos.',
     });
-    startWaPollFilial(filialId, nomeFilial);
-    toast(`Gerando QR de ${nomeFilial}…`);
+    toast(`Gerando QR de ${nomeFilial}… aguarde uns segundos`);
     try {
       const data = await fetchJSON(`${API}/whatsapp/filial/${filialId}/connect`, {
         method: 'POST',
         body: JSON.stringify({ forcar_qr: forcarQr }),
-        timeoutMs: 22_000,
+        timeoutMs: 45_000,
       });
       const estado = estadoDaRespostaWa(data);
       if ((estado === 'conectado' || data.loggedIn) && !data.sessao_alheia && !data.token_compartilhado && temChip && !data.qrcode) {
