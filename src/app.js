@@ -4298,15 +4298,16 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
     line.innerHTML = `Chip: <strong>${digits ? escapeHtml(digits) : 'ainda não informado'}</strong>${grupoOk ? ' · Grupo escolhido' : ' · Sem grupo'}`;
   };
 
-  const aplicarEstadoTela = ({ online, aguardandoQr, instavel, detalhe }) => {
+  const aplicarEstadoTela = ({ online, aguardandoQr, instavel, aviso, detalhe }) => {
     const detail = document.getElementById('fc-status-detail');
     const btnConn = document.getElementById('btn-fc-conectar');
+    const chipNaTela = String(document.getElementById('fc-whatsapp')?.value || '').replace(/\D/g, '').length >= 10;
     if (online) {
       estadoOnline = true;
       falhasOff = 0;
       statusEl.className = '';
       statusEl.textContent = 'Conectado';
-      pintarHero('is-online');
+      pintarHero(aviso ? 'is-warn' : 'is-online');
       if (detail) detail.textContent = detalhe || 'Chip no ar. O grupo abaixo é o da medição.';
       if (btnConn) {
         btnConn.textContent = 'Atualizar status';
@@ -4330,17 +4331,29 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
       return;
     }
     if (instavel) {
+      if (estadoOnline || chipNaTela) {
+        estadoOnline = true;
+        statusEl.className = '';
+        statusEl.textContent = 'Conectado';
+        pintarHero('is-warn');
+        if (detail) {
+          const tecnico = /problema interno|não gere outro token|nao gere outro token|banco interno/i.test(detalhe || '');
+          detail.textContent = (!detalhe || tecnico)
+            ? 'Chip desta unidade continua cadastrado. Não precisa escanear de novo.'
+            : detalhe;
+        }
+        if (btnConn) {
+          btnConn.textContent = 'Atualizar status';
+          btnConn.classList.remove('btn-primary');
+          btnConn.classList.add('btn-ghost');
+        }
+        atualizarBotaoTrocar(true);
+        return;
+      }
       if (btnConn) {
         btnConn.textContent = 'Tentar de novo';
         btnConn.classList.add('btn-primary');
         btnConn.classList.remove('btn-ghost');
-      }
-      if (estadoOnline) {
-        statusEl.className = '';
-        statusEl.textContent = 'Conectado';
-        pintarHero('is-warn');
-        if (detail) detail.textContent = detalhe || 'Confirmando o chip… se isto persistir, o servidor do WhatsApp pode estar lento.';
-        return;
       }
       statusEl.className = '';
       statusEl.textContent = 'Verificando';
@@ -4427,7 +4440,7 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
         return;
       }
 
-      if (st.loggedIn && st.phone) {
+      if (st.loggedIn && st.phone && !st.chip_presumido) {
         const atual = String(document.getElementById('fc-whatsapp')?.value || '').replace(/\D/g, '');
         if (!chipSessaoAplicado || !atual) {
           await aplicarNumeroChip(st.phone, { salvar: true, forcar: true });
@@ -4435,17 +4448,20 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
         }
         atualizarLinhaChip(st.phone);
       } else {
-        atualizarLinhaChip(st.chip_salvo || st.whatsapp);
+        atualizarLinhaChip(st.chip_salvo || st.whatsapp || st.phone);
       }
 
       if (estado === 'conectado' || st.loggedIn) {
         aplicarEstadoTela({
           online: true,
-          detalhe: st.phone
-            ? `Chip ${st.phone} no ar. Escolha o grupo se ainda não tiver um.`
-            : 'Chip no ar. Escolha o grupo da medição.',
+          aviso: Boolean(st.chip_presumido),
+          detalhe: st.chip_presumido
+            ? (st.mensagem || 'Chip desta unidade continua cadastrado. Não precisa escanear de novo.')
+            : (st.phone
+              ? `Chip ${st.phone} no ar. Escolha o grupo se ainda não tiver um.`
+              : 'Chip no ar. Escolha o grupo da medição.'),
         });
-        if (!gruposJaPedidos) {
+        if (!gruposJaPedidos && !st.chip_presumido) {
           gruposJaPedidos = true;
           carregarGrupos(true);
         }
@@ -4454,12 +4470,13 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
 
       if (estado === 'servidor_indisponivel' || st.infra_wuzapi || st.instavel) {
         falhasOff += 1;
-        const detalheInfra = st.qr_erro || st.mensagem
-          || 'Servidor do WhatsApp lento. O chip pode continuar no ar — aguarde e atualize o status.';
+        const chipJaTem = String(st.chip_salvo || st.whatsapp || document.getElementById('fc-whatsapp')?.value || '').replace(/\D/g, '');
         aplicarEstadoTela({
           online: false,
           instavel: true,
-          detalhe: detalheInfra,
+          detalhe: chipJaTem.length >= 10
+            ? 'Chip desta unidade continua cadastrado. Não precisa escanear de novo.'
+            : (st.qr_erro || st.mensagem || 'Servidor do WhatsApp lento. Aguarde e atualize o status.'),
         });
         return;
       }
@@ -4527,6 +4544,14 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
       }
     }
   };
+  const chipInicial = String(document.getElementById('fc-whatsapp')?.value || '').replace(/\D/g, '');
+  if (chipInicial.length >= 10) {
+    aplicarEstadoTela({
+      online: true,
+      aviso: true,
+      detalhe: 'Chip desta unidade continua cadastrado.',
+    });
+  }
   refreshStatus({ silencioso: true });
   if (waStatusWatchTimer) clearInterval(waStatusWatchTimer);
   waStatusWatchTimer = setInterval(() => refreshStatus({ silencioso: true }), 12000);
