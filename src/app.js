@@ -3411,7 +3411,8 @@ function startWaPollFilial(filialId, nome) {
       }
       if (data.loggedIn) {
         const chipTela = String(document.getElementById('fc-whatsapp')?.value || '').replace(/\D/g, '');
-        if (qrPainelAberto() && !qrImagemVisivel() && chipTela.length < 10) {
+        const phoneResp = String(data.phone || '').replace(/\D/g, '');
+        if (qrPainelAberto() && !qrImagemVisivel() && chipTela.length < 10 && phoneResp.length < 10) {
           return;
         }
         toast(`Chatbot ${nome} conectado!`, 'success');
@@ -4921,18 +4922,20 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
         timeoutMs: 45_000,
       });
       const estado = estadoDaRespostaWa(data);
-      if ((estado === 'conectado' || data.loggedIn) && !data.sessao_alheia && !data.token_compartilhado && temChip && !data.qrcode) {
+      const phoneResp = String(data.phone || '').replace(/\D/g, '');
+      const chipOk = temChip || phoneResp.length >= 10;
+      if ((estado === 'conectado' || data.loggedIn) && !data.sessao_alheia && !data.token_compartilhado && chipOk && !data.qrcode) {
         document.getElementById('fc-qr-wrap')?.classList.add('hidden');
       } else {
         mostrarQrFilial(data, nomeFilial);
       }
-      if (data.loggedIn && data.phone && !data.sessao_alheia && !data.token_compartilhado && temChip) {
+      if (data.loggedIn && phoneResp.length >= 10 && !data.sessao_alheia && !data.token_compartilhado) {
         chipSessaoAplicado = false;
-        await aplicarNumeroChip(data.phone, { salvar: true, forcar: true });
+        await aplicarNumeroChip(phoneResp, { salvar: true, forcar: true });
         chipSessaoAplicado = true;
-        atualizarLinhaChip(data.phone);
+        atualizarLinhaChip(phoneResp);
       }
-      if ((estado === 'conectado' || data.loggedIn) && !data.sessao_alheia && !data.token_compartilhado && temChip && !data.qrcode) {
+      if ((estado === 'conectado' || data.loggedIn) && !data.sessao_alheia && !data.token_compartilhado && chipOk && !data.qrcode) {
         toast(data.mensagem || `Chatbot ${nomeFilial} já está conectado`, 'success');
         aplicarEstadoTela({ online: true, detalhe: data.mensagem });
         gruposJaPedidos = false;
