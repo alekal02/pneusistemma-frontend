@@ -4665,7 +4665,7 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
     if (document.getElementById('fc-hero')?.dataset.modo === 'is-online') {
       estadoOnline = true;
     }
-    if (silencioso && (qrPainelAberto() || qrImagemVisivel())) return;
+    if (silencioso && qrImagemVisivel()) return;
     try {
       const st = await fetchJSON(`${API}/whatsapp/filial/${filialId}/status`);
       if (st.filial_id != null && Number(st.filial_id) !== Number(filialId)) return;
@@ -4675,7 +4675,12 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
         && !st.token_compartilhado
         && !st.sessao_alheia;
 
-      if (sessaoMorta || (!st.loggedIn && !st.chip_presumido && !st.infra_wuzapi)) {
+      if (st.loggedIn) {
+        sessionStorage.removeItem(`wa_forcar_qr_${filialId}`);
+        sessionStorage.removeItem(`wa_auto_qr_${filialId}`);
+      }
+
+      if (!st.loggedIn && (sessaoMorta || (!st.chip_presumido && !st.infra_wuzapi))) {
         limparChipLocal();
       }
 
@@ -4700,30 +4705,19 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
       }
 
       if (st.loggedIn && st.phone && !st.chip_presumido) {
-        sessionStorage.removeItem(`wa_forcar_qr_${filialId}`);
-        sessionStorage.removeItem(`wa_auto_qr_${filialId}`);
-        const chipSalvo = String(st.chip_salvo || st.whatsapp || '').replace(/\D/g, '');
         const atual = String(document.getElementById('fc-whatsapp')?.value || '').replace(/\D/g, '');
-        if (chipSalvo.length >= 10 && (!chipSessaoAplicado || !atual)) {
+        if (!chipSessaoAplicado || !atual) {
           await aplicarNumeroChip(st.phone, { salvar: true, forcar: true });
           chipSessaoAplicado = true;
         }
-        atualizarLinhaChip(chipSalvo.length >= 10 ? st.phone : '');
+        atualizarLinhaChip(st.phone);
       } else if (!st.loggedIn) {
         atualizarLinhaChip('');
       } else {
-        atualizarLinhaChip(st.chip_salvo || st.whatsapp || '');
+        atualizarLinhaChip(st.chip_salvo || st.whatsapp || st.phone || '');
       }
 
       if (estado === 'conectado' || st.loggedIn) {
-        if (sessionStorage.getItem(`wa_forcar_qr_${filialId}`) && !qrImagemVisivel()) {
-          aplicarEstadoTela({
-            online: false,
-            aguardandoQr: true,
-            detalhe: 'Sessão anterior foi limpa. Gere o QR e escaneie com o chip desta unidade.',
-          });
-          return;
-        }
         aplicarEstadoTela({
           online: true,
           aviso: Boolean(st.chip_presumido),
