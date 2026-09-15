@@ -4496,14 +4496,15 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
       }
 
       if (st.loggedIn && st.phone && !st.chip_presumido) {
+        const chipSalvo = String(st.chip_salvo || st.whatsapp || '').replace(/\D/g, '');
         const atual = String(document.getElementById('fc-whatsapp')?.value || '').replace(/\D/g, '');
-        if (!chipSessaoAplicado || !atual) {
+        if (chipSalvo.length >= 10 && (!chipSessaoAplicado || !atual)) {
           await aplicarNumeroChip(st.phone, { salvar: true, forcar: true });
           chipSessaoAplicado = true;
         }
-        atualizarLinhaChip(st.phone);
+        atualizarLinhaChip(chipSalvo.length >= 10 ? st.phone : '');
       } else {
-        atualizarLinhaChip(st.chip_salvo || st.whatsapp || st.phone);
+        atualizarLinhaChip(st.chip_salvo || st.whatsapp || '');
       }
 
       if (estado === 'conectado' || st.loggedIn) {
@@ -5064,7 +5065,7 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
         body: '{}',
         timeoutMs: 25_000,
       });
-      sessionStorage.removeItem(`wa_forcar_qr_${filialId}`);
+      sessionStorage.setItem(`wa_forcar_qr_${filialId}`, '1');
       toast(data.mensagem || 'Sessão limpa. Clique em Conectar para gerar o QR.', 'success');
       if (data.aviso) toast(data.aviso, 'warning');
       filiaisCache = [];
@@ -5082,12 +5083,12 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
   });
 
   if (sessionStorage.getItem(`wa_forcar_qr_${filialId}`)) {
-    sessionStorage.removeItem(`wa_forcar_qr_${filialId}`);
     aplicarEstadoTela({
       online: false,
       aguardandoQr: false,
-      detalhe: 'Sessão limpa. Clique em Conectar e espere o QR.',
+      detalhe: 'Sessão limpa. Clique em Conectar e escaneie o QR do novo chip.',
     });
+    atualizarLinhaChip('');
   }
 }
 
