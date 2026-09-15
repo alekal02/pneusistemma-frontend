@@ -3441,13 +3441,7 @@ function startWaPollFilial(filialId, nome) {
           statusEl.textContent = 'Conectado';
         }
         const detail = document.getElementById('fc-status-detail');
-        if (detail) detail.textContent = 'Chip no ar — escolha o grupo da medição abaixo.';
-        const btnConn = document.getElementById('btn-fc-conectar');
-        if (btnConn) {
-          btnConn.textContent = 'Atualizar status';
-          btnConn.classList.remove('btn-primary');
-          btnConn.classList.add('btn-ghost');
-        }
+        if (detail) detail.textContent = 'Chip no ar — escolha o grupo da medição.';
         const phone = String(data.phone || '').replace(/\D/g, '');
         const chipInput = document.getElementById('fc-whatsapp');
         if (phone.length >= 10 && chipInput) {
@@ -4069,7 +4063,7 @@ function renderChatbotPanelHtml(data) {
   const temGrupo = Boolean(grupoAtual);
   const chipFmt = chip ? chip : 'ainda não informado';
   return `
-    <div class="filial-chatbot-panel wa-panel">
+    <div class="filial-chatbot-panel wa-panel wa-wizard">
       <header class="wa-hero" id="fc-hero">
         <div class="wa-hero-text">
           <p class="cb-kicker">WhatsApp da unidade</p>
@@ -4081,99 +4075,76 @@ function renderChatbotPanelHtml(data) {
           <p class="hint" id="fc-status-detail">Consultando o chip…</p>
           <p class="wa-chip-line" id="fc-chip-line">Chip: <strong>${escapeHtml(chipFmt)}</strong>${temGrupo ? ' · Grupo escolhido' : ' · Sem grupo'}</p>
         </div>
-        <div class="wa-hero-actions">
-          <button type="button" class="btn btn-primary" id="btn-fc-conectar">Conectar chip</button>
-          <button type="button" class="btn btn-ghost" id="btn-fc-desconectar">Desconectar sessão</button>
-        </div>
       </header>
 
-      <div class="cb-qr-panel hidden" id="fc-qr-wrap">
-        <h4 id="fc-qr-titulo">Escaneie o QR Code</h4>
-        <p class="hint">No celular do chip: WhatsApp → Aparelhos conectados → Conectar um aparelho</p>
-        <p class="hint" id="fc-qr-status">Gerando QR Code…</p>
-        <img id="fc-qr-img" class="wa-qr-img hidden" alt="QR Code WhatsApp">
-        <div class="wa-hero-actions" style="justify-content:center;margin-top:.75rem;flex-direction:row;flex-wrap:wrap">
-          <button type="button" class="btn btn-primary" id="btn-fc-qr-gerar">Gerar QR de novo</button>
-          <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-qr-fechar">Fechar</button>
+      <div id="fc-view-conectar" class="wa-stage">
+        <p class="hint">Clique em Conectar para gerar o QR Code do chip desta unidade.</p>
+        <button type="button" class="btn btn-primary btn-lg" id="btn-fc-conectar">Conectar</button>
+        <div class="cb-qr-panel hidden" id="fc-qr-wrap">
+          <h4 id="fc-qr-titulo">Escaneie o QR Code</h4>
+          <p class="hint">No celular do chip: WhatsApp → Aparelhos conectados → Conectar um aparelho</p>
+          <p class="hint" id="fc-qr-status">Gerando QR Code…</p>
+          <img id="fc-qr-img" class="wa-qr-img hidden" alt="QR Code WhatsApp">
+          <div class="wa-stage-actions">
+            <button type="button" class="btn btn-ghost btn-sm hidden" id="btn-fc-qr-gerar">Gerar QR de novo</button>
+            <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-qr-fechar">Fechar</button>
+          </div>
         </div>
       </div>
 
-      <section class="wa-card${temGrupo ? ' is-done' : ''}" id="fc-step-group">
-        <div class="wa-card-head">
-          <h4>Grupo da medição ${temGrupo ? '<span class="cb-pill cb-pill-lock" id="fc-grupo-pill">definido</span>' : '<span class="cb-pill cb-pill-lock hidden" id="fc-grupo-pill">definido</span>'}</h4>
-          <p class="hint">O borracheiro envia a placa neste grupo e recebe o link. O chatbot só responde aqui.</p>
-        </div>
-        <div class="form-row wa-grupo-row">
-          <div class="form-group" style="flex:1;margin:0">
-            <label for="fc-whatsapp-grupo">Grupo</label>
-            <select id="fc-whatsapp-grupo"${temGrupo ? ' disabled' : ''}>
-              <option value="">— Selecione o grupo —</option>
-              ${grupoAtual ? `<option value="${escapeHtml(grupoAtual)}" selected>${escapeHtml(grupoAtual)}</option>` : ''}
-            </select>
+      <div id="fc-view-grupo" class="wa-stage hidden">
+        <section class="wa-card" id="fc-step-group">
+          <div class="wa-card-head">
+            <h4>Escolha o grupo <span class="cb-pill cb-pill-lock hidden" id="fc-grupo-pill">definido</span></h4>
+            <p class="hint">O chatbot só responde no grupo selecionado. Envie a placa nesse grupo.</p>
           </div>
-          <button type="button" class="btn btn-ghost btn-sm${temGrupo ? ' hidden' : ''}" id="btn-fc-grupos">Atualizar lista</button>
-          <button type="button" class="btn btn-sm${temGrupo ? '' : ' hidden'}" id="btn-fc-trocar-grupo">Trocar grupo</button>
-        </div>
-        <small class="field-hint" id="fc-grupo-trava-hint">${temGrupo
-          ? 'Grupo definido. O chatbot ignora mensagens de outros grupos.'
-          : 'Conecte o chip, atualize a lista e escolha o grupo da equipe.'}</small>
-      </section>
+          <div class="form-row wa-grupo-row">
+            <div class="form-group" style="flex:1;margin:0">
+              <label for="fc-whatsapp-grupo">Grupo</label>
+              <select id="fc-whatsapp-grupo">
+                <option value="">— Selecione o grupo —</option>
+                ${grupoAtual ? `<option value="${escapeHtml(grupoAtual)}" selected>${escapeHtml(grupoAtual)}</option>` : ''}
+              </select>
+            </div>
+            <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-grupos">Atualizar lista</button>
+          </div>
+          <small class="field-hint" id="fc-grupo-trava-hint">Atualize a lista e escolha o grupo da equipe.</small>
+        </section>
+      </div>
 
-      <section class="wa-card${alerta ? ' is-done' : ''}" id="fc-step-alerta">
-        <div class="wa-card-head">
-          <h4>Quem recebe alertas ${data.alertas_enabled ? '' : '<span class="cb-pill">pausado</span>'}</h4>
-          <p class="hint">${data.alertas_enabled
-            ? 'Marque quem recebe aviso depois de medição crítica ou para monitorar.'
-            : 'Alertas após medição estão pausados. O chatbot do grupo continua funcionando.'}</p>
-        </div>
-        <div class="form-row" style="align-items:center;gap:.5rem;margin-bottom:.55rem">
-          <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-alerta-opcoes">Atualizar lista</button>
-        </div>
-        <div class="cb-check-list" id="fc-alerta-lista">
-          <p class="hint">Clique em “Atualizar lista” se quiser marcar destinatários.</p>
-        </div>
-        <input type="hidden" id="fc-whatsapp-alerta" value="${escapeHtml(alerta)}">
-      </section>
+      <div id="fc-disconnect-wrap" class="wa-stage-actions hidden">
+        <button type="button" class="btn btn-ghost" id="btn-fc-desconectar">Desconectar</button>
+        <button type="button" class="btn btn-ghost btn-sm hidden" id="btn-fc-trocar-grupo">Trocar grupo</button>
+      </div>
 
-      <details class="wa-card wa-envios-panel" id="fc-envios-panel">
-        <summary>Envios recentes</summary>
-        <div class="section-header" style="margin:.75rem 0 .5rem;align-items:center">
-          <p class="hint" id="fc-envios-hint" style="margin:0">Link de medição, relatório e falhas reais deste grupo.</p>
-          <div style="display:flex;gap:.4rem;flex-wrap:wrap">
+      <div id="fc-view-online" class="wa-stage hidden">
+        <p class="wa-grupo-atual" id="fc-grupo-nome">${temGrupo ? `Grupo: <strong>${escapeHtml(grupoAtual)}</strong>` : ''}</p>
+        <section class="wa-card wa-log-card" id="fc-envios-panel">
+          <div class="wa-card-head wa-log-head">
+            <h4>Log do chatbot</h4>
             <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-envios">Atualizar</button>
-            <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-limpar-pendentes">Limpar pendentes</button>
           </div>
-        </div>
-        <div class="compras-resumo-filial" style="margin-bottom:.75rem">
-          <div class="compras-chip monitorar"><strong id="fc-env-pendentes">—</strong><span>Pendentes / falha</span></div>
-          <div class="compras-chip"><strong id="fc-env-enviados">—</strong><span>Enviados</span></div>
-        </div>
-        <div id="fc-envios-pendentes-list" class="wa-envios-list"></div>
-        <div id="fc-envios-enviados-list" class="wa-envios-list" style="margin-top:.5rem"></div>
-        <details class="wa-envios-logs" id="fc-envios-detalhes-wrap">
-          <summary>Ver logs técnicos</summary>
-          <div id="fc-envios-logs" class="wa-envios-logs-body mono" style="margin-top:.65rem"></div>
-        </details>
-      </details>
+          <p class="hint" id="fc-envios-hint">Mensagens enviadas neste grupo, com data e hora de Brasília.</p>
+          <div id="fc-envios-logs" class="wa-log-feed"></div>
+          <div id="fc-envios-pendentes-list" class="hidden"></div>
+          <div id="fc-envios-enviados-list" class="hidden"></div>
+          <span id="fc-env-pendentes" class="hidden">0</span>
+          <span id="fc-env-enviados" class="hidden">0</span>
+          <button type="button" class="hidden" id="btn-fc-limpar-pendentes">Limpar pendentes</button>
+        </section>
+      </div>
 
-      <details class="wa-card wa-advanced">
-        <summary>Ajustes avançados</summary>
-        <div class="form-row cb-token-row" style="margin-top:.85rem">
-          <div class="form-group" style="flex:1;margin:0">
-            <label for="fc-wuzapi-token">Token do servidor (só suporte)</label>
-            <input type="password" id="fc-wuzapi-token" placeholder="${temToken ? '•••• já cadastrado — deixe em branco' : 'Preenchido automaticamente ao conectar'}" autocomplete="off">
-          </div>
-          <button type="button" class="btn btn-ghost btn-sm" id="btn-fc-gerar-token">${temToken ? 'Reparar sessão' : 'Preparar sessão'}</button>
-        </div>
-        <div class="form-group">
-          <label for="fc-whatsapp">Número do chip</label>
-          <input type="tel" id="fc-whatsapp" class="mono" value="${escapeHtml(chip)}" placeholder="Com DDI, ex.: 5562999999999" inputmode="tel" autocomplete="tel">
-          <small class="field-hint">Preenchido sozinho ao conectar. Só altere se o número estiver errado.</small>
-        </div>
-        <p class="hint" id="fc-wuzapi-hint">${temToken
-          ? 'A sessão desta unidade já existe. “Reparar sessão” só se o suporte pedir — na maioria dos erros, use Conectar chip.'
-          : 'Clique em Conectar chip. O sistema prepara a sessão sozinho.'}</p>
-      </details>
+      <div class="hidden" id="fc-step-alerta">
+        <div id="fc-alerta-lista"></div>
+        <input type="hidden" id="fc-whatsapp-alerta" value="${escapeHtml(alerta)}">
+        <button type="button" class="hidden" id="btn-fc-alerta-opcoes">Atualizar lista</button>
+      </div>
+      <div class="hidden">
+        <input type="password" id="fc-wuzapi-token" autocomplete="off">
+        <button type="button" id="btn-fc-gerar-token">${temToken ? 'Reparar sessão' : 'Preparar sessão'}</button>
+        <input type="tel" id="fc-whatsapp" class="mono" value="${escapeHtml(chip)}">
+        <p id="fc-wuzapi-hint"></p>
+      </div>
       <p class="hint hidden" id="fc-step-connect"></p>
     </div>
   `;
@@ -4273,24 +4244,63 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
   let grupoSalvo = valorCampoWa(document.getElementById('fc-whatsapp-grupo')?.value);
   let grupoTravado = Boolean(grupoSalvo);
 
+  let carregarEnvios = async () => {};
+
+  const temGrupoEscolhido = () => Boolean(valorCampoWa(document.getElementById('fc-whatsapp-grupo')?.value) || grupoSalvo);
+
   const aplicarTravaGrupo = (travado) => {
     const sel = document.getElementById('fc-whatsapp-grupo');
-    const temGrupo = Boolean(valorCampoWa(sel?.value) || grupoSalvo);
+    const temGrupo = temGrupoEscolhido();
     grupoTravado = Boolean(travado && temGrupo);
-    if (sel) sel.disabled = grupoTravado;
-    document.getElementById('btn-fc-grupos')?.classList.toggle('hidden', grupoTravado);
+    if (sel) sel.disabled = false;
+    document.getElementById('btn-fc-grupos')?.classList.remove('hidden');
     document.getElementById('btn-fc-trocar-grupo')?.classList.toggle('hidden', !grupoTravado);
     document.getElementById('fc-grupo-pill')?.classList.toggle('hidden', !grupoTravado);
     const hint = document.getElementById('fc-grupo-trava-hint');
     if (hint) {
-      if (grupoTravado) {
-        hint.textContent = 'Grupo definido. O chatbot ignora mensagens de outros grupos.';
-      } else if (grupoSalvo) {
-        hint.textContent = 'Escolha o novo grupo. Até salvar, o chatbot continua no grupo atual.';
-      } else {
-        hint.textContent = 'Conecte o chip, atualize a lista e escolha o grupo da equipe.';
-      }
+      hint.textContent = grupoSalvo
+        ? 'Escolha o grupo. O chatbot só responde neste grupo.'
+        : 'Atualize a lista e escolha o grupo da equipe.';
     }
+    const nomeEl = document.getElementById('fc-grupo-nome');
+    if (nomeEl) {
+      const g = valorCampoWa(sel?.value) || grupoSalvo;
+      const opt = sel?.selectedOptions?.[0];
+      const label = opt && opt.value ? opt.textContent : g;
+      nomeEl.innerHTML = g ? `Grupo: <strong>${escapeHtml(label || g)}</strong>` : '';
+    }
+  };
+
+  const mostrarEtapaChatbot = ({ online = false, aguardandoQr = false } = {}) => {
+    const vConn = document.getElementById('fc-view-conectar');
+    const vGrupo = document.getElementById('fc-view-grupo');
+    const vOn = document.getElementById('fc-view-online');
+    const disc = document.getElementById('fc-disconnect-wrap');
+    const qr = document.getElementById('fc-qr-wrap');
+    const grupoOk = temGrupoEscolhido();
+    if (online && grupoOk) {
+      vConn?.classList.add('hidden');
+      vGrupo?.classList.add('hidden');
+      vOn?.classList.remove('hidden');
+      disc?.classList.remove('hidden');
+      qr?.classList.add('hidden');
+      aplicarTravaGrupo(true);
+      carregarEnvios(true);
+      return;
+    }
+    if (online) {
+      vConn?.classList.add('hidden');
+      vGrupo?.classList.remove('hidden');
+      vOn?.classList.add('hidden');
+      disc?.classList.remove('hidden');
+      qr?.classList.add('hidden');
+      return;
+    }
+    vConn?.classList.remove('hidden');
+    vGrupo?.classList.add('hidden');
+    vOn?.classList.add('hidden');
+    disc?.classList.add('hidden');
+    qr?.classList.toggle('hidden', !aguardandoQr && !qrPainelAberto());
   };
   aplicarTravaGrupo(grupoTravado);
 
@@ -4344,14 +4354,17 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
       statusEl.className = '';
       statusEl.textContent = 'Conectado';
       pintarHero(aviso ? 'is-warn' : 'is-online');
-      if (detail) detail.textContent = detalhe || 'Chip no ar. O grupo abaixo é o da medição.';
-      if (btnConn) {
-        btnConn.textContent = 'Atualizar status';
-        btnConn.classList.remove('btn-primary');
-        btnConn.classList.add('btn-ghost');
+      if (detail) {
+        detail.textContent = detalhe || (temGrupoEscolhido()
+          ? 'Chip no ar. Use Desconectar se precisar trocar o chip.'
+          : 'Chip no ar. Escolha o grupo da medição.');
       }
-      document.getElementById('fc-qr-wrap')?.classList.add('hidden');
-      atualizarBotaoTrocar(true);
+      if (btnConn) {
+        btnConn.textContent = 'Conectar';
+        btnConn.classList.add('btn-primary');
+        btnConn.classList.remove('btn-ghost');
+      }
+      mostrarEtapaChatbot({ online: true });
       return;
     }
     if (aguardandoQr) {
@@ -4360,10 +4373,12 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
       pintarHero('is-wait');
       if (detail) detail.textContent = detalhe || 'Escaneie o QR com o WhatsApp do chip desta unidade.';
       if (btnConn) {
-        btnConn.textContent = 'Gerar QR de novo';
+        btnConn.textContent = 'Conectar';
         btnConn.classList.add('btn-primary');
         btnConn.classList.remove('btn-ghost');
       }
+      mostrarEtapaChatbot({ online: false, aguardandoQr: true });
+      document.getElementById('fc-qr-wrap')?.classList.remove('hidden');
       return;
     }
     if (instavel) {
@@ -4378,36 +4393,32 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
             ? 'Chip desta unidade continua cadastrado. Não precisa escanear de novo.'
             : detalhe;
         }
-        if (btnConn) {
-          btnConn.textContent = 'Atualizar status';
-          btnConn.classList.remove('btn-primary');
-          btnConn.classList.add('btn-ghost');
-        }
-        atualizarBotaoTrocar(true);
+        mostrarEtapaChatbot({ online: true });
         return;
       }
       if (btnConn) {
-        btnConn.textContent = 'Tentar de novo';
+        btnConn.textContent = 'Conectar';
         btnConn.classList.add('btn-primary');
         btnConn.classList.remove('btn-ghost');
       }
       statusEl.className = '';
       statusEl.textContent = 'Verificando';
       pintarHero('is-warn');
-      if (detail) detail.textContent = detalhe || 'Confirmando o chip no servidor… o WhatsApp do celular pode já estar conectado.';
+      if (detail) detail.textContent = detalhe || 'Confirmando o chip no servidor…';
+      mostrarEtapaChatbot({ online: false });
       return;
     }
     estadoOnline = false;
     statusEl.className = '';
     statusEl.textContent = 'Desconectado';
     pintarHero('is-off');
-    if (detail) detail.textContent = detalhe || 'Clique em Conectar chip e escaneie o QR.';
+    if (detail) detail.textContent = detalhe || 'Clique em Conectar e escaneie o QR.';
     if (btnConn) {
-      btnConn.textContent = 'Conectar chip';
+      btnConn.textContent = 'Conectar';
       btnConn.classList.add('btn-primary');
       btnConn.classList.remove('btn-ghost');
     }
-    atualizarBotaoTrocar(false);
+    mostrarEtapaChatbot({ online: false, aguardandoQr: false });
   };
 
   const aplicarNumeroChip = async (phone, { salvar = true, forcar = false } = {}) => {
@@ -4588,18 +4599,6 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
       }
     }
   };
-  const chipInicial = String(document.getElementById('fc-whatsapp')?.value || '').replace(/\D/g, '');
-  if (chipInicial.length >= 10) {
-    aplicarEstadoTela({
-      online: true,
-      aviso: true,
-      detalhe: 'Chip desta unidade continua cadastrado.',
-    });
-  }
-  refreshStatus({ silencioso: true });
-  if (waStatusWatchTimer) clearInterval(waStatusWatchTimer);
-  waStatusWatchTimer = setInterval(() => refreshStatus({ silencioso: true }), 12000);
-
   const renderEnvioItem = (item, { reenviar = false } = {}) => `
     <div class="wa-envio-item" data-id="${item.id}">
       <div class="wa-envio-meta">
@@ -4615,7 +4614,7 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
     </div>
   `;
 
-  const carregarEnvios = async (silencioso = false) => {
+  carregarEnvios = async (silencioso = false) => {
     const pendEl = document.getElementById('fc-envios-pendentes-list');
     const envEl = document.getElementById('fc-envios-enviados-list');
     const logsEl = document.getElementById('fc-envios-logs');
@@ -4640,15 +4639,16 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
       }
       if (logsEl) {
         logsEl.innerHTML = (data.logs || []).map((i) => `
-          <div class="wa-log-line">
-            <div><strong>#${i.id}</strong> ${escapeHtml(i.criado_em || '')} · ${escapeHtml(i.status_label)} · ${escapeHtml(i.tipo_label)}
-              → <span class="mono">${escapeHtml(i.destinatario || '')}</span>
-              ${i.placa ? ` · ${escapeHtml(i.placa)}` : ''}
-              ${i.erro ? ` · <span class="login-erro">${escapeHtml(i.erro)}</span>` : ''}
+          <article class="wa-log-item${i.status === 'erro' ? ' is-erro' : ''}">
+            <time class="wa-log-when" datetime="${escapeHtml(i.criado_em || '')}">${escapeHtml(formatDateTime(i.criado_em))}</time>
+            <div class="wa-log-body">
+              <span class="badge ${i.status === 'erro' ? 'badge-critico' : 'badge-ok'}">${escapeHtml(i.status_label || '')}</span>
+              <strong>${escapeHtml(i.tipo_label || 'Chatbot')}</strong>
+              ${i.placa ? `<span class="mono">${escapeHtml(i.placa)}</span>` : ''}
+              <div class="hint">${escapeHtml(i.preview || '')}${i.erro ? ` · <span class="login-erro">${escapeHtml(i.erro)}</span>` : ''}</div>
             </div>
-            <pre class="wa-log-msg">${escapeHtml(String(i.mensagem || '').slice(0, 280))}${String(i.mensagem || '').length > 280 ? '…' : ''}</pre>
-          </div>
-        `).join('') || '<p class="hint">Sem logs.</p>';
+          </article>
+        `).join('') || `<p class="hint">${escapeHtml(data.mensagem || 'Nenhuma mensagem enviada neste grupo ainda.')}</p>`;
       }
 
       pendEl?.querySelectorAll('.btn-fc-reenviar').forEach((btn) => {
@@ -4689,6 +4689,18 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
     }
   });
   carregarEnvios(true);
+
+  const chipInicial = String(document.getElementById('fc-whatsapp')?.value || '').replace(/\D/g, '');
+  if (chipInicial.length >= 10) {
+    aplicarEstadoTela({
+      online: true,
+      aviso: true,
+      detalhe: 'Chip desta unidade continua cadastrado.',
+    });
+  }
+  refreshStatus({ silencioso: true });
+  if (waStatusWatchTimer) clearInterval(waStatusWatchTimer);
+  waStatusWatchTimer = setInterval(() => refreshStatus({ silencioso: true }), 12000);
 
   const carregarGrupos = async (silencioso = false) => {
     const sel = document.getElementById('fc-whatsapp-grupo');
@@ -4738,7 +4750,10 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
     estadoOnline = true;
     falhasOff = 0;
     atualizarLinhaChip(document.getElementById('fc-whatsapp')?.value);
-    atualizarBotaoTrocar(true);
+    aplicarEstadoTela({
+      online: true,
+      detalhe: 'Chip no ar. Escolha o grupo da medição.',
+    });
     if (!gruposJaPedidos) {
       gruposJaPedidos = true;
       carregarGrupos(true);
@@ -4746,6 +4761,9 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
   });
   document.getElementById('btn-fc-trocar-grupo')?.addEventListener('click', async () => {
     aplicarTravaGrupo(false);
+    grupoTravado = false;
+    document.getElementById('fc-view-online')?.classList.add('hidden');
+    document.getElementById('fc-view-grupo')?.classList.remove('hidden');
     toast('Selecione o novo grupo. O chatbot continua no grupo atual até você escolher.');
     await carregarGrupos(true);
   });
@@ -4854,7 +4872,11 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
       grupoSalvo = grupo;
       document.getElementById('fc-step-group')?.classList.toggle('is-done', true);
       aplicarTravaGrupo(true);
-      toast('Grupo travado — o chatbot só responde neste grupo', 'success');
+      aplicarEstadoTela({
+        online: true,
+        detalhe: 'Grupo salvo. O chatbot só responde neste grupo.',
+      });
+      toast('Grupo definido — o chatbot só responde neste grupo', 'success');
     } catch (err) {
       if (sel) sel.value = grupoSalvo || '';
       aplicarTravaGrupo(Boolean(grupoSalvo));
@@ -4909,12 +4931,6 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
   });
 
   document.getElementById('btn-fc-conectar')?.addEventListener('click', async () => {
-    const btn = document.getElementById('btn-fc-conectar');
-    if (/atualizar/i.test(btn?.textContent || '') && !qrPainelAberto()) {
-      await refreshStatus({ silencioso: false });
-      toast(estadoOnline ? 'Chip continua conectado' : 'Status atualizado');
-      return;
-    }
     await solicitarQr();
   });
 
@@ -4981,7 +4997,7 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
           aguardandoQr: true,
           detalhe: data.qrcode
             ? 'QR pronto — escaneie no celular do chip.'
-            : (data.qr_erro || data.mensagem || 'Aguardando o QR. Se não aparecer, clique em Gerar QR de novo.'),
+            : (data.qr_erro || data.mensagem || 'Aguardando o QR. Se não aparecer, clique em Conectar de novo.'),
         });
         if (data.qrcode) toast('Escaneie o QR com o WhatsApp do chip', 'success');
         else toast('Sessão ligada. Espere o QR aparecer — não clique de novo.');
@@ -5013,7 +5029,7 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
   }
 
   document.getElementById('btn-fc-desconectar')?.addEventListener('click', async () => {
-    if (!confirm('Desconectar e limpar a sessão desta unidade no WhatsApp? Número e grupo serão apagados. Depois clique uma vez em Gerar QR.')) return;
+    if (!confirm('Desconectar o chip desta unidade? Número e grupo serão apagados. Depois será preciso conectar de novo e escolher o grupo.')) return;
     const btn = document.getElementById('btn-fc-desconectar');
     try {
       if (btn) btn.disabled = true;
@@ -5036,7 +5052,7 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
         timeoutMs: 25_000,
       });
       sessionStorage.removeItem(`wa_forcar_qr_${filialId}`);
-      toast(data.mensagem || 'Sessão limpa. Clique uma vez em Gerar QR e espere.', 'success');
+      toast(data.mensagem || 'Sessão limpa. Clique em Conectar para gerar o QR.', 'success');
       if (data.aviso) toast(data.aviso, 'warning');
       filiaisCache = [];
       await loadChatbotGerente();
@@ -5057,7 +5073,7 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
     aplicarEstadoTela({
       online: false,
       aguardandoQr: false,
-      detalhe: 'Sessão limpa. Clique uma vez em Gerar QR e espere o código.',
+      detalhe: 'Sessão limpa. Clique em Conectar e espere o QR.',
     });
   }
 }
@@ -5649,11 +5665,24 @@ function formatMoney(v) {
 
 function formatDateTime(iso) {
   if (!iso) return 'Nunca';
-  const s = String(iso).replace('T', ' ').slice(0, 16);
-  const [d, t] = s.split(' ');
-  if (!d) return iso;
-  const [y, m, day] = d.split('-');
-  return `${day}/${m}/${y}${t ? ` ${t}` : ''}`;
+  const d = iso instanceof Date ? iso : new Date(iso);
+  if (Number.isNaN(d.getTime())) {
+    const s = String(iso).replace('T', ' ').slice(0, 19);
+    const [dia, hora] = s.split(' ');
+    const [y, m, day] = String(dia || '').split('-');
+    if (y && m && day) return `${day}/${m}/${y}${hora ? ` ${hora.slice(0, 8)}` : ''}`;
+    return String(iso);
+  }
+  return new Intl.DateTimeFormat('pt-BR', {
+    timeZone: 'America/Sao_Paulo',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(d);
 }
 
 async function loadUsuarios() {
