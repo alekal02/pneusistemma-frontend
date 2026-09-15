@@ -312,6 +312,41 @@ h3 {
 
 .veiculo-meta { display: flex; align-items: center; gap: .65rem; flex-wrap: wrap; }
 
+.frota-busca-bar {
+  position: sticky;
+  top: 6.75rem;
+  z-index: 40;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: .5rem .75rem;
+  margin: 0 0 .85rem;
+  padding: .65rem 0 .55rem;
+  background: color-mix(in srgb, var(--bg, #f4f7f5) 92%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border);
+}
+.frota-busca-label {
+  font-weight: 600;
+  font-size: .88rem;
+}
+.frota-busca-bar input[type="search"] {
+  flex: 1;
+  min-width: min(100%, 220px);
+  max-width: 420px;
+  padding: .6rem .8rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  font-family: var(--font);
+  font-size: 1rem;
+}
+.frota-busca-bar input[type="search"]:focus {
+  outline: 2px solid var(--brand);
+  outline-offset: 1px;
+  border-color: var(--brand);
+}
+.frota-busca-bar .hint { margin: 0; }
+
 .dash-frota-chips {
   display: flex;
   flex-wrap: wrap;

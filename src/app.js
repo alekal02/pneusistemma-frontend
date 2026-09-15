@@ -662,6 +662,7 @@ async function loadDashboard() {
       fetchJSON(`${API}/veiculos`),
     ]);
     veiculosCache = veiculos;
+    atualizarSugestoesFrota(veiculos);
     limitesAtuais = { ...limitesAtuais, ...resumo.limites };
     syncMarkersLimites();
 
@@ -755,7 +756,7 @@ async function loadDashboard() {
             : '<span class="badge badge-sem_dado">Pendente</span>'));
       const diaTxt = diaV ? `Dia: ${labelDiaSemana(diaV)}` : 'Sem dia definido';
       return `
-        <div class="veiculo-card${pendente ? ' veiculo-card-pendente' : ''}${atrasado ? ' veiculo-card-atrasado' : ''}" data-id="${v.id}">
+        <div class="veiculo-card${pendente ? ' veiculo-card-pendente' : ''}${atrasado ? ' veiculo-card-atrasado' : ''}" data-id="${v.id}" ${attrsBuscaVeiculo(v)}>
           <div class="veiculo-info">
             <h4>${escapeHtml(v.apelido || v.placa)}</h4>
             <p>${escapeHtml(v.placa)} · ${escapeHtml(normalizarTipoLabel(v.tipo) || '')} · ${(v.km_atual || 0).toLocaleString('pt-BR')} km</p>
@@ -796,10 +797,33 @@ async function loadDashboard() {
         openVeiculoDetalhe(btn.dataset.id, 'dashboard');
       });
     });
+    const buscaDash = document.getElementById('dash-frota-busca');
+    if (buscaDash && !buscaDash.value) buscaDash.value = lerBuscaFrota();
+    filtrarListasFrota('dash-frota-busca');
   } catch (err) {
     toast(err.message, 'error');
   }
 }
+
+let frotaBuscaTimer;
+function onInputBuscaFrota(e) {
+  clearTimeout(frotaBuscaTimer);
+  frotaBuscaTimer = setTimeout(() => filtrarListasFrota(e.target.id), 60);
+}
+['dash-frota-busca', 'veiculos-busca'].forEach((id) => {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.addEventListener('input', onInputBuscaFrota);
+  el.addEventListener('search', () => filtrarListasFrota(id));
+  el.addEventListener('keydown', (ev) => {
+    if (ev.key !== 'Enter') return;
+    ev.preventDefault();
+    filtrarListasFrota(id);
+    const listaId = id === 'veiculos-busca' ? 'veiculos-lista' : 'dashboard-lista';
+    const view = id === 'veiculos-busca' ? 'veiculos' : 'dashboard';
+    abrirUnicoVeiculoBusca(listaId, view);
+  });
+});
 
 document.getElementById('dash-dia-medicao')?.addEventListener('change', async (e) => {
   const raw = e.target.value;
@@ -822,6 +846,7 @@ async function loadVeiculos() {
   try {
     const veiculos = await fetchJSON(`${API}/veiculos`);
     veiculosCache = veiculos;
+    atualizarSugestoesFrota(veiculos);
     const lista = document.getElementById('veiculos-lista');
 
     if (!veiculos.length) {
@@ -830,10 +855,10 @@ async function loadVeiculos() {
     }
 
     lista.innerHTML = veiculos.map((v) => `
-      <div class="veiculo-card" data-id="${v.id}">
+      <div class="veiculo-card" data-id="${v.id}" ${attrsBuscaVeiculo(v)}>
         <div class="veiculo-info">
-          <h4>${v.apelido || v.placa}</h4>
-          <p>${v.placa} · ${v.tipo} · ${v.total_pneus} pneus · ${v.km_atual?.toLocaleString('pt-BR') || 0} km</p>
+          <h4>${escapeHtml(v.apelido || v.placa)}</h4>
+          <p>${escapeHtml(v.placa)} · ${escapeHtml(normalizarTipoLabel(v.tipo) || v.tipo || '')} · ${v.total_pneus} pneus · ${v.km_atual?.toLocaleString('pt-BR') || 0} km</p>
         </div>
         <div class="veiculo-meta">
           ${badge(v.status_sulco)}
@@ -855,6 +880,9 @@ async function loadVeiculos() {
         openVeiculoDetalhe(btn.dataset.id, 'veiculos');
       });
     });
+    const buscaVeic = document.getElementById('veiculos-busca');
+    if (buscaVeic && !buscaVeic.value) buscaVeic.value = lerBuscaFrota();
+    filtrarListasFrota('veiculos-busca');
   } catch (err) {
     toast(err.message, 'error');
   }
@@ -1414,6 +1442,136 @@ function normalizarBuscaPneu(s) {
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '');
+}
+
+function compactarBuscaTexto(s) {
+  return normalizarBuscaPneu(s).replace(/[^a-z0-9]/g, '');
+}
+
+function textoBuscaVeiculo(v) {
+  return [
+    v?.apelido,
+    v?.placa,
+    v?.tipo,
+    v?.marca,
+    v?.modelo,
+    v?.filial_nome,
+  ].filter(Boolean).join(' ');
+}
+
+function attrsBuscaVeiculo(v) {
+  const hay = normalizarBuscaPneu(textoBuscaVeiculo(v));
+  return `data-busca="${escapeHtml(hay)}" data-busca-compacta="${escapeHtml(compactarBuscaTexto(hay))}"`;
+}
+
+function cardVeiculoCombinaBusca(card, qRaw) {
+  const q = normalizarBuscaPneu(qRaw);
+  if (!q) return true;
+  const hay = card.dataset.busca || '';
+  if (hay.includes(q)) return true;
+  const compacta = compactarBuscaTexto(qRaw);
+  const hayComp = card.dataset.buscaCompacta || compactarBuscaTexto(hay);
+  return Boolean(compacta) && hayComp.includes(compacta);
+}
+
+const FROTA_BUSCA_KEY = 'pneu_frota_busca';
+
+function lerBuscaFrota() {
+  return sessionStorage.getItem(FROTA_BUSCA_KEY) || '';
+}
+
+function gravarBuscaFrota(q) {
+  const t = String(q || '').trim();
+  if (t) sessionStorage.setItem(FROTA_BUSCA_KEY, t);
+  else sessionStorage.removeItem(FROTA_BUSCA_KEY);
+}
+
+function aplicarBuscaListaVeiculos(listaEl, qRaw, contadorEl) {
+  if (!listaEl) return 0;
+  const q = String(qRaw || '').trim();
+  const cards = [...listaEl.querySelectorAll('.veiculo-card')];
+  let visiveis = 0;
+  cards.forEach((card) => {
+    const ok = cardVeiculoCombinaBusca(card, q);
+    card.classList.toggle('hidden', !ok);
+    if (ok) visiveis += 1;
+  });
+  listaEl.querySelectorAll('.dash-frota-sec').forEach((sec) => {
+    const algum = [...sec.querySelectorAll('.veiculo-card')].some((c) => !c.classList.contains('hidden'));
+    sec.classList.toggle('hidden', Boolean(q) && !algum);
+  });
+  let vazio = listaEl.querySelector('.frota-busca-vazio');
+  if (q && cards.length && visiveis === 0) {
+    if (!vazio) {
+      vazio = document.createElement('p');
+      vazio.className = 'hint frota-busca-vazio';
+      listaEl.appendChild(vazio);
+    }
+    vazio.textContent = `Nenhum veículo encontrado para “${q}”.`;
+    vazio.classList.remove('hidden');
+  } else if (vazio) {
+    vazio.classList.add('hidden');
+  }
+  if (contadorEl) {
+    if (!cards.length) contadorEl.textContent = '';
+    else if (!q) contadorEl.textContent = `${cards.length} veículo${cards.length === 1 ? '' : 's'}`;
+    else if (visiveis === 1) contadorEl.textContent = '1 encontrado — Enter abre o veículo';
+    else contadorEl.textContent = `${visiveis} de ${cards.length}`;
+  }
+  return visiveis;
+}
+
+function sincronizarBuscasFrota(origemId, valor) {
+  ['dash-frota-busca', 'veiculos-busca'].forEach((id) => {
+    if (id === origemId) return;
+    const el = document.getElementById(id);
+    if (el && el.value !== valor) el.value = valor;
+  });
+}
+
+function filtrarListasFrota(origemId) {
+  const origem = origemId ? document.getElementById(origemId) : (document.getElementById('dash-frota-busca') || document.getElementById('veiculos-busca'));
+  const q = origem?.value || lerBuscaFrota();
+  if (origem && origem.value !== q && !origemId) origem.value = q;
+  gravarBuscaFrota(q);
+  sincronizarBuscasFrota(origem?.id, q);
+  aplicarBuscaListaVeiculos(
+    document.getElementById('dashboard-lista'),
+    q,
+    document.getElementById('dash-frota-busca-count'),
+  );
+  aplicarBuscaListaVeiculos(
+    document.getElementById('veiculos-lista'),
+    q,
+    document.getElementById('veiculos-busca-count'),
+  );
+}
+
+function atualizarSugestoesFrota(veiculos) {
+  const opcoes = [];
+  const seen = new Set();
+  (veiculos || []).forEach((v) => {
+    [v.placa, v.apelido].filter(Boolean).forEach((t) => {
+      const k = String(t).trim().toUpperCase();
+      if (!k || seen.has(k)) return;
+      seen.add(k);
+      opcoes.push(`<option value="${escapeHtml(String(t).trim())}"></option>`);
+    });
+  });
+  const html = opcoes.join('');
+  ['dash-frota-sugestoes', 'veiculos-sugestoes'].forEach((id) => {
+    const dl = document.getElementById(id);
+    if (dl) dl.innerHTML = html;
+  });
+}
+
+function abrirUnicoVeiculoBusca(listaId, view) {
+  const lista = document.getElementById(listaId);
+  const visiveis = [...(lista?.querySelectorAll('.veiculo-card') || [])]
+    .filter((c) => !c.classList.contains('hidden'));
+  if (visiveis.length === 1 && visiveis[0].dataset.id) {
+    openVeiculoDetalhe(visiveis[0].dataset.id, view);
+  }
 }
 
 function rotuloPneuEstoque(p) {
@@ -3697,11 +3855,10 @@ function filtrarPendenciasUnidade(filtro) {
 }
 
 function filtrarFrotaUnidade() {
-  const busca = (document.getElementById('unidade-frota-busca')?.value || '').trim().toLowerCase();
+  const busca = document.getElementById('unidade-frota-busca')?.value || '';
   const filtro = document.getElementById('unidade-frota-filtro')?.value || 'todos';
   document.querySelectorAll('#unidade-frota-tbody tr.veiculo-item').forEach((row) => {
-    const hay = (row.dataset.busca || '');
-    const matchBusca = !busca || hay.includes(busca);
+    const matchBusca = cardVeiculoCombinaBusca(row, busca);
     let matchFiltro = true;
     if (filtro === 'critico') matchFiltro = row.dataset.status === 'critico';
     else if (filtro === 'comprar') matchFiltro = Number(row.dataset.troca || 0) > 0;
@@ -3902,7 +4059,7 @@ function renderUnidadeFrota(data) {
                   data-troca="${v.pendencias_troca || 0}"
                   data-recap="${v.pendencias_recap || 0}"
                   data-monitorar="${v.pendencias_monitorar || 0}"
-                  data-busca="${escapeHtml(`${v.apelido || ''} ${v.placa || ''}`.toLowerCase())}"
+                  ${attrsBuscaVeiculo(v)}
                   tabindex="0" role="button">
                 <td>
                   <strong>${escapeHtml(v.apelido || v.placa)}</strong>

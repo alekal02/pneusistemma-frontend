@@ -219,6 +219,12 @@
         </div>
       </div>
       <h2>Resumo da Frota</h2>
+      <div class="frota-busca-bar">
+        <label class="frota-busca-label" for="dash-frota-busca">Buscar veículo</label>
+        <input type="search" id="dash-frota-busca" list="dash-frota-sugestoes" placeholder="Placa, apelido ou modelo…" autocomplete="off">
+        <datalist id="dash-frota-sugestoes"></datalist>
+        <span class="hint" id="dash-frota-busca-count"></span>
+      </div>
       <p class="hint" id="dashboard-limites-hint"></p>
       <div class="dash-dia-row" id="dash-dia-wrap">
         <label for="dash-dia-medicao">Dia da medição da frota</label>
@@ -240,6 +246,12 @@
           </label>
           <button class="btn btn-primary" id="btn-novo-veiculo">+ Novo Veículo</button>
         </div>
+      </div>
+      <div class="frota-busca-bar">
+        <label class="frota-busca-label" for="veiculos-busca">Buscar veículo</label>
+        <input type="search" id="veiculos-busca" list="veiculos-sugestoes" placeholder="Placa, apelido ou modelo…" autocomplete="off">
+        <datalist id="veiculos-sugestoes"></datalist>
+        <span class="hint" id="veiculos-busca-count"></span>
       </div>
 
       <div class="carga-frota-banner card">
