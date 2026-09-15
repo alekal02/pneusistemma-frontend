@@ -3395,6 +3395,10 @@ function mostrarQrFilial(data, nomeFilial) {
     return;
   }
 
+  if (qrImagemVisivel() && /401|unauthor/i.test(String(data?.qr_erro || data?.mensagem || ''))) {
+    return;
+  }
+
   if (data?.qr_erro && status) {
     wrap?.classList.remove('hidden');
     if (!qrImagemVisivel()) img?.classList.add('hidden');
@@ -3457,6 +3461,7 @@ function startWaPollFilial(filialId, nome) {
         return;
       }
       if (data.infra_wuzapi && qrImagemVisivel()) return;
+      if (/401|unauthor/i.test(String(data.qr_erro || data.mensagem || '')) && qrImagemVisivel()) return;
       if (data.qrcode || data.qr_erro) mostrarQrFilial(data, nome);
     } catch {
       // ignore
@@ -4348,6 +4353,9 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
     const detail = document.getElementById('fc-status-detail');
     const btnConn = document.getElementById('btn-fc-conectar');
     const chipNaTela = String(document.getElementById('fc-whatsapp')?.value || '').replace(/\D/g, '').length >= 10;
+    if (/401|unauthor/i.test(String(detalhe || '')) && qrImagemVisivel()) {
+      detalhe = 'QR pronto — escaneie no celular do chip.';
+    }
     if (online) {
       estadoOnline = true;
       falhasOff = 0;
@@ -4471,7 +4479,7 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
     if (document.getElementById('fc-hero')?.dataset.modo === 'is-online') {
       estadoOnline = true;
     }
-    if (silencioso && qrPainelAberto()) return;
+    if (silencioso && (qrPainelAberto() || qrImagemVisivel())) return;
     try {
       const st = await fetchJSON(`${API}/whatsapp/filial/${filialId}/status`);
       if (st.filial_id != null && Number(st.filial_id) !== Number(filialId)) return;
@@ -4955,7 +4963,6 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
       detalhe: 'Ligando a sessão uma vez. Espere o QR — não clique de novo.',
     });
     toast(`Ligando WhatsApp de ${nomeFilial}. Espere o QR.`);
-    startWaPollFilial(filialId, nomeFilial);
     try {
       const data = await fetchJSON(`${API}/whatsapp/filial/${filialId}/connect`, {
         method: 'POST',
@@ -5002,6 +5009,15 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
       }
     } catch (err) {
       const msg = err.message || 'Falha ao gerar o QR';
+      if (qrImagemVisivel() && /401|unauthor/i.test(msg)) {
+        aplicarEstadoTela({
+          online: false,
+          aguardandoQr: true,
+          detalhe: 'QR pronto — escaneie no celular do chip.',
+        });
+        startWaPollFilial(filialId, nomeFilial);
+        return;
+      }
       aplicarEstadoTela({
         online: false,
         aguardandoQr: true,
