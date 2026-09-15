@@ -3568,10 +3568,14 @@ function mostrarQrFilial(data, nomeFilial) {
 function startWaPollFilial(filialId, nome) {
   stopWaQrPoll();
   waPollFilialId = filialId;
+  let pollEmAndamento = false;
   waPollTimer = setInterval(async () => {
+    if (pollEmAndamento) return;
+    pollEmAndamento = true;
     try {
       if (Number(waPollFilialId) !== Number(filialId)) return;
-      const data = await fetchJSON(`${API}/whatsapp/filial/${filialId}/status?qr=1`);
+      const comQr = qrImagemVisivel() ? '' : '?qr=1';
+      const data = await fetchJSON(`${API}/whatsapp/filial/${filialId}/status${comQr}`);
       if (data.filial_id != null && Number(data.filial_id) !== Number(filialId)) return;
       if (data.token_compartilhado || data.sessao_alheia) {
         if (data.qrcode || data.qr_erro) mostrarQrFilial(data, nome);
@@ -3623,8 +3627,10 @@ function startWaPollFilial(filialId, nome) {
       if (data.qrcode || data.qr_erro) mostrarQrFilial(data, nome);
     } catch {
       // ignore
+    } finally {
+      pollEmAndamento = false;
     }
-  }, 4000);
+  }, 8000);
 }
 
 document.getElementById('btn-wa-qr-fechar')?.addEventListener('click', () => {
@@ -4680,12 +4686,6 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
           aguardandoQr: Boolean(st.qrcode),
           detalhe: detalheStatusWa(st, 'Chip desconectado. Clique em Conectar para gerar o QR.'),
         });
-        if (!gerandoQr && !qrImagemVisivel() && !sessionStorage.getItem(`wa_auto_qr_${filialId}`)) {
-          sessionStorage.setItem(`wa_auto_qr_${filialId}`, '1');
-          setTimeout(() => {
-            if (!qrImagemVisivel() && !gerandoQr) solicitarQr({ forcar: true });
-          }, 400);
-        }
         return;
       }
 
@@ -4908,7 +4908,7 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
   }
   refreshStatus({ silencioso: true });
   if (waStatusWatchTimer) clearInterval(waStatusWatchTimer);
-  waStatusWatchTimer = setInterval(() => refreshStatus({ silencioso: true }), 12000);
+  waStatusWatchTimer = setInterval(() => refreshStatus({ silencioso: true }), 20000);
 
   const carregarGrupos = async (silencioso = false) => {
     const sel = document.getElementById('fc-whatsapp-grupo');
@@ -5155,7 +5155,7 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
     if (btnHero) btnHero.disabled = true;
     if (btnQr) btnQr.disabled = true;
     const temChip = String(document.getElementById('fc-whatsapp')?.value || '').replace(/\D/g, '').length >= 10;
-    const forcarQr = Boolean(forcar);
+    const forcarQr = Boolean(forcar) || Boolean(sessionStorage.getItem(`wa_forcar_qr_${filialId}`));
     abrirPainelQr('Consultando o servidor e gerando o QR…', nomeFilial);
     aplicarEstadoTela({
       online: false,
@@ -5167,7 +5167,7 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
       const data = await fetchJSON(`${API}/whatsapp/filial/${filialId}/connect`, {
         method: 'POST',
         body: JSON.stringify({ forcar_qr: forcarQr }),
-        timeoutMs: 45_000,
+        timeoutMs: 25_000,
       });
       const estado = estadoDaRespostaWa(data);
       const phoneResp = String(data.phone || '').replace(/\D/g, '');
