@@ -4685,7 +4685,6 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
       }
 
       if (sessaoMorta) {
-        sessionStorage.setItem(`wa_forcar_qr_${filialId}`, '1');
         aplicarEstadoTela({
           online: false,
           aguardandoQr: Boolean(st.qrcode),
@@ -5149,7 +5148,7 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
     if (btnHero) btnHero.disabled = true;
     if (btnQr) btnQr.disabled = true;
     const temChip = String(document.getElementById('fc-whatsapp')?.value || '').replace(/\D/g, '').length >= 10;
-    const forcarQr = Boolean(forcar) || Boolean(sessionStorage.getItem(`wa_forcar_qr_${filialId}`));
+    const forcarQr = Boolean(forcar);
     abrirPainelQr('Consultando o servidor e gerando o QR…', nomeFilial);
     aplicarEstadoTela({
       online: false,
@@ -5161,46 +5160,49 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
       const data = await fetchJSON(`${API}/whatsapp/filial/${filialId}/connect`, {
         method: 'POST',
         body: JSON.stringify({ forcar_qr: forcarQr }),
-        timeoutMs: 25_000,
+        timeoutMs: 35_000,
       });
+      sessionStorage.removeItem(`wa_forcar_qr_${filialId}`);
       const estado = estadoDaRespostaWa(data);
       const phoneResp = String(data.phone || '').replace(/\D/g, '');
-      const chipOk = temChip || phoneResp.length >= 10;
-      if ((estado === 'conectado' || data.loggedIn) && !data.sessao_alheia && !data.token_compartilhado && chipOk && !data.qrcode) {
+      if ((estado === 'conectado' || data.loggedIn) && !data.sessao_alheia && !data.token_compartilhado && !data.qrcode) {
         document.getElementById('fc-qr-wrap')?.classList.add('hidden');
-      } else {
-        mostrarQrFilial(data, nomeFilial);
-      }
-      if (data.loggedIn && phoneResp.length >= 10 && !data.sessao_alheia && !data.token_compartilhado) {
-        chipSessaoAplicado = false;
-        await aplicarNumeroChip(phoneResp, { salvar: true, forcar: true });
-        chipSessaoAplicado = true;
-        atualizarLinhaChip(phoneResp);
-      }
-      if ((estado === 'conectado' || data.loggedIn) && !data.sessao_alheia && !data.token_compartilhado && chipOk && !data.qrcode) {
+        if (phoneResp.length >= 10) {
+          chipSessaoAplicado = false;
+          await aplicarNumeroChip(phoneResp, { salvar: true, forcar: true });
+          chipSessaoAplicado = true;
+          atualizarLinhaChip(phoneResp);
+        }
         toast(data.mensagem || `Chatbot ${nomeFilial} já está conectado`, 'success');
-        aplicarEstadoTela({ online: true, detalhe: data.mensagem });
+        aplicarEstadoTela({
+          online: true,
+          detalhe: phoneResp
+            ? `Chip ${phoneResp} no ar. Escolha o grupo da medição.`
+            : (data.mensagem || 'Chip no ar. Escolha o grupo da medição.'),
+        });
         gruposJaPedidos = false;
         setTimeout(() => carregarGrupos(true), 800);
-      } else if ((estado === 'servidor_indisponivel' || data.infra_wuzapi) && temChip) {
-        aplicarEstadoTela({
-          online: false,
-          instavel: true,
-          detalhe: data.qr_erro || data.mensagem || 'Servidor do WhatsApp lento. O chip pode continuar no ar.',
-        });
-        toast(data.qr_erro || data.mensagem || 'Servidor do WhatsApp lento. Tente de novo em instantes.', 'error');
-      } else {
+        return;
+      }
+      if (data.qrcode) {
+        mostrarQrFilial(data, nomeFilial);
         aplicarEstadoTela({
           online: false,
           aguardandoQr: true,
-          detalhe: data.qrcode
-            ? 'QR pronto — escaneie no celular do chip.'
-            : (data.qr_erro || data.mensagem || 'Aguardando o QR. Se não aparecer, clique em Conectar de novo.'),
+          detalhe: 'QR pronto — escaneie no celular do chip.',
         });
-        if (data.qrcode) toast('Escaneie o QR com o WhatsApp do chip', 'success');
-        else toast('Sessão ligada. Espere o QR aparecer — não clique de novo.');
+        toast('Escaneie o QR com o WhatsApp do chip', 'success');
         startWaPollFilial(filialId, nomeFilial);
+        return;
       }
+      mostrarQrFilial(data, nomeFilial);
+      aplicarEstadoTela({
+        online: false,
+        aguardandoQr: true,
+        detalhe: data.qr_erro || data.mensagem || 'Aguardando o QR. Clique em Conectar de novo se não aparecer.',
+      });
+      toast(data.qr_erro || data.mensagem || 'QR ainda não veio. Clique em Conectar de novo.', 'error');
+      startWaPollFilial(filialId, nomeFilial);
     } catch (err) {
       const msg = err.message || 'Falha ao gerar o QR';
       if (qrImagemVisivel() && /401|unauthor/i.test(msg)) {
