@@ -4078,7 +4078,7 @@ function renderChatbotPanelHtml(data) {
       </header>
 
       <div id="fc-view-conectar" class="wa-stage">
-        <p class="hint">Clique em Conectar para gerar o QR Code do chip desta unidade.</p>
+        <p class="hint">Clique em Conectar. O sistema usa um token desta unidade, consulta o servidor e mostra o QR.</p>
         <button type="button" class="btn btn-primary btn-lg" id="btn-fc-conectar">Conectar</button>
         <div class="cb-qr-panel hidden" id="fc-qr-wrap">
           <h4 id="fc-qr-titulo">Escaneie o QR Code</h4>
@@ -4947,11 +4947,8 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
     if (btnHero) btnHero.disabled = true;
     if (btnQr) btnQr.disabled = true;
     const temChip = String(document.getElementById('fc-whatsapp')?.value || '').replace(/\D/g, '').length >= 10;
-    const forcarQr = Boolean(forcar)
-      || !temChip
-      || qrPainelAberto()
-      || /gerar qr/i.test(btnHero?.textContent || '');
-    abrirPainelQr('Ligando a sessão… espere o QR. Não clique de novo.', nomeFilial);
+    const forcarQr = Boolean(forcar);
+    abrirPainelQr('Consultando o servidor e gerando o QR…', nomeFilial);
     aplicarEstadoTela({
       online: false,
       aguardandoQr: true,
