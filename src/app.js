@@ -4349,6 +4349,29 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
     line.innerHTML = `Chip: <strong>${digits ? escapeHtml(digits) : 'ainda não informado'}</strong>${grupoOk ? ' · Grupo escolhido' : ' · Sem grupo'}`;
   };
 
+  const limparChipLocal = () => {
+    const input = document.getElementById('fc-whatsapp');
+    if (input) input.value = '';
+    const sel = document.getElementById('fc-whatsapp-grupo');
+    if (sel) sel.innerHTML = '<option value="">— Selecione o grupo —</option>';
+    const alertaHidden = document.getElementById('fc-whatsapp-alerta');
+    if (alertaHidden) alertaHidden.value = '';
+    document.getElementById('fc-alerta-lista')?.querySelectorAll('input[type="checkbox"]')
+      .forEach((c) => { c.checked = false; });
+    grupoSalvo = '';
+    grupoTravado = false;
+    chipSessaoAplicado = false;
+    atualizarLinhaChip('');
+  };
+
+  const detalheStatusWa = (st, fallback) => {
+    const raw = String(st?.qr_erro || st?.mensagem || '');
+    if (/no session|session not found|not logged/i.test(raw)) {
+      return 'Chip desconectado. Clique em Conectar para gerar o QR.';
+    }
+    return raw || fallback;
+  };
+
   const aplicarEstadoTela = ({ online, aguardandoQr, instavel, aviso, detalhe }) => {
     const detail = document.getElementById('fc-status-detail');
     const btnConn = document.getElementById('btn-fc-conectar');
@@ -4484,18 +4507,44 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
       const st = await fetchJSON(`${API}/whatsapp/filial/${filialId}/status`);
       if (st.filial_id != null && Number(st.filial_id) !== Number(filialId)) return;
       const estado = estadoDaRespostaWa(st);
+      const sessaoMorta = Boolean(st.sessao_morta || st.sessao_inexistente)
+        && !st.loggedIn
+        && !st.token_compartilhado
+        && !st.sessao_alheia;
+
+      if (sessaoMorta || (!st.loggedIn && !st.chip_presumido && !st.infra_wuzapi)) {
+        limparChipLocal();
+      }
+
+      if (sessaoMorta) {
+        sessionStorage.setItem(`wa_forcar_qr_${filialId}`, '1');
+        aplicarEstadoTela({
+          online: false,
+          aguardandoQr: Boolean(st.qrcode),
+          detalhe: detalheStatusWa(st, 'Chip desconectado. Clique em Conectar para gerar o QR.'),
+        });
+        if (!gerandoQr && !qrImagemVisivel() && !sessionStorage.getItem(`wa_auto_qr_${filialId}`)) {
+          sessionStorage.setItem(`wa_auto_qr_${filialId}`, '1');
+          setTimeout(() => {
+            if (!qrImagemVisivel() && !gerandoQr) solicitarQr({ forcar: true });
+          }, 400);
+        }
+        return;
+      }
 
       if (estado === 'precisa_qr' || st.token_compartilhado || st.sessao_alheia) {
         aplicarEstadoTela({
           online: false,
           aguardandoQr: Boolean(st.qrcode),
-          detalhe: st.mensagem || 'Cada unidade precisa do próprio chip. Clique em Conectar chip e escaneie o QR desta filial.',
+          detalhe: detalheStatusWa(st, 'Cada unidade precisa do próprio chip. Clique em Conectar chip e escaneie o QR desta filial.'),
         });
-        atualizarLinhaChip(st.chip_salvo || st.whatsapp);
+        atualizarLinhaChip(st.loggedIn ? (st.chip_salvo || st.whatsapp) : '');
         return;
       }
 
       if (st.loggedIn && st.phone && !st.chip_presumido) {
+        sessionStorage.removeItem(`wa_forcar_qr_${filialId}`);
+        sessionStorage.removeItem(`wa_auto_qr_${filialId}`);
         const chipSalvo = String(st.chip_salvo || st.whatsapp || '').replace(/\D/g, '');
         const atual = String(document.getElementById('fc-whatsapp')?.value || '').replace(/\D/g, '');
         if (chipSalvo.length >= 10 && (!chipSessaoAplicado || !atual)) {
@@ -4503,6 +4552,8 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
           chipSessaoAplicado = true;
         }
         atualizarLinhaChip(chipSalvo.length >= 10 ? st.phone : '');
+      } else if (!st.loggedIn) {
+        atualizarLinhaChip('');
       } else {
         atualizarLinhaChip(st.chip_salvo || st.whatsapp || '');
       }
@@ -4540,25 +4591,16 @@ function wireFilialChatbotPanel(filialId, nomeFilial, { alertasEnabled = false }
           instavel: true,
           detalhe: chipJaTem.length >= 10
             ? 'Chip desta unidade continua cadastrado. Não precisa escanear de novo.'
-            : (st.qr_erro || st.mensagem || 'Servidor do WhatsApp lento. Aguarde e atualize o status.'),
+            : detalheStatusWa(st, 'Servidor do WhatsApp lento. Aguarde e atualize o status.'),
         });
         return;
       }
 
       if (estado === 'aguardando_qr' || (st.connected && !st.loggedIn)) {
-        const chipJaTem = String(st.chip_salvo || st.whatsapp || document.getElementById('fc-whatsapp')?.value || '').replace(/\D/g, '');
-        if (chipJaTem.length >= 10 && !st.qrcode) {
-          aplicarEstadoTela({
-            online: false,
-            instavel: true,
-            detalhe: 'Chip já cadastrado nesta unidade. Confirmando a sessão — não é preciso outro QR.',
-          });
-          return;
-        }
         aplicarEstadoTela({
           online: false,
           aguardandoQr: true,
-          detalhe: st.qr_erro || 'Escaneie o QR com o WhatsApp do chip desta unidade.',
+          detalhe: detalheStatusWa(st, 'Escaneie o QR com o WhatsApp do chip desta unidade.'),
         });
         return;
       }
