@@ -1178,6 +1178,19 @@
           </div>
         </div>
       </details>
+      <input type="hidden" id="pneu-edit-status" value="">
+      <div id="pneu-destino-estoque" class="pneu-destino-box hidden">
+        <p><strong>Enviar este pneu do estoque</strong></p>
+        <p class="hint">Não precisa montar no caminhão. Recapagem fica em processo até voltar; descarte vai para o estoque de descarte para definir o tratamento.</p>
+        <div class="form-group">
+          <label for="pneu-destino-obs">Observação (opcional)</label>
+          <input type="text" id="pneu-destino-obs" placeholder="Ex.: sulco baixo, recap Bandag, rasgado…">
+        </div>
+        <div class="pneu-destino-acoes">
+          <button type="button" class="btn btn-ghost" id="btn-pneu-enviar-recap">Enviar à recapagem</button>
+          <button type="button" class="btn btn-ghost btn-danger-text" id="btn-pneu-enviar-descarte">Enviar ao descarte</button>
+        </div>
+      </div>
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost" id="btn-cancelar-pneu">Cancelar</button>
         <button type="submit" class="btn btn-primary">Salvar</button>

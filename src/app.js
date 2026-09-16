@@ -2415,9 +2415,34 @@ function setTipoCondicaoEditaveis(editavel) {
   }
 }
 
+function mostrarDestinoEstoque(mostrar) {
+  const box = document.getElementById('pneu-destino-estoque');
+  if (box) box.classList.toggle('hidden', !mostrar);
+  const obs = document.getElementById('pneu-destino-obs');
+  if (obs) obs.value = '';
+}
+
+function payloadFormPneu() {
+  const payload = {
+    numero_fogo: document.getElementById('pneu-fogo').value,
+    dot: document.getElementById('pneu-dot').value,
+    marca: document.getElementById('pneu-marca').value,
+    modelo: document.getElementById('pneu-modelo').value,
+    medida: document.getElementById('pneu-medida')?.value || null,
+    custo: numOrNull('pneu-custo'),
+    nota_fiscal: document.getElementById('pneu-nota').value || null,
+    vida_recap: parseInt(document.getElementById('pneu-vida').value, 10),
+    sulco_inicial_mm: numOrNull('pneu-sulco-inicial'),
+    tipo_pneu: document.getElementById('pneu-tipo').value,
+    condicao: document.getElementById('pneu-condicao').value,
+  };
+  return payload;
+}
+
 async function abrirModalPneuNovo() {
   document.getElementById('modal-pneu-titulo').textContent = 'Novo pneu no estoque';
   document.getElementById('pneu-edit-id').value = '';
+  document.getElementById('pneu-edit-status').value = '';
   document.getElementById('form-pneu').reset();
   document.getElementById('pneu-tipo').value = 'misto';
   document.getElementById('pneu-condicao').value = 'novo';
@@ -2425,6 +2450,7 @@ async function abrirModalPneuNovo() {
   const avancado = document.getElementById('pneu-avancado');
   if (avancado) avancado.open = false;
   setTipoCondicaoEditaveis(true);
+  mostrarDestinoEstoque(false);
   mostrarBotaoGerarFogo(true);
   const hintFogo = document.getElementById('pneu-fogo-hint');
   if (hintFogo) {
@@ -2449,11 +2475,13 @@ async function abrirModalPneu(id) {
     document.getElementById('pneu-condicao').value = p.condicao || 'novo';
     document.getElementById('pneu-vida').value = String(p.vida_recap ?? 0);
     document.getElementById('pneu-sulco-inicial').value = p.sulco_inicial_mm ?? '';
+    document.getElementById('pneu-edit-status').value = p.status_pneu || '';
     const avancado = document.getElementById('pneu-avancado');
     if (avancado) {
       avancado.open = !!(p.dot || p.medida || p.sulco_inicial_mm || (p.vida_recap > 0));
     }
     setTipoCondicaoEditaveis(true);
+    mostrarDestinoEstoque(p.status_pneu === 'estoque');
     mostrarBotaoGerarFogo(false);
     const hintFogo = document.getElementById('pneu-fogo-hint');
     if (hintFogo) hintFogo.textContent = 'Identificação única do pneu nesta unidade.';
@@ -2492,25 +2520,77 @@ document.getElementById('pneus-busca')?.addEventListener('input', () => {
   pneusBuscaTimer = setTimeout(loadPneus, 300);
 });
 
+async function enviarPneuEstoqueDestino(tipo) {
+  const id = document.getElementById('pneu-edit-id').value;
+  const status = document.getElementById('pneu-edit-status')?.value;
+  const fogo = (document.getElementById('pneu-fogo')?.value || '').trim();
+  if (!id) return toast('Salve o pneu primeiro para enviar à recap ou ao descarte', 'error');
+  if (status !== 'estoque') {
+    return toast('Só pneus em estoque podem ir para recap ou descarte por aqui', 'error');
+  }
+  const ehRecap = tipo === 'recap';
+  const label = ehRecap
+    ? 'à recapagem (sai do estoque e fica em processo até voltar)'
+    : 'ao descarte (depois você define o tratamento: reciclagem, sucata…)';
+  if (!confirm(`Enviar o pneu${fogo ? ` fogo ${fogo}` : ''} ${label}?`)) return;
+
+  const payload = payloadFormPneu();
+  if (!payload.modelo?.trim()) return toast('Informe o modelo do pneu', 'error');
+  const obs = document.getElementById('pneu-destino-obs')?.value?.trim() || '';
+
+  const btnRecap = document.getElementById('btn-pneu-enviar-recap');
+  const btnDesc = document.getElementById('btn-pneu-enviar-descarte');
+  if (btnRecap) btnRecap.disabled = true;
+  if (btnDesc) btnDesc.disabled = true;
+
+  try {
+    await fetchJSON(`${API}/pneus/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
+    const result = await fetchJSON(`${API}/pneus/${id}/evento`, {
+      method: 'POST',
+      body: JSON.stringify({
+        tipo,
+        detalhes: obs
+          ? `Estoque · ${obs}`
+          : (ehRecap ? 'Enviado à recap a partir do estoque' : 'Enviado ao descarte a partir do estoque'),
+      }),
+    });
+    document.getElementById('modal-pneu')?.close();
+    toast(result.mensagem || (ehRecap ? 'Enviado à recapagem' : 'Enviado ao descarte'), 'success');
+    const filtro = document.getElementById('pneus-filtro-status');
+    if (filtro) filtro.value = ehRecap ? 'recapagem' : 'descarte';
+    const hint = document.getElementById('pneus-filtro-hint');
+    if (hint) hint.classList.toggle('hidden', filtro?.value !== 'recapagem');
+    await loadPneus();
+    if (!ehRecap) {
+      abrirModalTratamentoDescarte({
+        id: parseInt(id, 10),
+        fogo,
+        tratamento: 'pendente',
+        obs,
+      });
+    }
+  } catch (err) {
+    toast(err.message, 'error');
+  } finally {
+    if (btnRecap) btnRecap.disabled = false;
+    if (btnDesc) btnDesc.disabled = false;
+  }
+}
+
+document.getElementById('btn-pneu-enviar-recap')?.addEventListener('click', () => {
+  enviarPneuEstoqueDestino('recap');
+});
+document.getElementById('btn-pneu-enviar-descarte')?.addEventListener('click', () => {
+  enviarPneuEstoqueDestino('descarte');
+});
+
 document.getElementById('form-pneu')?.addEventListener('submit', async (e) => {
   e.preventDefault();
   const id = document.getElementById('pneu-edit-id').value;
-  const payload = {
-    numero_fogo: document.getElementById('pneu-fogo').value,
-    dot: document.getElementById('pneu-dot').value,
-    marca: document.getElementById('pneu-marca').value,
-    modelo: document.getElementById('pneu-modelo').value,
-    medida: document.getElementById('pneu-medida')?.value || null,
-    custo: numOrNull('pneu-custo'),
-    nota_fiscal: document.getElementById('pneu-nota').value || null,
-    vida_recap: parseInt(document.getElementById('pneu-vida').value, 10),
-    sulco_inicial_mm: numOrNull('pneu-sulco-inicial'),
-  };
+  const payload = payloadFormPneu();
   if (!payload.modelo?.trim()) {
     return toast('Informe o modelo do pneu', 'error');
   }
-  payload.tipo_pneu = document.getElementById('pneu-tipo').value;
-  payload.condicao = document.getElementById('pneu-condicao').value;
   try {
     if (id) {
       await fetchJSON(`${API}/pneus/${id}`, { method: 'PUT', body: JSON.stringify(payload) });

@@ -588,6 +588,22 @@ h3 {
 }
 .modal-actions { display: flex; justify-content: flex-end; gap: .5rem; margin-top: 1rem; }
 
+.pneu-destino-box {
+  margin-top: 1rem;
+  padding: .75rem .85rem;
+  background: #fff7ed;
+  border: 1px solid #fed7aa;
+  border-radius: 8px;
+}
+.pneu-destino-box p { margin: 0 0 .35rem; }
+.pneu-destino-box .form-group { margin: .55rem 0 .65rem; }
+.pneu-destino-acoes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .45rem;
+}
+.pneu-destino-acoes .btn { flex: 1 1 9.5rem; justify-content: center; }
+
 /* HistÃ³rico */
 .historico-table { width: 100%; border-collapse: collapse; font-size: .85rem; margin-top: 1rem; }
 .historico-table th, .historico-table td { padding: .55rem .75rem; text-align: left; border-bottom: 1px solid var(--border); }
