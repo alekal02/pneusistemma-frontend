@@ -3062,6 +3062,11 @@ function mostrarResultadoImport(elId, result) {
 
 async function importarCsvArquivo(file, endpoint, resultadoId, onOk) {
   if (!file) return;
+  const nome = String(file.name || '').toLowerCase();
+  if (/\.xlsx?$/.test(nome) || file.type.includes('spreadsheet') || file.type.includes('excel')) {
+    toast('Envie o modelo em CSV (no Excel: Salvar como → CSV). Arquivo .xlsx não preenche o nº de fogo.', 'error');
+    return;
+  }
   try {
     const csv = await file.text();
     if (!csv.trim()) throw new Error('Arquivo vazio');
