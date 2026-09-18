@@ -2070,6 +2070,25 @@ h3 {
   font-size: .88rem;
   color: var(--text-muted);
 }
+.wa-grupos-admin {
+  display: flex;
+  flex-direction: column;
+  gap: .75rem;
+}
+.wa-grupo-filial {
+  display: grid;
+  grid-template-columns: minmax(8rem, 1fr) minmax(12rem, 1.4fr);
+  gap: .6rem 1rem;
+  align-items: center;
+}
+.wa-grupo-filial select {
+  width: 100%;
+}
+@media (max-width: 640px) {
+  .wa-grupo-filial {
+    grid-template-columns: 1fr;
+  }
+}
 .wa-hero #fc-status-detail {
   margin: .35rem 0 0;
   min-height: 1.3em;

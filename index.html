@@ -110,13 +110,13 @@
     </nav>
     <nav class="nav-tabs hidden" id="nav-tabs-gerente">
       <button class="tab active" data-view="filiais">Minha unidade</button>
-      <button class="tab" data-view="chatbot">WhatsApp</button>
       <button class="tab" data-view="usuarios">Logins da unidade</button>
     </nav>
     <nav class="nav-tabs hidden" id="nav-tabs-admin">
       <button class="tab active" data-view="relatorios">Relatórios</button>
       <button class="tab" data-view="usuarios">Usuários e acessos</button>
       <button class="tab" data-view="filiais">Filiais</button>
+      <button class="tab" data-view="chatbot">WhatsApp</button>
       <button class="tab" data-view="configuracoes">Limites globais</button>
     </nav>
   </header>
@@ -156,7 +156,7 @@
       <p class="hint">
         Defina o <strong>tipo de acesso</strong> de cada login:
         <strong>Operador de filial</strong> (frota/medições) ou
-        <strong>Gerente de unidade</strong> (alertas, compras e chatbot WhatsApp).
+        <strong>Gerente de unidade</strong> (alertas, compras e frota da unidade).
         Senhas ficam criptografadas — ao redefinir, a provisória aparece só nesta tela.
       </p>
       <div id="usuarios-lista" class="card" style="overflow-x:auto"></div>
@@ -178,9 +178,9 @@
         <h2>WhatsApp</h2>
       </div>
       <p class="hint wa-page-hint">
-        <span>1. Conectar (QR)</span>
-        <span>2. Escolher o grupo</span>
-        <span>3. Pronto — desconectar e ver o log</span>
+        <span>1. Conectar o chip (uma vez)</span>
+        <span>2. Escolher o grupo de cada filial</span>
+        <span>3. Pronto</span>
       </p>
       <div id="chatbot-filial-panel" class="card chatbot-setup-card"></div>
     </section>
@@ -1059,20 +1059,18 @@
         <label for="f-nova-senha">Nova senha (deixe em branco para não alterar)</label>
         <input type="password" id="f-nova-senha" placeholder="Resetar senha" autocomplete="new-password">
       </div>
-      <div class="form-group">
+      <div class="form-group hidden" id="f-whatsapp-wrap">
         <label for="f-whatsapp">Número do chip (chatbot)</label>
         <input type="text" id="f-whatsapp" placeholder="5511999999999" inputmode="tel">
-        <small class="field-hint">Chip conectado via QR. O grupo do chatbot é escolhido no painel WhatsApp após conectar.</small>
       </div>
       <div class="form-group">
         <label for="f-whatsapp-alerta">Número para alertas</label>
         <input type="text" id="f-whatsapp-alerta" placeholder="5511888888888" inputmode="tel">
         <small class="field-hint">Para onde vão os avisos de pneu crítico / monitorar.</small>
       </div>
-      <div class="form-group" id="f-wuzapi-token-wrap">
+      <div class="form-group hidden" id="f-wuzapi-token-wrap">
         <label for="f-wuzapi-token">Token WuzAPI desta filial</label>
         <input type="password" id="f-wuzapi-token" placeholder="Token do usuário WuzAPI" autocomplete="off">
-        <small class="field-hint">Crie um usuário no WuzAPI para este chip e cole o token aqui. Deixe em branco ao editar para não alterar.</small>
       </div>
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost" id="btn-cancelar-filial">Cancelar</button>
@@ -1370,7 +1368,7 @@
             <option value="gerente">Gerente de unidade — alertas e chatbot</option>
             <option value="admin">Admin total — sistema inteiro</option>
           </select>
-          <small class="field-hint" id="u-papel-hint">Operador usa o menu da frota. Gerente abre “Minha unidade” e configura WhatsApp na aba dedicada.</small>
+          <small class="field-hint" id="u-papel-hint">Operador usa o menu da frota. Gerente abre “Minha unidade”. O chatbot WhatsApp fica no admin.</small>
         </div>
         <div class="form-group" id="u-filial-wrap">
           <label for="u-filial">Filial</label>
