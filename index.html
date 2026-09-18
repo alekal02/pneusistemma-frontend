@@ -297,12 +297,13 @@
       </div>
       <ol class="fluxo-passos">
         <li class="ativo"><strong>Estoque</strong> — cadastre pneus avulsos aqui</li>
+        <li><strong>Planilha</strong> — preencha placa e posição para já montar no caminhão</li>
         <li><strong>Atalho</strong> — no veículo, clique no slot vazio e crie o pneu na hora</li>
       </ol>
-      <p class="hint">Use esta aba para estoque, histórico e pneus em descarte (tratamento do destino). Para montar rápido, prefira o diagrama do veículo.</p>
+      <p class="hint">Use esta aba para estoque, histórico e pneus em descarte. Na planilha, placa + posição montam o pneu no caminhão já cadastrado.</p>
       <details class="import-hint-details">
         <summary>Dica para importação CSV de pneus</summary>
-        <p class="hint import-hint">Campos: nº de fogo, padrão (<code>direcional</code>, <code>misto</code>, <code>borrachudo</code>), condição.</p>
+        <p class="hint import-hint">Campos: nº de fogo, <code>placa</code>, <code>posicao</code> (ex.: 1E, 2EE), padrão (<code>direcional</code>, <code>misto</code>, <code>borrachudo</code>), condição. Com placa e posição preenchidas o pneu já entra montado no caminhão. Sem placa, vai para o estoque.</p>
       </details>
       <div id="import-resultado-pneus" class="import-resultado hidden"></div>
       <div class="pneus-toolbar">

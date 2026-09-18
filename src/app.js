@@ -45,6 +45,8 @@ let veiculosCache = [];
 let filiaisCache = [];
 let tireMarker = null;
 let limitesPainelBackup = null;
+let configuracoesEmSessao = null;
+let veiculoDetalheSeq = 0;
 let limitesAtuais = {
   sulco_critico_mm: 3.0,
   sulco_alerta_mm: 8.0,
@@ -85,6 +87,7 @@ function saveAuth(token, usuario) {
 function clearAuth() {
   authToken = null;
   currentUser = null;
+  configuracoesEmSessao = null;
   localStorage.removeItem(AUTH_KEY);
 }
 
@@ -239,8 +242,10 @@ function mostrarBotaoGerarFogo(visivel) {
 }
 
 async function fetchConfiguracoes() {
+  if (configuracoesEmSessao) return configuracoesEmSessao;
   try {
-    return await fetchJSON(`${API}/configuracoes`);
+    configuracoesEmSessao = await fetchJSON(`${API}/configuracoes`);
+    return configuracoesEmSessao;
   } catch {
     return { ...LIMITES_PADRAO };
   }
@@ -640,39 +645,49 @@ document.getElementById('btn-voltar-dashboard').addEventListener('click', () => 
 async function fetchDashboardResumo() {
   try {
     return await fetchJSON(`${API}/dashboard/resumo`);
-  } catch {
-    const veiculos = await fetchJSON(`${API}/veiculos`);
-    return {
-      veiculos_ativos: veiculos.length,
-      pneus_ok: 0,
-      pneus_alerta: 0,
-      pneus_critico: 0,
-      acoes: { troca: 0, recap: 0, monitorar: 0 },
-      limites: limitesAtuais,
-    };
+  } catch (err) {
+    toast('Indicadores do painel indisponíveis. A lista da frota continua abaixo.', 'error');
+    try {
+      const veiculos = await fetchJSON(`${API}/veiculos`);
+      return {
+        veiculos,
+        veiculos_ativos: veiculos.length,
+        pneus_ok: null,
+        pneus_alerta: null,
+        pneus_critico: null,
+        acoes: {},
+        limites: limitesAtuais,
+      };
+    } catch {
+      throw err;
+    }
   }
+}
+
+function textoKpi(valor) {
+  return valor == null || Number.isNaN(Number(valor)) ? '—' : String(valor);
 }
 
 // ── Dashboard ──────────────────────────────────────────
 
 async function loadDashboard() {
   try {
-    const [resumo, veiculos] = await Promise.all([
-      fetchDashboardResumo(),
-      fetchJSON(`${API}/veiculos`),
-    ]);
+    const resumo = await fetchDashboardResumo();
+    const veiculos = Array.isArray(resumo.veiculos)
+      ? resumo.veiculos
+      : await fetchJSON(`${API}/veiculos`);
     veiculosCache = veiculos;
     atualizarSugestoesFrota(veiculos);
     limitesAtuais = { ...limitesAtuais, ...resumo.limites };
     syncMarkersLimites();
 
-    document.getElementById('stat-veiculos').textContent = resumo.veiculos_ativos;
-    document.getElementById('stat-ok').textContent = resumo.pneus_ok;
-    document.getElementById('stat-alerta').textContent = resumo.pneus_alerta;
-    document.getElementById('stat-critico').textContent = resumo.pneus_critico;
-    document.getElementById('stat-troca').textContent = resumo.acoes?.troca ?? 0;
-    document.getElementById('stat-recap').textContent = resumo.acoes?.monitorar ?? 0;
-    document.getElementById('stat-monitorar').textContent = resumo.acoes?.rodizio ?? 0;
+    document.getElementById('stat-veiculos').textContent = textoKpi(resumo.veiculos_ativos ?? veiculos.length);
+    document.getElementById('stat-ok').textContent = textoKpi(resumo.pneus_ok);
+    document.getElementById('stat-alerta').textContent = textoKpi(resumo.pneus_alerta);
+    document.getElementById('stat-critico').textContent = textoKpi(resumo.pneus_critico);
+    document.getElementById('stat-troca').textContent = textoKpi(resumo.acoes?.troca);
+    document.getElementById('stat-recap').textContent = textoKpi(resumo.acoes?.monitorar);
+    document.getElementById('stat-monitorar').textContent = textoKpi(resumo.acoes?.rodizio);
 
     const hint = document.getElementById('dashboard-limites-hint');
     if (hint) hint.textContent = hintLimites();
@@ -964,8 +979,10 @@ function voltarDesenhoCampo({ toastProx = false } = {}) {
 
 async function openVeiculoDetalhe(id, origem = 'dashboard', dadosPreload = null) {
   voltarPara = origem;
+  const seq = ++veiculoDetalheSeq;
   try {
     const v = dadosPreload || await fetchJSON(`${API}/veiculos/${id}`);
+    if (seq !== veiculoDetalheSeq) return;
     veiculoAtual = v;
     veiculoLayoutId = v.id;
     garantirSessaoCampo(v.id);
@@ -982,10 +999,10 @@ async function openVeiculoDetalhe(id, origem = 'dashboard', dadosPreload = null)
     const layoutInfo = getLayoutById(v.layout_pneus);
     const nPos = v.posicoes_layout?.length || v.layout?.posicoes?.length || v.pneus.length;
     document.getElementById('truck-header').innerHTML = `
-      <h2>${v.apelido || v.placa}</h2>
-      <p class="hint">${v.placa} · ${normalizarTipoLabel(v.tipo)} · ${v.km_atual?.toLocaleString('pt-BR') || 0} km
-        ${v.hr_atual ? ` · ${v.hr_atual} h` : ''}
-        · ${layoutInfo?.nome || 'Personalizado'}
+      <h2>${escapeHtml(v.apelido || v.placa)}</h2>
+      <p class="hint">${escapeHtml(v.placa)} · ${escapeHtml(normalizarTipoLabel(v.tipo))} · ${v.km_atual?.toLocaleString('pt-BR') || 0} km
+        ${v.hr_atual ? ` · ${escapeHtml(String(v.hr_atual))} h` : ''}
+        · ${escapeHtml(layoutInfo?.nome || 'Personalizado')}
         · ${v.pneus.length}/${nPos} pneus montados</p>
     `;
 
@@ -1171,7 +1188,19 @@ async function gerarLinkWhatsApp(veiculoId, placa) {
   }
 }
 
+function flushAutoSavePendente() {
+  const tinhaTimer = autoSaveTimer;
+  clearTimeout(autoSaveTimer);
+  autoSaveTimer = null;
+  if (!tinhaTimer || !pneuSelecionado || !veiculoAtual) return;
+  const pontos = pontosFromInputs('truck');
+  if (pontos.externo == null || pontos.central == null || pontos.interno == null) return;
+  salvarMedicaoTruck();
+}
+
 function selecionarPneuTruck(pneu) {
+  if (pneuSelecionado?.id !== pneu.id) flushAutoSavePendente();
+  else clearTimeout(autoSaveTimer);
   pneuSelecionado = pneu;
   slotPosicaoSelecionada = null;
   document.querySelector('.truck-panel-empty').classList.add('hidden');
@@ -1282,6 +1311,7 @@ function selecionarPneuTruck(pneu) {
 }
 
 async function selecionarSlotVazio(posicao) {
+  flushAutoSavePendente();
   pneuSelecionado = null;
   slotPosicaoSelecionada = posicao;
   document.querySelector('.truck-panel-empty').classList.add('hidden');
@@ -1968,32 +1998,46 @@ function syncTruckMarkerFromInputs() {
 
 function agendarAutoSave() {
   clearTimeout(autoSaveTimer);
+  const pontos = pontosFromInputs('truck');
   const status = document.getElementById('truck-save-status');
-  status.textContent = 'Salvando...';
-  status.className = 'hint save-status salvando';
+  if (pontos.externo == null || pontos.central == null || pontos.interno == null) {
+    if (status) {
+      status.textContent = 'Informe os 3 sulcos principais (esquerdo, centro e direito)';
+      status.className = 'hint save-status';
+    }
+    return;
+  }
+  if (status) {
+    status.textContent = 'Salvando...';
+    status.className = 'hint save-status salvando';
+  }
   autoSaveTimer = setTimeout(salvarMedicaoTruck, 700);
 }
 
 async function salvarMedicaoTruck({ concluir = false } = {}) {
   if (!pneuSelecionado || !veiculoAtual) return;
 
+  const pneuId = pneuSelecionado.id;
+  const veiculoId = veiculoAtual.id;
   const pontos = pontosFromInputs('truck');
   const pressao = numOrNull('truck-pressao');
   const km = parseInt(document.getElementById('truck-km').value, 10);
   const hr = numOrNull('truck-hr');
+  const status = document.getElementById('truck-save-status');
 
-  if (pontos.externo == null && pontos.central == null && pontos.interno == null && pontos.auxiliar == null) {
-    document.getElementById('truck-save-status').textContent = 'Informe ao menos um sulco';
-    document.getElementById('truck-save-status').className = 'hint save-status';
+  if (pontos.externo == null || pontos.central == null || pontos.interno == null) {
+    if (status) {
+      status.textContent = 'Informe os 3 sulcos principais (esquerdo, centro e direito)';
+      status.className = 'hint save-status';
+    }
     return;
   }
 
-  const status = document.getElementById('truck-save-status');
   try {
     const result = await fetchJSON(`${API}/medicoes`, {
       method: 'POST',
       body: JSON.stringify({
-        pneu_id: pneuSelecionado.id,
+        pneu_id: pneuId,
         data_medicao: new Date().toISOString().split('T')[0],
         km_veiculo: Number.isFinite(km) ? km : (veiculoAtual.km_atual || null),
         hr_veiculo: hr,
@@ -2009,8 +2053,12 @@ async function salvarMedicaoTruck({ concluir = false } = {}) {
       }),
     });
 
-    pneuSelecionado = {
-      ...pneuSelecionado,
+    if (!veiculoAtual || veiculoAtual.id !== veiculoId) return;
+    const idx = veiculoAtual.pneus.findIndex((p) => p.id === pneuId);
+    if (idx < 0) return;
+
+    const atualizado = {
+      ...veiculoAtual.pneus[idx],
       ult_sulco_ext: pontos.externo,
       ult_sulco_cent: pontos.central,
       ult_sulco_int: pontos.interno,
@@ -2033,59 +2081,63 @@ async function salvarMedicaoTruck({ concluir = false } = {}) {
         menor_sulco: result.menor_sulco,
       },
     };
+    veiculoAtual.pneus[idx] = atualizado;
+    truckDiagram.atualizarPneu(atualizado, meta.posicoes);
 
-    const idx = veiculoAtual.pneus.findIndex((p) => p.id === pneuSelecionado.id);
-    if (idx >= 0) veiculoAtual.pneus[idx] = { ...veiculoAtual.pneus[idx], ...pneuSelecionado };
-
-    truckDiagram.atualizarPneu(pneuSelecionado, meta.posicoes);
-    document.getElementById('truck-pneu-status').innerHTML = badge(result.status_sulco);
-    document.getElementById('truck-pneu-acao').innerHTML = podeVerOrientacaoGestao()
-      ? badgeAcao(result.acao_sugerida, result.acao_label)
-      : '';
-    if (podeVerOrientacaoGestao()) {
-      document.getElementById('truck-diagnostico').textContent =
-        result.diagnostico_label ? `Diagnóstico: ${result.diagnostico_label}` : '';
-      document.getElementById('truck-diagnostico').classList.remove('gestao-only-hidden');
-    } else {
-      document.getElementById('truck-diagnostico').textContent = '';
-      document.getElementById('truck-diagnostico').classList.add('gestao-only-hidden');
+    const aindaNestePneu = pneuSelecionado?.id === pneuId;
+    if (aindaNestePneu) {
+      pneuSelecionado = atualizado;
+      document.getElementById('truck-pneu-status').innerHTML = badge(result.status_sulco);
+      document.getElementById('truck-pneu-acao').innerHTML = podeVerOrientacaoGestao()
+        ? badgeAcao(result.acao_sugerida, result.acao_label)
+        : '';
+      if (podeVerOrientacaoGestao()) {
+        document.getElementById('truck-diagnostico').textContent =
+          result.diagnostico_label ? `Diagnóstico: ${result.diagnostico_label}` : '';
+        document.getElementById('truck-diagnostico').classList.remove('gestao-only-hidden');
+      } else {
+        document.getElementById('truck-diagnostico').textContent = '';
+        document.getElementById('truck-diagnostico').classList.add('gestao-only-hidden');
+      }
+      mostrarAcaoInstrucao({
+        acao_sugerida: result.acao_sugerida,
+        acao_motivo: result.acao_motivo,
+        rodizio_sugestao: result.rodizio_sugestao,
+      });
+      mostrarRodizioSugestao({
+        acao_sugerida: result.acao_sugerida,
+        rodizio_sugestao: result.rodizio_sugestao,
+      });
+      atualizarResumoPneuTruck(pneuSelecionado);
+      atualizarPerfilLocal('truck-perfil', pontos, podeVerOrientacaoGestao()
+        ? { label: result.diagnostico_label, desc: result.acao_motivo }
+        : null);
+      if (status) {
+        const acaoTxt = (podeVerOrientacaoGestao() && result.acao_sugerida !== 'ok')
+          ? ` · ${result.acao_label}`
+          : '';
+        status.textContent = result.status_sulco === 'critico'
+          ? `Salvo! Crítico — ${result.menor_sulco} mm${acaoTxt}`
+          : `Salvo — menor sulco: ${result.menor_sulco ?? '-'} mm${acaoTxt}`;
+        status.className = `hint save-status ${result.status_sulco === 'critico' ? 'erro' : 'salvo'}`;
+      }
     }
-    mostrarAcaoInstrucao({
-      acao_sugerida: result.acao_sugerida,
-      acao_motivo: result.acao_motivo,
-      rodizio_sugestao: result.rodizio_sugestao,
-    });
-    mostrarRodizioSugestao({
-      acao_sugerida: result.acao_sugerida,
-      rodizio_sugestao: result.rodizio_sugestao,
-    });
-    atualizarResumoPneuTruck(pneuSelecionado);
-    atualizarPerfilLocal('truck-perfil', pontos, podeVerOrientacaoGestao()
-      ? { label: result.diagnostico_label, desc: result.acao_motivo }
-      : null);
 
-    const acaoTxt = (podeVerOrientacaoGestao() && result.acao_sugerida !== 'ok')
-      ? ` · ${result.acao_label}`
-      : '';
-    status.textContent = result.status_sulco === 'critico'
-      ? `Salvo! Crítico — ${result.menor_sulco} mm${acaoTxt}`
-      : `Salvo — menor sulco: ${result.menor_sulco ?? '-'} mm${acaoTxt}`;
-    status.className = `hint save-status ${result.status_sulco === 'critico' ? 'erro' : 'salvo'}`;
-    if (modoAcessoRapido && pneuSelecionado?.id) {
-      pneusMedidosSessao.add(pneuSelecionado.id);
+    if (modoAcessoRapido) {
+      pneusMedidosSessao.add(pneuId);
       atualizarProgressoCampo();
       marcarPneusMedidosSessao();
+      if (aindaNestePneu) toast(`Sulco salvo (${result.menor_sulco ?? '—'} mm)`, 'success');
     }
     if (concluir && modoAcessoRapido) {
       voltarDesenhoCampo({ toastProx: true });
-      return;
-    }
-    if (modoAcessoRapido) {
-      toast(`Sulco salvo (${result.menor_sulco ?? '—'} mm)`, 'success');
     }
   } catch (err) {
-    status.textContent = err.message;
-    status.className = 'hint save-status erro';
+    if (pneuSelecionado?.id !== pneuId) return;
+    if (status) {
+      status.textContent = err.message;
+      status.className = 'hint save-status erro';
+    }
     if (modoAcessoRapido) toast(err.message, 'error');
   }
 }
@@ -3038,23 +3090,23 @@ function mostrarResultadoImport(elId, result) {
   const avisos = result.avisos || [];
   el.classList.remove('hidden');
   el.innerHTML = `
-    <strong>${result.mensagem || 'Importação concluída'}</strong>
+    <strong>${escapeHtml(result.mensagem || 'Importação concluída')}</strong>
     <p class="hint" style="margin:.35rem 0 0">
-      ${result.veiculos != null ? `Veículos: <strong>${result.veiculos}</strong> · ` : ''}
-      ${result.pneus_montados != null ? `Montados: <strong>${result.pneus_montados}</strong> · ` : ''}
-      ${result.pneus_estoque != null ? `Estoque: <strong>${result.pneus_estoque}</strong> · ` : ''}
-      ${result.inseridos != null ? `Inseridos: <strong>${result.inseridos}</strong>` : ''}
+      ${result.veiculos != null ? `Veículos: <strong>${escapeHtml(result.veiculos)}</strong> · ` : ''}
+      ${result.pneus_montados != null ? `Montados: <strong>${escapeHtml(result.pneus_montados)}</strong> · ` : ''}
+      ${result.pneus_estoque != null ? `Estoque: <strong>${escapeHtml(result.pneus_estoque)}</strong> · ` : ''}
+      ${result.inseridos != null ? `Inseridos: <strong>${escapeHtml(result.inseridos)}</strong>` : ''}
       ${erros.length ? ` · Erros: <strong>${erros.length}</strong>` : ''}
       ${avisos.length ? ` · Avisos: <strong>${avisos.length}</strong>` : ''}
     </p>
     ${erros.length
       ? `<ul class="import-erros">${erros.slice(0, 12).map((e) =>
-          `<li>Linha ${e.linha}${e.placa || e.numero_fogo ? ` (${e.placa || e.numero_fogo})` : ''}: ${e.erro}</li>`
+          `<li>Linha ${escapeHtml(e.linha)}${e.placa || e.numero_fogo ? ` (${escapeHtml(e.placa || e.numero_fogo)})` : ''}: ${escapeHtml(e.erro)}</li>`
         ).join('')}${erros.length > 12 ? `<li>… e mais ${erros.length - 12}</li>` : ''}</ul>`
       : ''}
     ${avisos.length
       ? `<ul class="import-avisos">${avisos.slice(0, 8).map((a) =>
-          `<li>Linha ${a.linha}${a.numero_fogo ? ` (${a.numero_fogo})` : ''}: ${a.aviso}</li>`
+          `<li>Linha ${escapeHtml(a.linha)}${a.numero_fogo ? ` (${escapeHtml(a.numero_fogo)})` : ''}: ${escapeHtml(a.aviso)}</li>`
         ).join('')}</ul>`
       : ''}
   `;
@@ -3105,6 +3157,7 @@ document.getElementById('file-import-frota')?.addEventListener('change', async (
   e.target.value = '';
   await importarCsvArquivo(file, `${API}/frota/import`, 'import-resultado-frota', () => {
     loadVeiculos();
+    loadPneus();
   });
 });
 
@@ -3544,6 +3597,7 @@ document.getElementById('btn-salvar-config')?.addEventListener('click', async ()
       method: 'PUT',
       body: JSON.stringify(payload),
     });
+    configuracoesEmSessao = null;
     limitesAtuais = { ...limitesAtuais, ...result };
     syncMarkersLimites();
     atualizarPreviewLimites();
