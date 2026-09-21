@@ -3221,12 +3221,37 @@ function preencherCheckboxesPosicoes(containerId, selecionadas = []) {
   `).join('');
 }
 
-function abrirConfigLayout(veiculoId, veiculoNome, layoutAtual, posicoesAtuais) {
+async function carregarMetaVeiculos() {
+  if (meta.layouts?.length && meta.posicoes && Object.keys(meta.posicoes).length) {
+    return meta;
+  }
+  const metaData = await fetchJSON(`${API}/veiculos/meta`);
+  meta = { ...meta, ...metaData };
+  const selectTipo = document.getElementById('v-tipo');
+  if (selectTipo && meta.tipos?.length) {
+    selectTipo.innerHTML = meta.tipos.map((t) => `<option value="${t}">${t}</option>`).join('');
+  }
+  return meta;
+}
+
+async function abrirConfigLayout(veiculoId, veiculoNome, layoutAtual, posicoesAtuais) {
+  try {
+    await carregarMetaVeiculos();
+  } catch (err) {
+    toast(err.message || 'Não foi possível carregar os layouts', 'error');
+    return;
+  }
   veiculoLayoutId = veiculoId;
-  document.getElementById('layout-veiculo-nome').textContent = veiculoNome;
+  const nomeEl = document.getElementById('layout-veiculo-nome');
+  const modal = document.getElementById('modal-layout');
+  if (!modal) {
+    toast('Tela de layout não encontrada — recarregue a página', 'error');
+    return;
+  }
+  if (nomeEl) nomeEl.textContent = veiculoNome;
   preencherSelectLayouts('layout-select', layoutAtual || meta.layout_padrao);
   preencherCheckboxesPosicoes('layout-custom-checkboxes', posicoesAtuais || []);
-  document.getElementById('modal-layout').showModal();
+  modal.showModal();
 }
 
 window.abrirConfigLayout = abrirConfigLayout;
@@ -6159,8 +6184,8 @@ async function abrirInspecaoVeiculoFilial(filialId, veiculoId) {
           <button type="button" class="btn btn-ghost btn-sm" id="btn-fechar-inspecao">Fechar desenho</button>
         </div>
       </div>
-      <details class="form-avancado inspecao-corrigir">
-        <summary>Corrigir dados do veículo (admin)</summary>
+      <details class="form-avancado inspecao-corrigir" open>
+        <summary>Corrigir dados do veículo</summary>
         <p class="hint">Use se a placa, KM ou identificação foram cadastrados errados.</p>
         <div class="form-row">
           <div class="form-group">
@@ -7124,35 +7149,25 @@ async function bootAcessoRapido(token) {
 async function bootApp() {
   showAppShell();
   try {
+    const config = await fetchConfiguracoes();
+    limitesAtuais = { ...limitesAtuais, ...config };
+    await carregarMetaVeiculos();
+    preencherSelectLayouts('v-layout', meta.layout_padrao, { soTruckToco: true });
+    preencherSelectLayouts('layout-select', meta.layout_padrao);
+    preencherCheckboxesPosicoes('layout-custom-checkboxes', getLayoutById(meta.layout_padrao)?.posicoes || []);
+
     if (isAdmin()) {
-      const config = await fetchConfiguracoes();
-      limitesAtuais = { ...limitesAtuais, ...config };
       showView('relatorios');
       loadRelatorioDiretoria();
       return;
     }
 
     if (isGerente()) {
-      const config = await fetchConfiguracoes();
-      limitesAtuais = { ...limitesAtuais, ...config };
       showView('filiais');
       loadFiliais();
       return;
     }
 
-    const [config, metaData] = await Promise.all([
-      fetchConfiguracoes(),
-      fetchJSON(`${API}/veiculos/meta`),
-    ]);
-    meta = metaData;
-    limitesAtuais = { ...limitesAtuais, ...config };
-    const selectTipo = document.getElementById('v-tipo');
-    if (selectTipo) {
-      selectTipo.innerHTML = meta.tipos.map((t) => `<option value="${t}">${t}</option>`).join('');
-    }
-    preencherSelectLayouts('v-layout', meta.layout_padrao, { soTruckToco: true });
-    preencherSelectLayouts('layout-select', meta.layout_padrao);
-    preencherCheckboxesPosicoes('layout-custom-checkboxes', getLayoutById(meta.layout_padrao)?.posicoes || []);
     showView('dashboard');
     loadDashboard();
   } catch (err) {
