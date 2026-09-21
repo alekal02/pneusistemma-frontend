@@ -1,5 +1,5 @@
 import { TireMarker } from './tire-marker.js';
-import { TruckDiagram, renderLayoutPreview } from './truck-diagram.js';
+import { TruckDiagram, renderLayoutPreview, svgMiniCaminhao } from './truck-diagram.js';
 import { renderPerfilSulco } from './perfil-sulco.js';
 
 /** Normaliza VITE_API_URL — em prod precisa terminar com /api */
@@ -669,6 +669,140 @@ function textoKpi(valor) {
   return valor == null || Number.isNaN(Number(valor)) ? '—' : String(valor);
 }
 
+function renderPainelAcoesDiagnosticos({ acoes = [], diagnosticos = [] } = {}) {
+  const ordemAcao = { troca: 0, recap: 1, rodizio: 2, monitorar: 3 };
+  const acoesOrd = [...acoes].sort((a, b) =>
+    (ordemAcao[a.acao_sugerida] ?? 9) - (ordemAcao[b.acao_sugerida] ?? 9)
+    || (a.menor_sulco ?? 99) - (b.menor_sulco ?? 99)
+  );
+  const itemAcao = (a) => `
+    <li class="frota-decisao-item acao-${escapeHtml(a.acao_sugerida || '')}" data-veiculo-id="${a.veiculo_id || ''}">
+      <div class="frota-decisao-topo">
+        <strong>${escapeHtml(a.apelido || a.placa || '—')}</strong>
+        <span class="frota-log-pos">${escapeHtml(a.posicao_label || meta.posicoes?.[a.posicao] || a.posicao || '—')}</span>
+        ${a.menor_sulco != null ? `<span class="frota-log-sulco">${a.menor_sulco} mm</span>` : ''}
+        ${badgeAcao(a.acao_sugerida, a.acao_label)}
+      </div>
+      <p>${escapeHtml(a.acao_motivo || 'Ação sugerida a partir da última medição.')}</p>
+    </li>
+  `;
+  const itemDiag = (d) => `
+    <li class="frota-decisao-item diag-${escapeHtml(d.diagnostico || '')}" data-veiculo-id="${d.veiculo_id || ''}">
+      <div class="frota-decisao-topo">
+        <strong>${escapeHtml(d.apelido || d.placa || '—')}</strong>
+        <span class="frota-log-pos">${escapeHtml(d.posicao_label || meta.posicoes?.[d.posicao] || d.posicao || '—')}</span>
+        ${d.menor_sulco != null ? `<span class="frota-log-sulco">${d.menor_sulco} mm</span>` : ''}
+        <span class="badge badge-${d.status_sulco || 'sem_dado'}">${escapeHtml(d.diagnostico_label || d.diagnostico || 'Diagnóstico')}</span>
+      </div>
+      <p>${escapeHtml(d.diagnostico_desc || d.diagnostico_label || 'Perfil de desgaste identificado na medição.')}</p>
+    </li>
+  `;
+  return `
+    <div class="frota-decisao">
+      <section class="frota-decisao-card">
+        <h3>Ações <span>${acoesOrd.length}</span></h3>
+        <p class="hint">O que fazer agora: trocar, recapar, mudar de posição ou acompanhar.</p>
+        ${acoesOrd.length
+          ? `<ul class="frota-decisao-list">${acoesOrd.map(itemAcao).join('')}</ul>`
+          : '<p class="hint">Nenhuma ação pendente nesta unidade.</p>'}
+      </section>
+      <section class="frota-decisao-card">
+        <h3>Diagnósticos <span>${diagnosticos.length}</span></h3>
+        <p class="hint">Causa do desgaste: calibragem, perfil irregular ou sulco crítico.</p>
+        ${diagnosticos.length
+          ? `<ul class="frota-decisao-list">${diagnosticos.map(itemDiag).join('')}</ul>`
+          : '<p class="hint">Nenhum diagnóstico irregular nesta unidade.</p>'}
+      </section>
+    </div>
+  `;
+}
+
+function horaLog(iso) {
+  if (!iso) return '';
+  const txt = formatDateTime(iso);
+  const partes = String(txt).split(' ');
+  return partes.length > 1 ? partes[1].slice(0, 5) : txt;
+}
+
+function renderLogMedicoes(logs) {
+  if (!logs?.length) {
+    return '<p class="hint">Ainda não há medições registradas nesta unidade.</p>';
+  }
+  const grupos = [];
+  const map = new Map();
+  for (const l of logs) {
+    const dia = formatDate(l.data_medicao || l.created_at);
+    if (!map.has(dia)) {
+      const g = { dia, itens: [] };
+      map.set(dia, g);
+      grupos.push(g);
+    }
+    map.get(dia).itens.push(l);
+  }
+  return grupos.map((g) => `
+    <div class="frota-log-dia">
+      <h4>${escapeHtml(g.dia)}</h4>
+      <ul>
+        ${g.itens.map((l) => `
+          <li class="frota-log-item status-${escapeHtml(l.status_sulco || 'sem_dado')}" data-veiculo-id="${l.veiculo_id || ''}">
+            <span class="frota-log-hora">${escapeHtml(horaLog(l.created_at || l.data_medicao))}</span>
+            <div class="frota-log-body">
+              <div class="frota-log-linha1">
+                <span class="frota-log-placa">${escapeHtml(l.apelido || l.placa || '')}</span>
+                <span class="frota-log-pos">${escapeHtml(l.posicao || '—')}</span>
+              </div>
+              <div class="frota-log-linha2">
+                <span class="frota-log-sulco">${l.menor_sulco != null ? `${l.menor_sulco} mm` : '—'}</span>
+                ${badge(l.status_sulco)}
+              </div>
+            </div>
+          </li>
+        `).join('')}
+      </ul>
+    </div>
+  `).join('');
+}
+
+function renderCardCaminhaoFrota(v, { pendente = false, atrasado = false, eHoje = false, diaTxt = '', dataMed = '', posTxt = '', mostrarMedir = false } = {}) {
+  const layout = getLayoutById(v.layout_pneus);
+  const posicoes = layout?.posicoes || (v.pneus || []).map((p) => p.posicao);
+  const mini = svgMiniCaminhao({
+    layoutId: v.layout_pneus,
+    posicoes,
+    pneus: v.pneus || [],
+  });
+  const statusSemana = !pendente
+    ? '<span class="badge badge-ok">Nesta semana</span>'
+    : (atrasado
+      ? '<span class="badge badge-critico">Atrasado</span>'
+      : (eHoje
+        ? '<span class="badge badge-alerta">Medir hoje</span>'
+        : '<span class="badge badge-sem_dado">Pendente</span>'));
+  return `
+    <article class="veiculo-card veiculo-item frota-truck-card${pendente ? ' veiculo-card-pendente' : ''}${atrasado ? ' veiculo-card-atrasado' : ''}"
+             data-id="${v.id}"
+             data-status="${v.status_sulco || ''}"
+             data-troca="${v.pendencias_troca || 0}"
+             data-recap="${v.pendencias_recap || 0}"
+             data-monitorar="${v.pendencias_monitorar || 0}"
+             ${attrsBuscaVeiculo(v)}
+             tabindex="0" role="button">
+      <div class="frota-truck-svg">${mini}</div>
+      <div class="frota-truck-meta">
+        <h4>${escapeHtml(v.apelido || v.placa)}</h4>
+        <p>${escapeHtml(v.placa)}${v.tipo ? ` · ${escapeHtml(normalizarTipoLabel(v.tipo))}` : ''}</p>
+        <p class="dash-medicao-data">${escapeHtml(diaTxt)}${diaTxt && dataMed ? ' · ' : ''}${escapeHtml(dataMed)}${posTxt ? ` · ${escapeHtml(posTxt)}` : ''}</p>
+        <div class="frota-truck-badges">
+          ${v.menor_sulco != null ? `<strong>${v.menor_sulco} mm</strong>` : ''}
+          ${badge(v.status_sulco)}
+          ${statusSemana}
+        </div>
+        ${mostrarMedir ? `<button type="button" class="btn btn-sm btn-primary btn-dash-medir" data-id="${v.id}">Medir</button>` : ''}
+      </div>
+    </article>
+  `;
+}
+
 // ── Dashboard ──────────────────────────────────────────
 
 async function loadDashboard() {
@@ -724,6 +858,8 @@ async function loadDashboard() {
     if (!veiculos.length) {
       if (chips) chips.innerHTML = '';
       lista.innerHTML = '<div class="empty-state"><h3>Nenhum veículo cadastrado</h3><p>Cadastre seu primeiro veículo na aba Veículos</p></div>';
+      const logElVazio = document.getElementById('dashboard-log');
+      if (logElVazio) logElVazio.innerHTML = renderLogMedicoes(resumo.logs_medicao || []);
       return;
     }
 
@@ -756,50 +892,39 @@ async function loadDashboard() {
     const renderCard = (v, pendente) => {
       const diaV = diaDoVeiculo(v);
       const dataMed = v.ultima_medicao
-        ? `Última medição: ${formatDate(v.ultima_medicao)}`
+        ? `Última: ${formatDate(v.ultima_medicao)}`
         : 'Ainda sem medição';
       const nMed = Number(v.pneus_medidos) || 0;
       const nTot = Number(v.total_pneus) || 0;
-      const posTxt = nTot ? `${nMed}/${nTot} posições medidas` : 'Sem pneus montados';
+      const posTxt = nTot ? `${nMed}/${nTot} posições` : 'Sem pneus';
       const atrasado = pendente && diaV && semana.isoDia > diaV;
       const eHoje = pendente && diaV && semana.isoDia === diaV;
-      const statusSemana = !pendente
-        ? '<span class="badge badge-ok">Nesta semana</span>'
-        : (atrasado
-          ? '<span class="badge badge-critico">Atrasado</span>'
-          : (eHoje
-            ? '<span class="badge badge-alerta">Medir hoje</span>'
-            : '<span class="badge badge-sem_dado">Pendente</span>'));
-      const diaTxt = diaV ? `Dia: ${labelDiaSemana(diaV)}` : 'Sem dia definido';
-      return `
-        <div class="veiculo-card${pendente ? ' veiculo-card-pendente' : ''}${atrasado ? ' veiculo-card-atrasado' : ''}" data-id="${v.id}" ${attrsBuscaVeiculo(v)}>
-          <div class="veiculo-info">
-            <h4>${escapeHtml(v.apelido || v.placa)}</h4>
-            <p>${escapeHtml(v.placa)} · ${escapeHtml(normalizarTipoLabel(v.tipo) || '')} · ${(v.km_atual || 0).toLocaleString('pt-BR')} km</p>
-            <p class="dash-medicao-data">${escapeHtml(diaTxt)} · ${escapeHtml(dataMed)} · ${escapeHtml(posTxt)}</p>
-          </div>
-          <div class="veiculo-meta">
-            ${v.menor_sulco != null ? `<span style="font-weight:600">${v.menor_sulco} mm</span>` : ''}
-            ${badge(v.status_sulco)}
-            ${statusSemana}
-            ${pendente ? `<button type="button" class="btn btn-sm btn-primary btn-dash-medir" data-id="${v.id}">Medir</button>` : ''}
-          </div>
-        </div>
-      `;
+      const diaTxt = diaV ? labelDiaSemana(diaV) : '';
+      return renderCardCaminhaoFrota(v, {
+        pendente,
+        atrasado,
+        eHoje,
+        diaTxt,
+        dataMed,
+        posTxt,
+        mostrarMedir: pendente,
+      });
     };
 
     lista.innerHTML = `
-      <section class="dash-frota-sec">
-        <h3>Medidos nesta semana <span>${medidos.length}</span></h3>
-        <p class="hint">${medidos.length ? `${semana.inicio.split('-').reverse().join('/')} a ${semana.fim.split('-').reverse().join('/')} — mais recentes primeiro.` : 'Nenhum caminhão medido nesta semana ainda.'}</p>
-        ${medidos.map((v) => renderCard(v, false)).join('')}
-      </section>
-      <section class="dash-frota-sec">
-        <h3>Pendentes nesta semana <span>${pendentes.length}</span></h3>
-        <p class="hint">${pendentes.length ? (diaUnidade ? `Faltam medir até ${labelDiaSemana(diaUnidade)} (ou nesta semana).` : 'Ativos sem medição nesta semana.') : 'Toda a frota já foi medida nesta semana.'}</p>
-        ${pendentes.map((v) => renderCard(v, true)).join('')}
-      </section>
+      ${pendentes.length ? `<section class="dash-frota-sec"><h3>Pendentes <span>${pendentes.length}</span></h3><div class="frota-grid-inner">${pendentes.map((v) => renderCard(v, true)).join('')}</div></section>` : ''}
+      ${medidos.length ? `<section class="dash-frota-sec"><h3>Medidos nesta semana <span>${medidos.length}</span></h3><div class="frota-grid-inner">${medidos.map((v) => renderCard(v, false)).join('')}</div></section>` : ''}
+      ${!pendentes.length && !medidos.length ? '<div class="empty-state"><h3>Nenhum veículo</h3></div>' : ''}
     `;
+    const logEl = document.getElementById('dashboard-log');
+    if (logEl) logEl.innerHTML = renderLogMedicoes(resumo.logs_medicao || []);
+    const decisaoEl = document.getElementById('dashboard-decisao');
+    if (decisaoEl) {
+      decisaoEl.innerHTML = renderPainelAcoesDiagnosticos({
+        acoes: resumo.acoes_itens || [],
+        diagnosticos: resumo.diagnosticos_itens || [],
+      });
+    }
 
     lista.querySelectorAll('.veiculo-card').forEach((card) => {
       card.addEventListener('click', (e) => {
@@ -811,6 +936,16 @@ async function loadDashboard() {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         openVeiculoDetalhe(btn.dataset.id, 'dashboard');
+      });
+    });
+    document.querySelectorAll('#dashboard-log .frota-log-item[data-veiculo-id]').forEach((row) => {
+      row.addEventListener('click', () => {
+        if (row.dataset.veiculoId) openVeiculoDetalhe(row.dataset.veiculoId, 'dashboard');
+      });
+    });
+    document.querySelectorAll('#dashboard-decisao [data-veiculo-id]').forEach((row) => {
+      row.addEventListener('click', () => {
+        if (row.dataset.veiculoId) openVeiculoDetalhe(row.dataset.veiculoId, 'dashboard');
       });
     });
     const buscaDash = document.getElementById('dash-frota-busca');
@@ -4003,7 +4138,7 @@ function filtrarPendenciasUnidade(filtro) {
 function filtrarFrotaUnidade() {
   const busca = document.getElementById('unidade-frota-busca')?.value || '';
   const filtro = document.getElementById('unidade-frota-filtro')?.value || 'todos';
-  document.querySelectorAll('#unidade-frota-tbody tr.veiculo-item').forEach((row) => {
+  document.querySelectorAll('#unidade-frota-grid .veiculo-card, #unidade-frota-tbody tr.veiculo-item').forEach((row) => {
     const matchBusca = cardVeiculoCombinaBusca(row, busca);
     let matchFiltro = true;
     if (filtro === 'critico') matchFiltro = row.dataset.status === 'critico';
@@ -4189,40 +4324,27 @@ function renderUnidadeFrota(data) {
         <option value="sem_dado">Sem medição</option>
       </select>
     </div>
-    <div class="unidade-frota-split" id="unidade-frota-split">
-      <div class="unidade-table-wrap unidade-frota-lista">
-        <table class="historico-table unidade-table">
-          <thead>
-            <tr>
-              <th>Veículo</th><th>KM</th><th>Menor sulco</th><th>Status</th>
-              <th>Troca</th><th>Recap</th><th>Mon.</th><th>Última medição</th>
-            </tr>
-          </thead>
-          <tbody id="unidade-frota-tbody">
-            ${veiculos.map((v) => `
-              <tr class="veiculo-item unidade-veiculo-row" data-id="${v.id}"
-                  data-status="${v.status_sulco || ''}"
-                  data-troca="${v.pendencias_troca || 0}"
-                  data-recap="${v.pendencias_recap || 0}"
-                  data-monitorar="${v.pendencias_monitorar || 0}"
-                  ${attrsBuscaVeiculo(v)}
-                  tabindex="0" role="button">
-                <td>
-                  <strong>${escapeHtml(v.apelido || v.placa)}</strong>
-                  <br><span class="hint">${escapeHtml(v.placa)} · ${escapeHtml(v.tipo || '')} · ${v.total_pneus || 0} pneus</span>
-                </td>
-                <td>${(v.km_atual || 0).toLocaleString('pt-BR')}</td>
-                <td><strong>${v.menor_sulco != null ? `${v.menor_sulco} mm` : '—'}</strong></td>
-                <td>${badge(v.status_sulco)}</td>
-                <td>${v.pendencias_troca || '—'}</td>
-                <td>${v.pendencias_recap || '—'}</td>
-                <td>${v.pendencias_monitorar || '—'}</td>
-                <td>${v.ultima_medicao ? formatDate(v.ultima_medicao) : '—'}</td>
-              </tr>
-            `).join('')}
-          </tbody>
-        </table>
+    <div class="frota-visual unidade-frota-visual">
+      <div class="frota-grid" id="unidade-frota-grid">
+        ${veiculos.map((v) => renderCardCaminhaoFrota(v, {
+          pendente: v.status_sulco === 'sem_dado',
+          atrasado: v.status_sulco === 'critico',
+          diaTxt: '',
+          dataMed: v.ultima_medicao ? `Última: ${formatDate(v.ultima_medicao)}` : 'Ainda sem medição',
+          posTxt: v.total_pneus ? `${v.total_pneus} pneus` : '',
+        })).join('')}
       </div>
+      <aside class="frota-log-panel">
+        <h3>Log de medições</h3>
+        <p class="hint">Clique numa linha para abrir o caminhão.</p>
+        <div id="unidade-frota-log">${renderLogMedicoes(data.logs_medicao || [])}</div>
+      </aside>
+    </div>
+    ${renderPainelAcoesDiagnosticos({
+      acoes: data.pendencias?.todos || [],
+      diagnosticos: data.pendencias?.diagnosticos || [],
+    })}
+    <div class="unidade-frota-split" id="unidade-frota-split">
       <div id="filial-veiculo-inspecao" class="filial-inspecao hidden"></div>
     </div>
   `;
@@ -4297,7 +4419,7 @@ async function abrirDetalheFilial(id) {
             : '<p class="hint">Nenhum alerta pendente nesta unidade — frota dentro dos parâmetros.</p>'}
         </div>
         <div data-unidade-panel="frota" class="hidden">
-          <p class="hint">Clique num veículo para abrir o desenho e o diagnóstico ao lado. Clique de novo para recolher.</p>
+          <p class="hint">Caminhões lado a lado. Verde = ok, amarelo = alerta, vermelho = crítico. Clique para o desenho completo.</p>
           ${renderUnidadeFrota(data)}
         </div>
       </div>
@@ -4345,14 +4467,27 @@ async function abrirDetalheFilial(id) {
     el.querySelectorAll('.unidade-prio-btn').forEach((btn) => {
       btn.addEventListener('click', () => abrirVeiculoNaUnidade(id, btn.dataset.veiculoId));
     });
-    el.querySelectorAll('.veiculo-item[data-id]').forEach((row) => {
+    el.querySelectorAll('.veiculo-item[data-id], .frota-truck-card[data-id]').forEach((row) => {
       const open = () => abrirInspecaoVeiculoFilial(id, row.dataset.id);
-      row.addEventListener('click', open);
+      row.addEventListener('click', (e) => {
+        if (e.target.closest('.btn-dash-medir')) return;
+        open();
+      });
       row.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
           open();
         }
+      });
+    });
+    el.querySelectorAll('#unidade-frota-log .frota-log-item[data-veiculo-id]').forEach((row) => {
+      row.addEventListener('click', () => {
+        if (row.dataset.veiculoId) abrirInspecaoVeiculoFilial(id, row.dataset.veiculoId);
+      });
+    });
+    el.querySelectorAll('.frota-decisao-item[data-veiculo-id]').forEach((row) => {
+      row.addEventListener('click', () => {
+        if (row.dataset.veiculoId) abrirInspecaoVeiculoFilial(id, row.dataset.veiculoId);
       });
     });
     window.scrollTo({ top: 0, behavior: 'smooth' });

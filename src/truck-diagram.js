@@ -198,7 +198,8 @@ function ehLayoutTrator(layoutId) {
   return String(layoutId || '').startsWith('trator');
 }
 
-function buildSchemaSvg(pneusSvg, posicoes, layoutId = null) {
+function buildSchemaSvg(pneusSvg, posicoes, layoutId = null, opts = {}) {
+  const compact = Boolean(opts.compact);
   const eixos = eixosPresentes(posicoes);
   const trator = ehLayoutTrator(layoutId);
   const lines = [];
@@ -206,40 +207,25 @@ function buildSchemaSvg(pneusSvg, posicoes, layoutId = null) {
     const x1 = trator ? 185 : 170;
     const x2 = trator ? 415 : 430;
     lines.push(`<line x1="${x1}" y1="145" x2="${x2}" y2="145" stroke="#94a3b8" stroke-width="5" stroke-linecap="round" opacity="0.5"/>`);
-    lines.push(`<text x="300" y="108" text-anchor="middle" class="axis-label">Eixo 1</text>`);
+    if (!compact) lines.push(`<text x="300" y="108" text-anchor="middle" class="axis-label">Eixo 1</text>`);
   }
   if (eixos.e2) {
     const x1 = trator ? 150 : 130;
     const x2 = trator ? 450 : 470;
     lines.push(`<line x1="${x1}" y1="320" x2="${x2}" y2="320" stroke="#94a3b8" stroke-width="5" stroke-linecap="round" opacity="0.5"/>`);
-    lines.push(`<text x="300" y="288" text-anchor="middle" class="axis-label">Eixo 2</text>`);
+    if (!compact) lines.push(`<text x="300" y="288" text-anchor="middle" class="axis-label">Eixo 2</text>`);
   }
   if (eixos.e3 && !trator) {
     lines.push(`<line x1="130" y1="420" x2="470" y2="420" stroke="#94a3b8" stroke-width="5" stroke-linecap="round" opacity="0.5"/>`);
-    lines.push(`<text x="300" y="388" text-anchor="middle" class="axis-label">Eixo 3</text>`);
+    if (!compact) lines.push(`<text x="300" y="388" text-anchor="middle" class="axis-label">Eixo 3</text>`);
   }
 
   const h = eixos.e3 && !trator ? 540 : eixos.e2 ? 440 : 280;
   const silhueta = trator ? silhuetaTrator() : silhuetaCaminhao(eixos);
-  const aria = trator ? 'Trator — clique no pneu ou posição vazia' : 'Caminhão — clique no pneu ou posição vazia';
-
-  return `<?xml version="1.0" encoding="UTF-8"?>
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 ${h}" class="truck-svg"
-     role="img" aria-label="${aria}">
-  <style>
-    .axis-label { font-family: Segoe UI, system-ui, sans-serif; font-size: 11px; font-weight: 600; fill: #94a3b8; }
-    .orient { font-family: Segoe UI, system-ui, sans-serif; font-size: 11px; font-weight: 700; fill: #94a3b8; }
-  </style>
-  <rect width="600" height="${h}" fill="#f8fafc" rx="12"/>
-
-  <text x="300" y="28" text-anchor="middle" class="orient">▲ FRENTE</text>
-  <text x="22" y="${h / 2}" text-anchor="middle" class="orient" transform="rotate(-90 22 ${h / 2})">ESQ</text>
-  <text x="578" y="${h / 2}" text-anchor="middle" class="orient" transform="rotate(90 578 ${h / 2})">DIR</text>
-
-  ${silhueta}
-
-  ${lines.join('\n  ')}
-
+  const aria = compact
+    ? 'Vista de cima do caminhão — pneus por cor de sulco'
+    : (trator ? 'Trator — clique no pneu ou posição vazia' : 'Caminhão — clique no pneu ou posição vazia');
+  const legend = compact ? '' : `
   <g transform="translate(20, ${h - 24})" font-family="Segoe UI,system-ui,sans-serif" font-size="11">
     <circle cx="6" cy="0" r="5" fill="#16a34a"/><text x="16" y="4" fill="#64748b">OK</text>
     <circle cx="56" cy="0" r="5" fill="#d97706"/><text x="66" y="4" fill="#64748b">Alerta</text>
@@ -247,10 +233,38 @@ function buildSchemaSvg(pneusSvg, posicoes, layoutId = null) {
     <circle cx="188" cy="0" r="5" fill="#94a3b8"/><text x="198" y="4" fill="#64748b">Sem medição</text>
     <rect x="300" y="-6" width="12" height="12" rx="2" fill="#f1f5f9" stroke="#94a3b8" stroke-dasharray="2 2"/>
     <text x="318" y="4" fill="#64748b">Vazio</text>
-  </g>
+  </g>`;
 
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 ${h}" class="truck-svg${compact ? ' truck-svg-mini' : ''}"
+     role="img" aria-label="${aria}">
+  <style>
+    .axis-label { font-family: Segoe UI, system-ui, sans-serif; font-size: 11px; font-weight: 600; fill: #94a3b8; }
+    .orient { font-family: Segoe UI, system-ui, sans-serif; font-size: 11px; font-weight: 700; fill: #94a3b8; }
+  </style>
+  <rect width="600" height="${h}" fill="#f8fafc" rx="12"/>
+  ${compact ? '' : `<text x="300" y="28" text-anchor="middle" class="orient">▲ FRENTE</text>`}
+  ${silhueta}
+  ${lines.join('\n  ')}
+  ${legend}
   ${pneusSvg}
 </svg>`;
+}
+
+/** Miniatura da frota: caminhões lado a lado, só cores de sulco. */
+export function svgMiniCaminhao({ layoutId = null, posicoes = [], pneus = [] } = {}) {
+  const byPos = new Map((pneus || []).map((p) => [p.posicao, p]));
+  const slots = (posicoes?.length ? posicoes : (pneus || []).map((p) => p.posicao)).filter(Boolean);
+  const itens = slots.map((codigo, i) => {
+    const p = byPos.get(codigo);
+    const coord = coordsPneu(codigo, i, slots.length, layoutId);
+    if (!p) return renderSlotVazio(codigo, coord, codigo, '');
+    const cores = STATUS_CORES[p.status_sulco] || STATUS_CORES.sem_dado;
+    const sulco = p.menor_sulco != null ? String(p.menor_sulco) : '—';
+    return renderPneu({ id: p.id || i, posicao: codigo }, i + 1, coord, cores, sulco, codigo, '');
+  }).join('');
+  return buildSchemaSvg(itens, slots, layoutId, { compact: true })
+    .replace(/^<\?xml[^>]*>\s*/i, '');
 }
 
 function buildPickerItem(p, n, cores, sulco, nome, ativo) {
