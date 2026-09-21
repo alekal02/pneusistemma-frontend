@@ -724,13 +724,26 @@ function horaLog(iso) {
   return partes.length > 1 ? partes[1].slice(0, 5) : txt;
 }
 
+function deduplicarLogsMedicao(logs) {
+  const seen = new Set();
+  const out = [];
+  for (const l of logs || []) {
+    const key = `${l.veiculo_id || l.placa || l.apelido || ''}|${l.posicao || ''}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(l);
+  }
+  return out;
+}
+
 function renderLogMedicoes(logs) {
-  if (!logs?.length) {
+  const unicos = deduplicarLogsMedicao(logs);
+  if (!unicos.length) {
     return '<p class="hint">Ainda não há medições registradas nesta unidade.</p>';
   }
   const grupos = [];
   const map = new Map();
-  for (const l of logs) {
+  for (const l of unicos) {
     const dia = formatDate(l.data_medicao || l.created_at);
     if (!map.has(dia)) {
       const g = { dia, itens: [] };
@@ -1214,6 +1227,31 @@ async function openVeiculoDetalhe(id, origem = 'dashboard', dadosPreload = null)
       btnWa.onclick = () => {
         if (!isGestao()) return toast('Só o gerente compartilha o link WhatsApp', 'error');
         gerarLinkWhatsApp(v.id, v.placa);
+      };
+    }
+
+    const btnExcluir = document.getElementById('btn-truck-excluir');
+    if (btnExcluir) {
+      btnExcluir.onclick = () => {
+        if (modoAcessoRapido) return toast('Indisponível no acesso rápido', 'error');
+        excluirCaminhaoGestao({
+          filialId: v.filial_id,
+          veiculoId: v.id,
+          placa: v.placa,
+          apelido: v.apelido,
+          nPneus: v.pneus?.length || 0,
+          depois: async () => {
+            veiculoAtual = null;
+            const destino = voltarPara === 'acesso-rapido' ? 'dashboard' : voltarPara;
+            showView(destino);
+            if (destino === 'dashboard') loadDashboard();
+            else if (destino === 'acoes') loadAcoes();
+            else if (destino === 'filiais' && v.filial_id) {
+              await abrirDetalheFilial(v.filial_id);
+              setUnidadeTab('frota');
+            } else loadVeiculos();
+          },
+        });
       };
     }
 
@@ -6026,6 +6064,37 @@ function renderListaAnomalias(anomalias) {
     </div>`;
 }
 
+async function excluirCaminhaoGestao({ filialId, veiculoId, placa, apelido, nPneus, depois }) {
+  if (!isGestao()) {
+    toast('Só gerente ou administrador pode excluir caminhão', 'error');
+    return false;
+  }
+  const nome = [apelido, placa].filter(Boolean).join(' · ') || 'este caminhão';
+  const n = Number(nPneus) || 0;
+  const pneusTxt = n === 1
+    ? 'o pneu montado nele'
+    : n > 0
+      ? `os ${n} pneus montados nele`
+      : 'os pneus montados nele';
+  if (!confirm(
+    `Excluir ${nome} e ${pneusTxt}?\n\nMedições e histórico desses pneus também serão apagados. Esta ação não pode ser desfeita.`
+  )) {
+    return false;
+  }
+  try {
+    const url = filialId
+      ? `${API}/filiais/${filialId}/veiculos/${veiculoId}`
+      : `${API}/veiculos/${veiculoId}`;
+    const data = await fetchJSON(url, { method: 'DELETE' });
+    toast(data.mensagem || 'Caminhão excluído', 'success');
+    if (typeof depois === 'function') await depois(data);
+    return true;
+  } catch (err) {
+    toast(err.message, 'error');
+    return false;
+  }
+}
+
 function fecharInspecaoVeiculoFilial() {
   const box = document.getElementById('filial-veiculo-inspecao');
   if (box) {
@@ -6086,6 +6155,7 @@ async function abrirInspecaoVeiculoFilial(filialId, veiculoId) {
         </div>
         <div class="inspecao-header-actions">
           <button type="button" class="btn btn-ghost btn-sm" id="btn-insp-config-layout">Configurar layout</button>
+          <button type="button" class="btn btn-ghost btn-sm btn-danger-text" id="btn-insp-excluir-veiculo">Excluir caminhão</button>
           <button type="button" class="btn btn-ghost btn-sm" id="btn-fechar-inspecao">Fechar desenho</button>
         </div>
       </div>
@@ -6154,6 +6224,20 @@ async function abrirInspecaoVeiculoFilial(filialId, veiculoId) {
         v.layout_pneus,
         posicoes
       );
+    };
+    document.getElementById('btn-insp-excluir-veiculo').onclick = () => {
+      excluirCaminhaoGestao({
+        filialId,
+        veiculoId: v.id,
+        placa: v.placa,
+        apelido: v.apelido,
+        nPneus: v.pneus?.length || 0,
+        depois: async () => {
+          fecharInspecaoVeiculoFilial();
+          await abrirDetalheFilial(filialId);
+          setUnidadeTab('frota');
+        },
+      });
     };
     wireEdicaoVeiculoInspecao();
 
