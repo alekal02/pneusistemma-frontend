@@ -4220,6 +4220,13 @@ function filtrarFrotaUnidade() {
   });
 }
 
+function focarInspecaoVeiculo() {
+  const box = document.getElementById('filial-veiculo-inspecao');
+  if (!box || box.classList.contains('hidden')) return;
+  const alvo = box.querySelector('.inspecao-header') || box;
+  alvo.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
 function abrirVeiculoNaUnidade(filialId, veiculoId) {
   setUnidadeTab('frota');
   abrirInspecaoVeiculoFilial(filialId, veiculoId);
@@ -4407,9 +4414,6 @@ function renderUnidadeFrota(data) {
       acoes: data.pendencias?.todos || [],
       diagnosticos: data.pendencias?.diagnosticos || [],
     })}
-    <div class="unidade-frota-split" id="unidade-frota-split">
-      <div id="filial-veiculo-inspecao" class="filial-inspecao hidden"></div>
-    </div>
   `;
 }
 
@@ -4467,6 +4471,9 @@ async function abrirDetalheFilial(id) {
           <button type="button" class="unidade-tab" data-unidade-tab="pendencias">Pendências (${nPend})</button>
           <button type="button" class="unidade-tab" data-unidade-tab="frota">Frota (${nFrota})</button>
         </nav>
+        <div class="unidade-frota-split" id="unidade-frota-split">
+          <div id="filial-veiculo-inspecao" class="filial-inspecao hidden"></div>
+        </div>
         <div data-unidade-panel="resumo">${renderUnidadeResumo(data)}</div>
         <div data-unidade-panel="pendencias" class="hidden">
           <div class="unidade-pend-filtros">
@@ -6156,7 +6163,7 @@ async function abrirInspecaoVeiculoFilial(filialId, veiculoId) {
   inspecaoVeiculoIdAberto = idNum;
   box.classList.remove('hidden');
   box.innerHTML = '<p class="hint">Carregando diagrama e diagnósticos…</p>';
-  box.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  focarInspecaoVeiculo();
 
   try {
     const v = await fetchJSON(`${API}/filiais/${filialId}/veiculos/${veiculoId}`);
@@ -6302,6 +6309,7 @@ async function abrirInspecaoVeiculoFilial(filialId, veiculoId) {
       inspecaoDiagram.setAtivo(primeiro.id);
       setPainel(primeiro);
     }
+    focarInspecaoVeiculo();
   } catch (err) {
     if (inspecaoVeiculoIdAberto === idNum) {
       box.innerHTML = `<p class="hint login-erro">${err.message}</p>`;
