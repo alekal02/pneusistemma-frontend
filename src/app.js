@@ -1165,9 +1165,14 @@ async function openVeiculoDetalhe(id, origem = 'dashboard', dadosPreload = null)
     if (banner) {
       if (modoAcessoRapido) {
         banner.classList.remove('hidden');
-        banner.innerHTML = `
+        const semPneus = !(v.pneus || []).length;
+        banner.innerHTML = semPneus
+          ? `
+          <strong>Caminhão sem pneus</strong>
+          <span>Toque no slot (+) e use a aba <em>Do estoque</em> para puxar um pneu da filial. Se o estoque estiver vazio, cadastre um novo.</span>`
+          : `
           <strong>Modo campo (WhatsApp)</strong>
-          <span>Toque no pneu para medir, enviar à recap, estoque ou descarte</span>
+          <span>Toque no pneu para medir, enviar à recap, estoque ou descarte. Slot vazio (+) = pneu do estoque ou novo.</span>
           <span id="truck-campo-resumo">${resumoSessaoCampo()}</span>`;
       } else if (v.pneus.length === 0) {
         banner.classList.remove('hidden');
@@ -1204,7 +1209,9 @@ async function openVeiculoDetalhe(id, origem = 'dashboard', dadosPreload = null)
       });
     }
     truckDiagram.pickerHint = modoAcessoRapido
-      ? 'Toque no pneu para abrir a medição. Ao concluir, volta para o próximo.'
+      ? ((v.pneus || []).length
+        ? 'Toque no pneu para medir ou no slot (+) para montar do estoque.'
+        : 'Caminhão sem pneus — toque no slot (+) e escolha um pneu do estoque.')
       : 'Clique no pneu para medir ou no slot vazio para montar:';
     truckDiagram.render(v.pneus, meta.posicoes, posicoesLayout, { layoutId: v.layout_pneus });
     marcarPneusMedidosSessao();
@@ -1311,9 +1318,10 @@ function aplicarVisibilidadeAcessoRapido() {
   }
   const btnWa = document.getElementById('btn-truck-whatsapp');
   if (btnWa) btnWa.classList.toggle('hidden', modoAcessoRapido || !isGestao());
-  // No acesso rápido permite montar pneu novo; estoque fica oculto
   const tabEstoque = document.querySelector('.montar-tab[data-montar-tab="estoque"]');
-  if (tabEstoque) tabEstoque.classList.toggle('hidden', modoAcessoRapido);
+  if (tabEstoque) tabEstoque.classList.remove('hidden');
+  const linkPneus = document.getElementById('link-ir-pneus');
+  if (linkPneus) linkPneus.closest('p')?.classList.toggle('hidden', modoAcessoRapido);
   const avancado = document.querySelector('#truck-montar-novo .form-avancado');
   if (avancado && modoAcessoRapido) avancado.classList.add('hidden');
   const custo = document.getElementById('truck-novo-custo')?.closest('.form-group');
@@ -1327,7 +1335,7 @@ function aplicarVisibilidadeAcessoRapido() {
   const empty = document.querySelector('.truck-panel-empty');
   if (empty) {
     empty.innerHTML = modoAcessoRapido
-      ? '<p>Toque em um pneu no desenho</p><p class="hint">Medir sulco, enviar à recap, estoque ou descarte.</p>'
+      ? '<p>Toque em um pneu ou no slot vazio (+)</p><p class="hint">Slot vazio = pneu do estoque ou novo · Pneu montado = medir sulco.</p>'
       : '<p>Clique em uma posição</p><p class="hint">Slot vazio (+) = colocar pneu · Pneu montado = medir sulco</p>';
   }
   const bar = document.getElementById('acesso-rapido-bar');
@@ -1494,28 +1502,30 @@ async function selecionarSlotVazio(posicao) {
   document.getElementById('truck-medicao-box').classList.add('hidden');
 
   const nome = meta.posicoes[posicao] || posicao;
-  document.getElementById('truck-pneu-nome').textContent = modoAcessoRapido
-    ? `${nome} — informar pneu novo`
-    : `${nome} — vazio`;
+  document.getElementById('truck-pneu-nome').textContent = `${nome} — vazio`;
   document.getElementById('truck-pneu-status').innerHTML = '';
   document.getElementById('truck-pneu-acao').innerHTML = '';
   document.getElementById('truck-pneu-vida').innerHTML = '';
 
   resetFormMontarNovo();
-  setMontarTab('novo');
   aplicarVisibilidadeAcessoRapido();
-  if (!modoAcessoRapido) {
-    await carregarSelectEstoque();
-  }
+  await carregarSelectEstoque();
+  const temEstoque = estoqueMontarCache.length > 0;
+  const tabInicial = modoAcessoRapido && temEstoque ? 'estoque' : 'novo';
+  setMontarTab(tabInicial);
   const hintFogo = document.getElementById('truck-novo-fogo-hint');
   if (hintFogo) {
     hintFogo.textContent = 'Clique para analisar o código da unidade e a última marca cadastrada (ex.: 0110-0001).';
   }
   const hint = document.getElementById('truck-montar-hint');
   if (hint) {
-    hint.textContent = modoAcessoRapido
-      ? 'Gere a marca de fogo, informe modelo e toque em “Criar e montar”.'
-      : 'Posição vazia — coloque um pneu aqui.';
+    if (modoAcessoRapido) {
+      hint.textContent = temEstoque
+        ? 'Escolha um pneu do estoque desta filial ou cadastre um novo nesta posição.'
+        : 'Não há pneus no estoque. Informe um pneu novo nesta posição.';
+    } else {
+      hint.textContent = 'Posição vazia — coloque um pneu aqui.';
+    }
   }
   entrarMedicaoCampo();
 }
@@ -1805,7 +1815,11 @@ function preencherSelectPneusEstoque(select, lista, busca, hintEl) {
 
   if (!lista.length) {
     select.innerHTML = '<option value="">Nenhum pneu no estoque</option>';
-    if (hintEl) hintEl.textContent = 'Cadastre um pneu na aba Pneus para montar daqui.';
+    if (hintEl) {
+      hintEl.textContent = modoAcessoRapido
+        ? 'Não há pneus no estoque desta filial. Use a aba Novo pneu.'
+        : 'Cadastre um pneu na aba Pneus para montar daqui.';
+    }
     return;
   }
   if (!filtrada.length) {
@@ -1848,8 +1862,18 @@ async function carregarSelectEstoque() {
   if (buscaEl) buscaEl.value = '';
   const select = document.getElementById('truck-estoque-select');
   try {
-    const lista = await fetchJSON(`${API}/pneus?status=estoque`);
-    estoqueMontarCache = Array.isArray(lista) ? lista : [];
+    if (modoAcessoRapido && tokenAcessoRapido) {
+      try {
+        const data = await fetchJSON(`${API}/acesso-rapido/frota?token=${encodeURIComponent(tokenAcessoRapido)}`);
+        estoqueMontarCache = Array.isArray(data.estoque) ? data.estoque : [];
+      } catch {
+        estoqueMontarCache = Array.isArray(veiculoAtual?.estoque) ? veiculoAtual.estoque : [];
+      }
+      if (veiculoAtual) veiculoAtual.estoque = estoqueMontarCache;
+    } else {
+      const lista = await fetchJSON(`${API}/pneus?status=estoque`);
+      estoqueMontarCache = Array.isArray(lista) ? lista : [];
+    }
     atualizarListaEstoqueMontar();
   } catch (err) {
     estoqueMontarCache = [];
@@ -1862,7 +1886,32 @@ async function montarPneuDoEstoque() {
   const pneuId = parseInt(document.getElementById('truck-estoque-select').value, 10);
   if (!pneuId) return toast('Selecione um pneu do estoque', 'error');
 
+  const btn = document.getElementById('btn-truck-montar');
+  if (btn) btn.disabled = true;
   try {
+    if (modoAcessoRapido) {
+      if (!tokenAcessoRapido) throw new Error('Token de acesso rápido ausente');
+      const result = await fetchJSON(`${API}/veiculos/acesso-rapido/montar-estoque`, {
+        method: 'POST',
+        body: JSON.stringify({
+          token: tokenAcessoRapido,
+          posicao: slotPosicaoSelecionada,
+          pneu_id: pneuId,
+        }),
+      });
+      toast(result.mensagem || 'Pneu montado do estoque', 'success');
+      const pos = slotPosicaoSelecionada;
+      tokenAcessoRapido = result.token_acesso || tokenAcessoRapido;
+      await openVeiculoDetalhe(result.veiculo?.id || veiculoAtual.id, 'acesso-rapido', result.veiculo);
+      const montado = veiculoAtual?.pneus?.find((p) => p.posicao === pos);
+      if (montado) {
+        truckDiagram?.setAtivo(montado.id);
+        selecionarPneuTruck(montado);
+        toast('Agora informe os sulcos deste pneu', 'success');
+      }
+      return;
+    }
+
     await fetchJSON(`${API}/pneus/${pneuId}/montar`, {
       method: 'POST',
       body: JSON.stringify({
@@ -1882,6 +1931,8 @@ async function montarPneuDoEstoque() {
     }
   } catch (err) {
     toast(err.message, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -4220,13 +4271,6 @@ function filtrarFrotaUnidade() {
   });
 }
 
-function focarInspecaoVeiculo() {
-  const box = document.getElementById('filial-veiculo-inspecao');
-  if (!box || box.classList.contains('hidden')) return;
-  const alvo = box.querySelector('.inspecao-header') || box;
-  alvo.scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
-
 function abrirVeiculoNaUnidade(filialId, veiculoId) {
   setUnidadeTab('frota');
   abrirInspecaoVeiculoFilial(filialId, veiculoId);
@@ -4414,6 +4458,9 @@ function renderUnidadeFrota(data) {
       acoes: data.pendencias?.todos || [],
       diagnosticos: data.pendencias?.diagnosticos || [],
     })}
+    <div class="unidade-frota-split" id="unidade-frota-split">
+      <div id="filial-veiculo-inspecao" class="filial-inspecao hidden"></div>
+    </div>
   `;
 }
 
@@ -4471,9 +4518,6 @@ async function abrirDetalheFilial(id) {
           <button type="button" class="unidade-tab" data-unidade-tab="pendencias">Pendências (${nPend})</button>
           <button type="button" class="unidade-tab" data-unidade-tab="frota">Frota (${nFrota})</button>
         </nav>
-        <div class="unidade-frota-split" id="unidade-frota-split">
-          <div id="filial-veiculo-inspecao" class="filial-inspecao hidden"></div>
-        </div>
         <div data-unidade-panel="resumo">${renderUnidadeResumo(data)}</div>
         <div data-unidade-panel="pendencias" class="hidden">
           <div class="unidade-pend-filtros">
@@ -6163,7 +6207,7 @@ async function abrirInspecaoVeiculoFilial(filialId, veiculoId) {
   inspecaoVeiculoIdAberto = idNum;
   box.classList.remove('hidden');
   box.innerHTML = '<p class="hint">Carregando diagrama e diagnósticos…</p>';
-  focarInspecaoVeiculo();
+  box.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   try {
     const v = await fetchJSON(`${API}/filiais/${filialId}/veiculos/${veiculoId}`);
@@ -6309,7 +6353,6 @@ async function abrirInspecaoVeiculoFilial(filialId, veiculoId) {
       inspecaoDiagram.setAtivo(primeiro.id);
       setPainel(primeiro);
     }
-    focarInspecaoVeiculo();
   } catch (err) {
     if (inspecaoVeiculoIdAberto === idNum) {
       box.innerHTML = `<p class="hint login-erro">${err.message}</p>`;
