@@ -1649,6 +1649,8 @@ async function criarEMontarPneuTruck() {
 
 let estoqueMontarCache = [];
 let estoqueTrocaCache = [];
+let estoqueFilialTotal = 0;
+let estoqueBuscaTimer = null;
 
 function normalizarBuscaPneu(s) {
   return String(s || '')
@@ -1804,7 +1806,10 @@ function pneuEstoqueCombinaBusca(p, q) {
     p.numero_fogo, p.id, p.marca, p.modelo, p.dot, p.medida,
     p.condicao, p.vida_label, p.padrao_label, p.tipo_pneu,
   ].filter(Boolean).join(' '));
-  return q.split(/\s+/).every((term) => hay.includes(term));
+  if (q.split(/\s+/).every((term) => hay.includes(term))) return true;
+  const compactQ = compactarBuscaTexto(q);
+  const compactHay = compactarBuscaTexto(hay);
+  return compactQ.length >= 2 && compactHay.includes(compactQ);
 }
 
 function preencherSelectPneusEstoque(select, lista, busca, hintEl) {
@@ -1824,7 +1829,7 @@ function preencherSelectPneusEstoque(select, lista, busca, hintEl) {
   }
   if (!filtrada.length) {
     select.innerHTML = `<option value="">Nenhum pneu com “${escapeHtml(String(busca || '').trim())}”</option>`;
-    if (hintEl) hintEl.textContent = 'Nada encontrado. Apague a busca para ver a lista completa.';
+    if (hintEl) hintEl.textContent = 'Nada encontrado. Tente só os números do fogo (ex.: 5316).';
     return;
   }
 
@@ -1857,24 +1862,32 @@ function atualizarListaEstoqueMontar() {
   );
 }
 
-async function carregarSelectEstoque() {
+async function carregarSelectEstoque({ limparBusca = true } = {}) {
   const buscaEl = document.getElementById('truck-estoque-busca');
-  if (buscaEl) buscaEl.value = '';
+  if (limparBusca && buscaEl) buscaEl.value = '';
+  const q = buscaEl?.value?.trim() || '';
   const select = document.getElementById('truck-estoque-select');
   try {
     if (modoAcessoRapido && tokenAcessoRapido) {
       try {
-        const data = await fetchJSON(`${API}/acesso-rapido/frota?token=${encodeURIComponent(tokenAcessoRapido)}`);
+        const data = await fetchJSON(
+          `${API}/acesso-rapido/estoque?token=${encodeURIComponent(tokenAcessoRapido)}&q=${encodeURIComponent(q)}`,
+        );
         estoqueMontarCache = Array.isArray(data.estoque) ? data.estoque : [];
+        estoqueFilialTotal = Number(data.total || estoqueMontarCache.length);
       } catch {
         estoqueMontarCache = Array.isArray(veiculoAtual?.estoque) ? veiculoAtual.estoque : [];
       }
       if (veiculoAtual) veiculoAtual.estoque = estoqueMontarCache;
     } else {
-      const lista = await fetchJSON(`${API}/pneus?status=estoque`);
+      const lista = await fetchJSON(`${API}/pneus?status=estoque${q ? `&q=${encodeURIComponent(q)}` : ''}`);
       estoqueMontarCache = Array.isArray(lista) ? lista : [];
     }
     atualizarListaEstoqueMontar();
+    const hint = document.getElementById('truck-estoque-hint');
+    if (hint && modoAcessoRapido && !q && estoqueFilialTotal > estoqueMontarCache.length) {
+      hint.textContent = `Mostrando ${estoqueMontarCache.length} de ${estoqueFilialTotal}. Digite o nº de fogo (ex.: 5316).`;
+    }
   } catch (err) {
     estoqueMontarCache = [];
     if (select) select.innerHTML = `<option value="">Erro: ${escapeHtml(err.message)}</option>`;
@@ -2041,7 +2054,9 @@ async function abrirModalTrocarEstoque() {
   try {
     let lista = [];
     if (modoAcessoRapido && tokenAcessoRapido) {
-      const data = await fetchJSON(`${API}/acesso-rapido/frota?token=${encodeURIComponent(tokenAcessoRapido)}`);
+      const data = await fetchJSON(
+        `${API}/acesso-rapido/estoque?token=${encodeURIComponent(tokenAcessoRapido)}&q=${encodeURIComponent(document.getElementById('trocar-estoque-busca')?.value || '')}`,
+      );
       lista = data.estoque || [];
     } else {
       lista = await fetchJSON(`${API}/pneus?status=estoque`);
@@ -2449,7 +2464,12 @@ document.getElementById('btn-truck-criar-montar')?.addEventListener('click', cri
 document.querySelectorAll('.montar-tab').forEach((btn) => {
   btn.addEventListener('click', () => setMontarTab(btn.dataset.montarTab));
 });
-document.getElementById('truck-estoque-busca')?.addEventListener('input', atualizarListaEstoqueMontar);
+document.getElementById('truck-estoque-busca')?.addEventListener('input', () => {
+  atualizarListaEstoqueMontar();
+  if (!(modoAcessoRapido && tokenAcessoRapido)) return;
+  clearTimeout(estoqueBuscaTimer);
+  estoqueBuscaTimer = setTimeout(() => carregarSelectEstoque({ limparBusca: false }), 280);
+});
 document.getElementById('truck-estoque-busca')?.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
     e.preventDefault();
