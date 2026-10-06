@@ -131,7 +131,12 @@
         </div>
       </div>
       <p class="hint">Consolidado da frota para apresentar à diretoria — criticidade, ações e custo de pneus por filial.</p>
+      <div class="frota-busca-bar">
+        <label class="frota-busca-label" for="relatorio-filtro-tipo">Tipo de equipamento</label>
+        <select id="relatorio-filtro-tipo"><option value="">Todos os tipos</option></select>
+      </div>
       <div id="relatorio-resumo" class="stats-grid"></div>
+      <div id="relatorio-uso" class="stats-grid stats-uso"></div>
       <div id="relatorio-leitura" class="compras-banner" style="margin-top:1rem"></div>
       <div class="card" style="margin-top:1.25rem;overflow-x:auto">
         <h3>Por filial</h3>
@@ -197,13 +202,14 @@
         </div>
         <div class="stat-card stat-alerta">
           <span class="stat-value" id="stat-alerta">-</span>
-          <span class="stat-label">Em alerta</span>
+          <span class="stat-label">Monitorar</span>
         </div>
         <div class="stat-card stat-critico">
           <span class="stat-value" id="stat-critico">-</span>
-          <span class="stat-label">Críticos</span>
+          <span class="stat-label">Crítico / ação necessária</span>
         </div>
       </div>
+      <div class="stats-grid stats-uso" id="dashboard-uso"></div>
       <div class="stats-grid stats-acoes" id="stats-acoes">
         <div class="stat-card stat-troca">
           <span class="stat-value" id="stat-troca">-</span>
@@ -220,6 +226,8 @@
       </div>
       <h2>Resumo da Frota</h2>
       <div class="frota-busca-bar">
+        <label class="frota-busca-label" for="dash-filtro-tipo">Tipo</label>
+        <select id="dash-filtro-tipo"><option value="">Todos os tipos</option></select>
         <label class="frota-busca-label" for="dash-frota-busca">Buscar veículo</label>
         <input type="search" id="dash-frota-busca" list="dash-frota-sugestoes" placeholder="Placa, apelido ou modelo…" autocomplete="off">
         <datalist id="dash-frota-sugestoes"></datalist>
@@ -449,14 +457,14 @@
               <div id="truck-montar-estoque" class="montar-tab-panel hidden">
                 <div class="form-group">
                   <label for="truck-estoque-busca">Buscar no estoque</label>
-                  <input type="search" id="truck-estoque-busca" placeholder="Nº de fogo, ex.: 5316" autocomplete="off">
+                  <input type="search" id="truck-estoque-busca" placeholder="Fogo, marca, modelo…" autocomplete="off">
                 </div>
                 <div class="form-group">
                   <label for="truck-estoque-select">Pneu do estoque</label>
                   <select id="truck-estoque-select" size="6" class="estoque-select-lista">
                     <option value="">Carregando...</option>
                   </select>
-                  <small class="field-hint" id="truck-estoque-hint">Digite o nº de fogo para achar o pneu (ex.: 5316).</small>
+                  <small class="field-hint" id="truck-estoque-hint">Digite para filtrar a lista e clique no pneu.</small>
                 </div>
                 <button type="button" class="btn btn-primary btn-sm" id="btn-truck-montar">Montar neste veículo</button>
                 <p class="hint"><a href="#" id="link-ir-pneus">Ver todos os pneus na aba Pneus</a></p>
@@ -472,8 +480,8 @@
                 <div class="span-2"><span class="label">Última medição de sulco</span><strong id="truck-pneu-ultima-sulco">Sem medição</strong></div>
               </div>
 
-              <h4 class="panel-subtitle">Medição do sulco (Esq → Dir)</h4>
-              <div class="form-row form-row-4">
+              <h4 class="panel-subtitle" id="truck-sulco-titulo">Medição do sulco (Esq → Dir)</h4>
+              <div class="form-row form-row-4" id="truck-sulcos-4">
                 <div class="form-group">
                   <label for="truck-sulco-ext">1ª MED</label>
                   <input type="number" id="truck-sulco-ext" step="0.1" min="0" max="30">
@@ -491,17 +499,26 @@
                   <input type="number" id="truck-sulco-aux" step="0.1" min="0" max="30">
                 </div>
               </div>
+              <div class="form-group hidden" id="truck-sulco-simples-wrap">
+                <label for="truck-sulco-mm">Sulco (mm)</label>
+                <input type="number" id="truck-sulco-mm" step="0.1" min="0" max="40">
+              </div>
+              <div class="form-group hidden" id="truck-inspecao-wrap">
+                <span class="label">Inspeção de danos</span>
+                <div id="truck-inspecao-opcoes" class="inspecao-opcoes"></div>
+                <input type="text" id="truck-inspecao-outro" class="hidden" placeholder="Descreva o outro dano">
+              </div>
               <div class="form-row">
                 <div class="form-group">
                   <label for="truck-pressao">Pressão (PSI)</label>
                   <input type="number" id="truck-pressao" step="0.5" min="0">
                 </div>
-                <div class="form-group">
-                  <label for="truck-km">KM veículo</label>
+                <div class="form-group" id="truck-km-wrap">
+                  <label for="truck-km" id="truck-km-label">KM veículo</label>
                   <input type="number" id="truck-km" min="0">
                 </div>
-                <div class="form-group">
-                  <label for="truck-hr">Horas veículo</label>
+                <div class="form-group" id="truck-hr-wrap">
+                  <label for="truck-hr" id="truck-hr-label">Horímetro</label>
                   <input type="number" id="truck-hr" step="0.1" min="0">
                 </div>
               </div>
@@ -568,34 +585,34 @@
     <section id="view-ar-veiculo" class="view">
       <div class="ar-form-wrap card">
         <p class="cb-kicker">WhatsApp · acesso rápido</p>
-        <h2>Cadastrar caminhão</h2>
+        <h2 id="ar-veiculo-titulo">Cadastrar equipamento</h2>
         <p class="hint" id="ar-veiculo-filial"></p>
         <form id="form-ar-veiculo">
-          <div class="form-group">
-            <label for="ar-v-placa">Placa *</label>
-            <input type="text" id="ar-v-placa" required placeholder="Ex: BH123" autocomplete="off">
+          <p class="hint" style="margin-top:0">Qual o tipo de equipamento?</p>
+          <div id="ar-v-tipo-opcoes" class="tipo-opcoes" role="group" aria-label="Tipo de equipamento"></div>
+          <input type="hidden" id="ar-v-tipo" value="">
+          <div id="ar-v-campos" class="hidden">
+            <div class="form-group">
+              <label for="ar-v-placa">Placa *</label>
+              <input type="text" id="ar-v-placa" required placeholder="Ex: BH123" autocomplete="off">
+            </div>
+            <div class="form-group">
+              <label for="ar-v-apelido">Apelido</label>
+              <input type="text" id="ar-v-apelido" placeholder="Opcional" autocomplete="off">
+            </div>
+            <div class="form-group" id="ar-campo-km">
+              <label for="ar-v-km">KM atual</label>
+              <input type="number" id="ar-v-km" min="0" inputmode="numeric" value="0">
+            </div>
+            <div class="form-group hidden" id="ar-campo-hr">
+              <label for="ar-v-hr">Horímetro atual</label>
+              <input type="number" id="ar-v-hr" min="0" step="0.1" inputmode="decimal" value="0">
+            </div>
+            <p class="hint" id="ar-v-layout-hint"></p>
+            <p class="hint login-erro hidden" id="ar-veiculo-erro"></p>
+            <p class="hint" id="ar-veiculo-ok" style="color:var(--ok,#16a34a)"></p>
+            <button type="submit" class="btn btn-primary" id="ar-v-salvar" style="width:100%">Salvar equipamento</button>
           </div>
-          <div class="form-group">
-            <label for="ar-v-apelido">Apelido</label>
-            <input type="text" id="ar-v-apelido" placeholder="Opcional">
-          </div>
-          <div class="form-group">
-            <label for="ar-v-tipo">Tipo *</label>
-            <select id="ar-v-tipo">
-              <option value="Truck / Tração">Truck / Tração</option>
-              <option value="Toco / Mini">Toco / Mini</option>
-              <option value="Compactador">Compactador</option>
-              <option value="Utilitário / Varredeira">Utilitário / Varredeira</option>
-              <option value="Trator">Trator</option>
-            </select>
-          </div>
-          <div class="form-group">
-            <label for="ar-v-km">KM atual</label>
-            <input type="number" id="ar-v-km" min="0" value="0">
-          </div>
-          <p class="hint login-erro hidden" id="ar-veiculo-erro"></p>
-          <p class="hint" id="ar-veiculo-ok" style="color:var(--ok,#16a34a)"></p>
-          <button type="submit" class="btn btn-primary" style="width:100%">Salvar caminhão</button>
         </form>
       </div>
     </section>
@@ -688,16 +705,17 @@
               <label for="med-data">Data</label>
               <input type="date" id="med-data">
             </div>
-            <div class="form-group">
-              <label for="med-km">KM do veículo</label>
+            <div class="form-group" id="med-km-wrap">
+              <label for="med-km" id="med-km-label">KM do veículo</label>
               <input type="number" id="med-km" min="0" placeholder="Ex: 45000">
             </div>
-            <div class="form-group">
-              <label for="med-hr">Horas do veículo</label>
+            <div class="form-group" id="med-hr-wrap">
+              <label for="med-hr" id="med-hr-label">Horímetro</label>
               <input type="number" id="med-hr" step="0.1" min="0" placeholder="Ex: 1200">
             </div>
           </div>
-          <div class="form-row form-row-4">
+          <p class="panel-subtitle" id="med-sulco-titulo">Medição do sulco (Esq → Dir)</p>
+          <div class="form-row form-row-4" id="med-sulcos-4">
             <div class="form-group">
               <label for="med-externo">1ª MED (Esq)</label>
               <input type="number" id="med-externo" step="0.1" min="0" max="30" placeholder="0.0">
@@ -714,6 +732,15 @@
               <label for="med-auxiliar">4ª MED (Dir)</label>
               <input type="number" id="med-auxiliar" step="0.1" min="0" max="30" placeholder="0.0">
             </div>
+          </div>
+          <div class="form-group hidden" id="med-sulco-simples-wrap">
+            <label for="med-sulco-mm">Sulco (mm)</label>
+            <input type="number" id="med-sulco-mm" step="0.1" min="0" max="40" placeholder="0.0">
+          </div>
+          <div class="form-group hidden" id="med-inspecao-wrap">
+            <span class="label">Inspeção de danos</span>
+            <div id="med-inspecao-opcoes" class="inspecao-opcoes"></div>
+            <input type="text" id="med-inspecao-outro" class="hidden" placeholder="Descreva o outro dano">
           </div>
           <div id="med-perfil" class="truck-perfil"></div>
           <div class="form-row">
@@ -733,7 +760,7 @@
           <button class="btn btn-primary btn-block" id="btn-salvar-medicao">Salvar Medição</button>
         </div>
 
-        <div class="medicao-pneu card">
+        <div class="medicao-pneu card" id="med-marcacao-card">
           <h3>Marcação Visual do Pneu</h3>
           <p class="hint">4 medições do sulco — Esq → Dir</p>
           <div id="tire-marker-container" class="tire-container"></div>
@@ -946,66 +973,72 @@
 
   <dialog id="modal-veiculo" class="modal modal-wide modal-veiculo">
     <form id="form-veiculo" method="dialog">
-      <h3 id="modal-veiculo-titulo">Novo Veículo</h3>
-      <p class="hint" style="margin-top:0">Informe a placa e a configuração dos eixos. Depois você coloca os pneus no diagrama.</p>
-      <div class="form-row">
-        <div class="form-group">
-          <label for="v-placa">Placa *</label>
-          <input type="text" id="v-placa" required placeholder="ABC1D23" maxlength="8">
-        </div>
-        <div class="form-group">
-          <label for="v-apelido">Apelido / nome interno</label>
-          <input type="text" id="v-apelido" placeholder="Ex: Compactador 01">
-        </div>
-      </div>
-      <div class="form-group">
-        <label for="v-tipo">Tipo do veículo *</label>
-        <select id="v-tipo"></select>
-      </div>
-      <div class="form-group">
-        <label for="v-dia-medicao">Dia da medição</label>
-        <select id="v-dia-medicao"></select>
-        <small class="field-hint">Dia da semana em que este caminhão deve ser medido.</small>
-      </div>
+      <h3 id="modal-veiculo-titulo">Novo equipamento</h3>
+      <p class="hint" id="v-tipo-hint" style="margin-top:0">Qual o tipo de equipamento?</p>
+      <div id="v-tipo-opcoes" class="tipo-opcoes" role="group" aria-label="Tipo de equipamento"></div>
+      <input type="hidden" id="v-tipo" value="">
 
-      <div class="form-group">
-        <label for="v-layout">Quantos pneus / eixos?</label>
-        <select id="v-layout"></select>
-        <small class="field-hint" id="v-layout-desc"></small>
-      </div>
-      <div id="v-layout-diagram" class="v-layout-diagram"></div>
-      <div id="v-layout-preview" class="layout-preview"></div>
-
-      <details class="form-avancado">
-        <summary>Mais dados (opcional)</summary>
+      <div id="v-campos" class="hidden">
         <div class="form-row">
           <div class="form-group">
-            <label for="v-marca">Marca</label>
-            <input type="text" id="v-marca" placeholder="Ex: Mercedes">
+            <label for="v-placa">Placa *</label>
+            <input type="text" id="v-placa" required placeholder="ABC1D23" maxlength="8" autocomplete="off">
           </div>
           <div class="form-group">
-            <label for="v-modelo">Modelo</label>
-            <input type="text" id="v-modelo" placeholder="Ex: Atego">
+            <label for="v-apelido">Apelido / nome interno</label>
+            <input type="text" id="v-apelido" placeholder="Ex: Compactador 01" autocomplete="off">
           </div>
         </div>
-        <div class="form-row">
-          <div class="form-group">
-            <label for="v-ano">Ano</label>
-            <input type="number" id="v-ano" min="1990" max="2030">
-          </div>
-          <div class="form-group">
-            <label for="v-km">KM atual</label>
-            <input type="number" id="v-km" min="0" value="0">
-          </div>
-          <div class="form-group">
-            <label for="v-hr">Horas atual</label>
-            <input type="number" id="v-hr" min="0" step="0.1" value="0">
-          </div>
+        <div class="form-group" id="v-campo-km">
+          <label for="v-km">KM atual</label>
+          <input type="number" id="v-km" min="0" inputmode="numeric" value="0">
         </div>
-      </details>
-      <div class="modal-actions">
-        <button type="button" class="btn btn-ghost" id="btn-cancelar-veiculo">Cancelar</button>
-        <button type="submit" class="btn btn-primary">Salvar e abrir diagrama</button>
+        <div class="form-group hidden" id="v-campo-hr">
+          <label for="v-hr">Horímetro atual</label>
+          <input type="number" id="v-hr" min="0" step="0.1" inputmode="decimal" value="0">
+        </div>
+        <p class="hint" id="v-layout-auto"></p>
+        <details class="form-avancado">
+          <summary>Ajustar layout</summary>
+          <div class="form-group">
+            <label for="v-layout">Quantos pneus / eixos?</label>
+            <select id="v-layout"></select>
+            <small class="field-hint" id="v-layout-desc"></small>
+          </div>
+          <div id="v-layout-diagram" class="v-layout-diagram"></div>
+          <div id="v-layout-preview" class="layout-preview"></div>
+        </details>
+        <details class="form-avancado">
+          <summary>Mais dados (opcional)</summary>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="v-marca">Marca</label>
+              <input type="text" id="v-marca" placeholder="Ex: Mercedes">
+            </div>
+            <div class="form-group">
+              <label for="v-modelo">Modelo</label>
+              <input type="text" id="v-modelo" placeholder="Ex: Atego">
+            </div>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label for="v-ano">Ano</label>
+              <input type="number" id="v-ano" min="1990" max="2030">
+            </div>
+            <div class="form-group">
+              <label for="v-dia-medicao">Dia da medição</label>
+              <select id="v-dia-medicao"></select>
+              <small class="field-hint" id="v-dia-hint">Dia da semana da medição. Em branco, usa o dia da frota.</small>
+            </div>
+          </div>
+        </details>
+        <div class="modal-actions">
+          <button type="button" class="btn btn-ghost" id="btn-cancelar-veiculo">Cancelar</button>
+          <button type="submit" class="btn btn-primary">Salvar e abrir diagrama</button>
+        </div>
+      </div>
+      <div class="modal-actions" id="v-cancelar-fora">
+        <button type="button" class="btn btn-ghost" id="btn-cancelar-veiculo-topo">Cancelar</button>
       </div>
     </form>
   </dialog>

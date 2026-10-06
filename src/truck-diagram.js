@@ -60,10 +60,35 @@ const COORDS_TRATOR = {
   '2D': { cx: 450, cy: 320, w: 74, h: 90, short: '2D' },
 };
 
+/** Mini carregadeira: quatro pneus iguais, alvos grandes no celular */
+const COORDS_SKID = {
+  S1E: { cx: 145, cy: 155, w: 118, h: 132, short: 'DE' },
+  S1D: { cx: 455, cy: 155, w: 118, h: 132, short: 'DD' },
+  S2E: { cx: 145, cy: 415, w: 118, h: 132, short: 'TE' },
+  S2D: { cx: 455, cy: 415, w: 118, h: 132, short: 'TD' },
+};
+
+/** Giro zero: dianteiros menores, tração traseira maior */
+const COORDS_GIRO = {
+  G1E: { cx: 185, cy: 145, w: 96, h: 108, short: 'DE' },
+  G1D: { cx: 415, cy: 145, w: 96, h: 108, short: 'DD' },
+  G2E: { cx: 140, cy: 410, w: 124, h: 140, short: 'TE' },
+  G2D: { cx: 460, cy: 410, w: 124, h: 140, short: 'TD' },
+};
+
+function diagramaLayout(layoutId) {
+  const id = String(layoutId || '');
+  if (id === 'skid_4') return 'quad';
+  if (id === 'giro_4') return 'generico';
+  if (id.startsWith('trator')) return 'trator';
+  return 'caminhao';
+}
+
 function coordsPneu(codigo, index, total, layoutId) {
-  if (String(layoutId || '') === 'trator_4' && COORDS_TRATOR[codigo]) {
-    return COORDS_TRATOR[codigo];
-  }
+  const diagrama = diagramaLayout(layoutId);
+  if (diagrama === 'quad' && COORDS_SKID[codigo]) return COORDS_SKID[codigo];
+  if (diagrama === 'generico' && COORDS_GIRO[codigo]) return COORDS_GIRO[codigo];
+  if (diagrama === 'trator' && COORDS_TRATOR[codigo]) return COORDS_TRATOR[codigo];
   return COORDS_PNEU[codigo] || coordsFallback(index, total);
 }
 
@@ -117,9 +142,9 @@ function renderPneu(p, n, coord, cores, sulco, nome, ativo) {
             stroke="#fff" stroke-width="2" opacity="0.35" pointer-events="none"/>
       <line x1="${cx + w * 0.22}" y1="${y + 8}" x2="${cx + w * 0.22}" y2="${y + h - 8}"
             stroke="#fff" stroke-width="2" opacity="0.35" pointer-events="none"/>
-      <text x="${cx}" y="${cy - 6}" text-anchor="middle" font-size="12" font-weight="800"
+      <text x="${cx}" y="${cy - (w >= 90 ? 8 : 6)}" text-anchor="middle" font-size="${w >= 90 ? 18 : 12}" font-weight="800"
             fill="#fff" pointer-events="none">${short}</text>
-      <text x="${cx}" y="${cy + 14}" text-anchor="middle" font-size="11" font-weight="700"
+      <text x="${cx}" y="${cy + (w >= 90 ? 18 : 14)}" text-anchor="middle" font-size="${w >= 90 ? 15 : 11}" font-weight="700"
             fill="#fff" pointer-events="none">${sulco}</text>
       <title>${n}. ${nome} — ${sulco} mm</title>
     </g>`;
@@ -137,9 +162,9 @@ function renderSlotVazio(posicao, coord, nome, ativo) {
       <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="8"
             fill="${cores.fill}" stroke="${cores.stroke}" stroke-width="2" stroke-dasharray="5 4"
             class="pneu-ellipse pneu-status-ring"/>
-      <text x="${cx}" y="${cy - 4}" text-anchor="middle" font-size="11" font-weight="800"
+      <text x="${cx}" y="${cy - 4}" text-anchor="middle" font-size="${w >= 90 ? 18 : 11}" font-weight="800"
             fill="#64748b" pointer-events="none">${short}</text>
-      <text x="${cx}" y="${cy + 14}" text-anchor="middle" font-size="16" font-weight="700"
+      <text x="${cx}" y="${cy + (w >= 90 ? 22 : 14)}" text-anchor="middle" font-size="${w >= 90 ? 22 : 16}" font-weight="700"
             fill="#94a3b8" pointer-events="none">+</text>
       <title>${nome} — vazio (montar do estoque)</title>
     </g>`;
@@ -195,10 +220,68 @@ function silhuetaTrator() {
 }
 
 function ehLayoutTrator(layoutId) {
-  return String(layoutId || '').startsWith('trator');
+  return diagramaLayout(layoutId) === 'trator';
+}
+
+function silhuetaQuad() {
+  return `
+  <g class="truck-ghost" pointer-events="none">
+    <rect x="210" y="210" width="180" height="160" rx="28"
+          fill="#64748b" fill-opacity="0.1" stroke="#475569" stroke-width="2.4" stroke-opacity="0.55"/>
+    <rect x="248" y="248" width="104" height="84" rx="16"
+          fill="#94a3b8" fill-opacity="0.16" stroke="#475569" stroke-width="1.8" stroke-opacity="0.45"/>
+  </g>`;
+}
+
+function silhuetaGiro() {
+  return `
+  <g class="truck-ghost" pointer-events="none">
+    <path d="M250 118 L350 118 Q372 118 372 140 L372 210 Q372 228 350 228 L250 228 Q228 228 228 210
+             L228 140 Q228 118 250 118 Z"
+          fill="#94a3b8" fill-opacity="0.14" stroke="#475569" stroke-width="2.2" stroke-opacity="0.55"/>
+    <rect x="200" y="250" width="200" height="150" rx="24"
+          fill="#64748b" fill-opacity="0.1" stroke="#475569" stroke-width="2.4" stroke-opacity="0.55"/>
+  </g>`;
+}
+
+function buildSchemaEquipamento(pneusSvg, diagrama, opts = {}) {
+  const compact = Boolean(opts.compact);
+  const giro = diagrama === 'generico';
+  const h = 560;
+  const eixo1 = giro ? { y: 145, x1: 185, x2: 415, nome: 'Dianteiro' } : { y: 155, x1: 145, x2: 455, nome: 'Dianteiro' };
+  const eixo2 = giro ? { y: 410, x1: 140, x2: 460, nome: 'Tração' } : { y: 415, x1: 145, x2: 455, nome: 'Traseiro' };
+  const lines = [
+    `<line x1="${eixo1.x1}" y1="${eixo1.y}" x2="${eixo1.x2}" y2="${eixo1.y}" stroke="#94a3b8" stroke-width="6" stroke-linecap="round" opacity="0.45"/>`,
+    `<line x1="${eixo2.x1}" y1="${eixo2.y}" x2="${eixo2.x2}" y2="${eixo2.y}" stroke="#94a3b8" stroke-width="6" stroke-linecap="round" opacity="0.45"/>`,
+  ];
+  if (!compact) {
+    lines.push(`<text x="300" y="${eixo1.y - 78}" text-anchor="middle" class="axis-label">${eixo1.nome}</text>`);
+    lines.push(`<text x="300" y="${eixo2.y - 86}" text-anchor="middle" class="axis-label">${eixo2.nome}</text>`);
+  }
+  const aria = giro
+    ? 'Giro zero — toque no pneu'
+    : 'Mini carregadeira — quatro pneus iguais, toque no canto';
+  const cls = giro ? 'diagram-generico' : 'diagram-quad';
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 600 ${h}" class="truck-svg ${cls}${compact ? ' truck-svg-mini' : ''}"
+     data-diagrama="${diagrama}" role="img" aria-label="${aria}">
+  <style>
+    .axis-label { font-family: Segoe UI, system-ui, sans-serif; font-size: 13px; font-weight: 700; fill: #64748b; }
+    .orient { font-family: Segoe UI, system-ui, sans-serif; font-size: 12px; font-weight: 700; fill: #94a3b8; }
+  </style>
+  <rect width="600" height="${h}" fill="#f8fafc" rx="12"/>
+  ${compact ? '' : '<text x="300" y="36" text-anchor="middle" class="orient">▲ FRENTE</text>'}
+  ${giro ? silhuetaGiro() : silhuetaQuad()}
+  ${lines.join('\n  ')}
+  ${pneusSvg}
+</svg>`;
 }
 
 function buildSchemaSvg(pneusSvg, posicoes, layoutId = null, opts = {}) {
+  const diagrama = diagramaLayout(layoutId);
+  if (diagrama === 'quad' || diagrama === 'generico') {
+    return buildSchemaEquipamento(pneusSvg, diagrama, opts);
+  }
   const compact = Boolean(opts.compact);
   const eixos = eixosPresentes(posicoes);
   const trator = ehLayoutTrator(layoutId);
@@ -302,6 +385,7 @@ function renderSlotPreview(posicao, coord, nome, papel) {
   const cores = {
     direcional: { fill: '#1b5e2a', stroke: '#145223', label: 'Dir.' },
     tracao: { fill: '#4caf50', stroke: '#2d8a3e', label: 'Trac.' },
+    rodado: { fill: '#0f766e', stroke: '#115e59', label: 'Igual' },
     estepe: { fill: '#94a3b8', stroke: '#475569', label: 'Est.' },
   }[papel] || { fill: '#64748b', stroke: '#334155', label: '' };
 
@@ -309,12 +393,31 @@ function renderSlotPreview(posicao, coord, nome, papel) {
     <g pointer-events="none">
       <rect x="${x}" y="${y}" width="${w}" height="${h}" rx="8"
             fill="${cores.fill}" stroke="${cores.stroke}" stroke-width="2"/>
-      <text x="${cx}" y="${cy - 4}" text-anchor="middle" font-size="11" font-weight="800"
+      <text x="${cx}" y="${cy - 4}" text-anchor="middle" font-size="${w >= 90 ? 16 : 11}" font-weight="800"
             fill="#fff">${short}</text>
-      <text x="${cx}" y="${cy + 12}" text-anchor="middle" font-size="9" font-weight="700"
+      <text x="${cx}" y="${cy + (w >= 90 ? 16 : 12)}" text-anchor="middle" font-size="${w >= 90 ? 12 : 9}" font-weight="700"
             fill="#fff" opacity="0.9">${cores.label}</text>
       <title>${nome} — ${papel === 'tracao' ? 'eixo de tração' : papel === 'direcional' ? 'dianteiro' : papel}</title>
     </g>`;
+}
+
+function previewEquipamento({ posicoes, labels, papeis, layoutId, diagrama }) {
+  const slotsSvg = posicoes.map((codigo, i) => {
+    const coord = coordsPneu(codigo, i, posicoes.length, layoutId);
+    const nome = labels[codigo] || codigo;
+    const papel = papeis[codigo] || (diagrama === 'quad' ? 'rodado' : 'tracao');
+    return renderSlotPreview(codigo, coord, nome, papel);
+  }).join('');
+  const svg = buildSchemaEquipamento(slotsSvg, diagrama, { compact: false })
+    .replace(/^<\?xml[^>]*>\s*/i, '');
+  const hint = diagrama === 'quad'
+    ? 'Quatro pneus iguais, um em cada canto. No celular, toque no canto correspondente.'
+    : 'Dianteiros menores e tração traseira maior. Toque no pneu para medir.';
+  return `
+    <div class="layout-diagram-wrap diagram-touch">
+      ${svg}
+      <p class="hint layout-diagram-hint">${hint}</p>
+    </div>`;
 }
 
 /**
@@ -329,6 +432,12 @@ export function renderLayoutPreview(container, {
   if (!container) return;
   if (!posicoes.length) {
     container.innerHTML = '<p class="hint">Selecione o tipo do veículo para ver o desenho dos eixos.</p>';
+    return;
+  }
+
+  const diagrama = diagramaLayout(layoutId);
+  if (diagrama === 'quad' || diagrama === 'generico') {
+    container.innerHTML = previewEquipamento({ posicoes, labels, papeis, layoutId, diagrama });
     return;
   }
 
@@ -481,8 +590,11 @@ export class TruckDiagram {
       };
     });
 
+    const touch = diagramaLayout(this.layoutId) === 'quad' || diagramaLayout(this.layoutId) === 'generico'
+      ? ' diagram-touch'
+      : '';
     this.container.innerHTML = `
-      <div class="truck-diagram-inner">
+      <div class="truck-diagram-inner${touch}">
         ${buildSchemaSvg(items.map((x) => x.marcador).join(''), this.posicoesLayout, this.layoutId)}
         <div class="tire-picker" role="listbox" aria-label="Selecionar posição">
           <p class="tire-picker-hint">${this.pickerHint}</p>
