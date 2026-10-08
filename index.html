@@ -130,6 +130,10 @@
           <a class="btn btn-primary" id="btn-relatorio-csv" href="#">Baixar CSV</a>
         </div>
       </div>
+      <div class="frota-busca-bar">
+        <label class="frota-busca-label" for="relatorio-filtro-tipo">Tipo de equipamento</label>
+        <select id="relatorio-filtro-tipo" aria-label="Tipo de equipamento"></select>
+      </div>
       <p class="hint">Consolidado da frota para apresentar à diretoria — criticidade, ações e custo de pneus por filial.</p>
       <div id="relatorio-resumo" class="stats-grid"></div>
       <div id="relatorio-leitura" class="compras-banner" style="margin-top:1rem"></div>
@@ -220,6 +224,8 @@
       </div>
       <h2>Resumo da Frota</h2>
       <div class="frota-busca-bar">
+        <label class="frota-busca-label" for="dash-frota-tipo">Tipo</label>
+        <select id="dash-frota-tipo" aria-label="Tipo de equipamento"></select>
         <label class="frota-busca-label" for="dash-frota-busca">Buscar veículo</label>
         <input type="search" id="dash-frota-busca" list="dash-frota-sugestoes" placeholder="Placa, apelido ou modelo…" autocomplete="off">
         <datalist id="dash-frota-sugestoes"></datalist>
@@ -256,6 +262,8 @@
         </div>
       </div>
       <div class="frota-busca-bar">
+        <label class="frota-busca-label" for="veiculos-filtro-tipo">Tipo</label>
+        <select id="veiculos-filtro-tipo" aria-label="Tipo de equipamento"></select>
         <label class="frota-busca-label" for="veiculos-busca">Buscar veículo</label>
         <input type="search" id="veiculos-busca" list="veiculos-sugestoes" placeholder="Placa, apelido ou modelo…" autocomplete="off">
         <datalist id="veiculos-sugestoes"></datalist>
@@ -568,7 +576,7 @@
     <section id="view-ar-veiculo" class="view">
       <div class="ar-form-wrap card">
         <p class="cb-kicker">WhatsApp · acesso rápido</p>
-        <h2>Cadastrar caminhão</h2>
+        <h2 id="ar-veiculo-titulo">Cadastrar caminhão</h2>
         <p class="hint" id="ar-veiculo-filial"></p>
         <form id="form-ar-veiculo">
           <div class="form-group">
@@ -580,18 +588,29 @@
             <input type="text" id="ar-v-apelido" placeholder="Opcional">
           </div>
           <div class="form-group">
-            <label for="ar-v-tipo">Tipo *</label>
-            <select id="ar-v-tipo">
-              <option value="Truck / Tração">Truck / Tração</option>
-              <option value="Toco / Mini">Toco / Mini</option>
-              <option value="Compactador">Compactador</option>
-              <option value="Utilitário / Varredeira">Utilitário / Varredeira</option>
-              <option value="Trator">Trator</option>
-            </select>
+            <label>Tipo *</label>
+            <div id="ar-v-tipo-opcoes" class="tipo-opcoes" role="group" aria-label="Tipo de equipamento"></div>
+            <input type="hidden" id="ar-v-tipo" value="">
           </div>
           <div class="form-group">
+            <label for="ar-v-marca">Fabricante *</label>
+            <input type="text" id="ar-v-marca" required placeholder="Ex: Mercedes">
+          </div>
+          <div class="form-group">
+            <label for="ar-v-modelo">Modelo *</label>
+            <input type="text" id="ar-v-modelo" required placeholder="Ex: Atego">
+          </div>
+          <div class="form-group">
+            <label for="ar-v-layout">Configuração dos eixos *</label>
+            <select id="ar-v-layout" required></select>
+          </div>
+          <div class="form-group" id="ar-campo-km">
             <label for="ar-v-km">KM atual</label>
             <input type="number" id="ar-v-km" min="0" value="0">
+          </div>
+          <div class="form-group" id="ar-campo-hr">
+            <label for="ar-v-hr">Horímetro atual</label>
+            <input type="number" id="ar-v-hr" min="0" step="0.1" value="0">
           </div>
           <p class="hint login-erro hidden" id="ar-veiculo-erro"></p>
           <p class="hint" id="ar-veiculo-ok" style="color:var(--ok,#16a34a)"></p>
@@ -959,8 +978,9 @@
         </div>
       </div>
       <div class="form-group">
-        <label for="v-tipo">Tipo do veículo *</label>
-        <select id="v-tipo"></select>
+        <label>Tipo do veículo *</label>
+        <div id="v-tipo-opcoes" class="tipo-opcoes" role="group" aria-label="Tipo de equipamento"></div>
+        <input type="hidden" id="v-tipo" value="">
       </div>
       <div class="form-group">
         <label for="v-dia-medicao">Dia da medição</label>
@@ -993,11 +1013,11 @@
             <label for="v-ano">Ano</label>
             <input type="number" id="v-ano" min="1990" max="2030">
           </div>
-          <div class="form-group">
+          <div class="form-group" id="v-campo-km">
             <label for="v-km">KM atual</label>
             <input type="number" id="v-km" min="0" value="0">
           </div>
-          <div class="form-group">
+          <div class="form-group" id="v-campo-hr">
             <label for="v-hr">Horas atual</label>
             <input type="number" id="v-hr" min="0" step="0.1" value="0">
           </div>
@@ -1296,7 +1316,7 @@
 
   <dialog id="modal-trocar-estoque" class="modal">
     <form id="form-trocar-estoque" method="dialog">
-      <h3>Trocar pneu</h3>
+      <h3 id="trocar-estoque-titulo">Trocar pneu</h3>
       <p class="hint" id="trocar-estoque-resumo">Retira o pneu atual e monta outro do estoque na mesma posição.</p>
       <div class="form-group">
         <label for="trocar-estoque-busca">Buscar no estoque</label>
@@ -1308,7 +1328,7 @@
       </div>
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost" id="btn-trocar-estoque-cancelar">Cancelar</button>
-        <button type="submit" class="btn btn-primary">Confirmar troca</button>
+        <button type="submit" class="btn btn-primary" id="trocar-estoque-confirmar">Confirmar troca</button>
       </div>
     </form>
   </dialog>
