@@ -33,193 +33,13 @@ let diaMedicaoUnidade = null;
 let pneusMedidosSessao = new Set();
 let sessaoCampoVeiculoId = null;
 
-function tipoDoCatalogo(tipo) {
-  const lista = meta.tipos_equipamento || [];
-  const n = String(tipo || '');
-  return lista.find((t) => t.label === n || t.codigo === n) || null;
-}
-
-/** `km` | `horas` | null (tipo fora do catálogo: mostra os dois, sem apagar valor). */
-function unidadeCadastro(tipo) {
-  const u = tipoDoCatalogo(tipo)?.unidade_uso;
-  return u === 'km' || u === 'horas' ? u : null;
-}
-
-function ehTipoRodoviario(tipo) {
-  return tipoDoCatalogo(tipo)?.familia === 'rodoviario';
-}
-
-function aplicarVisibilidadeUnidade(tipo, kmWrapId, hrWrapId) {
-  const unidade = unidadeCadastro(tipo);
-  document.getElementById(kmWrapId)?.classList.toggle('hidden', unidade === 'horas');
-  document.getElementById(hrWrapId)?.classList.toggle('hidden', unidade === 'km');
-}
-
-function specDoVeiculo(v) {
-  if (v?.medicao_perfil?.sulco) return v.medicao_perfil;
-  const cat = tipoDoCatalogo(v?.tipo)?.medicao;
-  return cat?.sulco ? cat : null;
-}
-
-function textoInspecao(valor) {
-  if (!valor) return '';
-  let data = valor;
-  if (typeof valor === 'string') {
-    try { data = JSON.parse(valor); } catch { return valor; }
-  }
-  const itens = Array.isArray(data) ? data : (data.itens || []);
-  if (!itens.length) return '';
-  const labels = Object.fromEntries((meta.inspecoes_dano || []).map((i) => [i.codigo, i.label]));
-  const nomes = itens.map((c) => labels[c] || c);
-  if (data.outro) nomes.push(data.outro);
-  return nomes.join(', ');
-}
-
-function coletarInspecao(opcoesId, outroId) {
-  const box = document.getElementById(opcoesId);
-  const wrap = box?.closest('.form-group');
-  if (!box || wrap?.classList.contains('hidden')) return null;
-  const itens = [...box.querySelectorAll('input:checked')].map((el) => el.value);
-  if (!itens.length) return null;
-  const outro = itens.includes('outro')
-    ? (document.getElementById(outroId)?.value?.trim() || null)
-    : null;
-  return { itens, outro };
-}
-
-function renderInspecaoOpcoes(containerId, outroId, spec, aoMudar) {
-  const box = document.getElementById(containerId);
-  if (!box) return;
-  const lista = spec?.inspecoes || [];
-  box.innerHTML = lista.map((item) => `
-    <label>
-      <input type="checkbox" value="${escapeHtml(item.codigo)}">
-      ${escapeHtml(item.label)}
-    </label>
-  `).join('');
-  const outro = document.getElementById(outroId);
-  box.querySelectorAll('input').forEach((input) => {
-    input.addEventListener('change', () => {
-      const marcado = [...box.querySelectorAll('input:checked')].some((el) => el.value === 'outro');
-      outro?.classList.toggle('hidden', !marcado);
-      if (!marcado && outro) outro.value = '';
-      aoMudar?.();
-    });
-  });
-  outro?.classList.add('hidden');
-}
-
-function aplicarFormularioMedicao(spec, prefix) {
-  const simples = spec?.sulco === 'simples';
-  const horas = spec?.unidade === 'horas';
-  const km = spec?.unidade === 'km';
-  const ids = prefix === 'truck'
-    ? {
-      sulcos4: 'truck-sulcos-4',
-      simples: 'truck-sulco-simples-wrap',
-      inspecao: 'truck-inspecao-wrap',
-      opcoes: 'truck-inspecao-opcoes',
-      outro: 'truck-inspecao-outro',
-      km: 'truck-km-wrap',
-      hr: 'truck-hr-wrap',
-      titulo: 'truck-sulco-titulo',
-      perfil: 'truck-perfil',
-      marker: 'truck-mini-marker',
-    }
-    : {
-      sulcos4: 'med-sulcos-4',
-      simples: 'med-sulco-simples-wrap',
-      inspecao: 'med-inspecao-wrap',
-      opcoes: 'med-inspecao-opcoes',
-      outro: 'med-inspecao-outro',
-      km: 'med-km-wrap',
-      hr: 'med-hr-wrap',
-      titulo: 'med-sulco-titulo',
-      perfil: 'med-perfil',
-      marker: 'med-marcacao-card',
-    };
-  document.getElementById(ids.sulcos4)?.classList.toggle('hidden', Boolean(simples));
-  document.getElementById(ids.simples)?.classList.toggle('hidden', !simples);
-  document.getElementById(ids.inspecao)?.classList.toggle('hidden', !spec?.inspecao_danos);
-  document.getElementById(ids.perfil)?.classList.toggle('hidden', Boolean(simples));
-  document.getElementById(ids.marker)?.classList.toggle('hidden', Boolean(simples));
-  if (!spec) {
-    document.getElementById(ids.km)?.classList.remove('hidden');
-    document.getElementById(ids.hr)?.classList.remove('hidden');
-  } else {
-    document.getElementById(ids.km)?.classList.toggle('hidden', horas);
-    document.getElementById(ids.hr)?.classList.toggle('hidden', km);
-  }
-  const titulo = document.getElementById(ids.titulo);
-  if (titulo) titulo.textContent = simples ? 'Sulco' : 'Medição do sulco (Esq → Dir)';
-  renderInspecaoOpcoes(ids.opcoes, ids.outro, spec, prefix === 'truck' ? agendarAutoSave : null);
-}
-
-function camposMedicaoPorPerfil(spec, prefix) {
-  const simples = spec?.sulco === 'simples';
-  const kmId = prefix === 'truck' ? 'truck-km' : 'med-km';
-  const hrId = prefix === 'truck' ? 'truck-hr' : 'med-hr';
-  const campos = {
-    km_veiculo: null,
-    hr_veiculo: null,
-    sulco_externo: null,
-    sulco_central: null,
-    sulco_interno: null,
-    sulco_auxiliar: null,
-    sulco_mm: null,
-    inspecao_danos: null,
-    marcacao_json: null,
-  };
-  if (!spec || spec.unidade !== 'horas') {
-    const km = parseInt(document.getElementById(kmId)?.value, 10);
-    campos.km_veiculo = Number.isFinite(km) ? km : null;
-  }
-  if (!spec || spec.unidade === 'horas') campos.hr_veiculo = numOrNull(hrId);
-  if (spec?.unidade === 'km') campos.hr_veiculo = null;
-  if (spec?.unidade === 'horas') campos.km_veiculo = null;
-  if (simples) {
-    campos.sulco_mm = numOrNull(prefix === 'truck' ? 'truck-sulco-mm' : 'med-sulco-mm');
-    campos.inspecao_danos = coletarInspecao(
-      prefix === 'truck' ? 'truck-inspecao-opcoes' : 'med-inspecao-opcoes',
-      prefix === 'truck' ? 'truck-inspecao-outro' : 'med-inspecao-outro',
-    );
-  } else {
-    const pontos = pontosFromInputs(prefix === 'truck' ? 'truck' : 'med');
-    campos.sulco_externo = pontos.externo;
-    campos.sulco_central = pontos.central;
-    campos.sulco_interno = pontos.interno;
-    campos.sulco_auxiliar = pontos.auxiliar;
-    campos.marcacao_json = prefix === 'truck' ? truckTireMarker?.getValores() : tireMarker?.getValores();
-  }
-  return campos;
-}
-
-function htmlBotoesTipo(selecionado) {
-  const tipos = meta.tipos_equipamento || [];
-  const atual = tipoDoCatalogo(selecionado);
-  const codigoSel = atual?.codigo || '';
-  let html = tipos.map((t) => {
-    const ativo = t.codigo === codigoSel || t.label === selecionado || t.codigo === selecionado;
-    return `<button type="button" class="tipo-opcao${ativo ? ' is-ativo' : ''}" data-codigo="${escapeHtml(t.codigo)}" aria-pressed="${ativo ? 'true' : 'false'}">${escapeHtml(t.label)}</button>`;
-  }).join('');
-  if (selecionado && !atual) {
-    html += `<button type="button" class="tipo-opcao is-ativo" data-codigo="${escapeHtml(selecionado)}" aria-pressed="true">${escapeHtml(selecionado)}</button>`;
-  }
-  return html;
-}
-
-function marcarBotaoTipo(container, codigo) {
-  container?.querySelectorAll('.tipo-opcao').forEach((b) => {
-    const ativo = b.dataset.codigo === codigo;
-    b.classList.toggle('is-ativo', ativo);
-    b.setAttribute('aria-pressed', ativo ? 'true' : 'false');
-  });
-}
-
-function layoutSugeridoPorTipo(tipo) {
-  if (meta.layout_padrao_por_tipo?.[tipo]) return meta.layout_padrao_por_tipo[tipo];
-  return tipoDoCatalogo(tipo)?.layout_padrao || 'truck_10';
-}
+const LAYOUT_POR_TIPO = {
+  'Truck / Tração': 'truck_10',
+  'Toco / Mini': 'toco_6',
+  Compactador: 'compactador',
+  'Utilitário / Varredeira': 'utilitario_4',
+  Trator: 'trator_4',
+};
 
 let veiculosCache = [];
 let filiaisCache = [];
@@ -439,7 +259,6 @@ function toast(msg, type = '') {
 }
 
 function badge(status) {
-  if (!status) return '';
   const labels = {
     ok: 'OK',
     alerta: 'Monitorar',
@@ -826,9 +645,7 @@ document.getElementById('btn-voltar-dashboard').addEventListener('click', () => 
 
 async function fetchDashboardResumo() {
   try {
-    const tipo = document.getElementById('dash-filtro-tipo')?.value || '';
-    const q = tipo ? `?tipo=${encodeURIComponent(tipo)}` : '';
-    return await fetchJSON(`${API}/dashboard/resumo${q}`);
+    return await fetchJSON(`${API}/dashboard/resumo`);
   } catch (err) {
     toast('Indicadores do painel indisponíveis. A lista da frota continua abaixo.', 'error');
     try {
@@ -1019,8 +836,6 @@ async function loadDashboard() {
     document.getElementById('stat-troca').textContent = textoKpi(resumo.acoes?.troca);
     document.getElementById('stat-recap').textContent = textoKpi(resumo.acoes?.monitorar);
     document.getElementById('stat-monitorar').textContent = textoKpi(resumo.acoes?.rodizio);
-    const usoEl = document.getElementById('dashboard-uso');
-    if (usoEl) usoEl.innerHTML = renderIndicadoresUso(resumo.indicadores_uso);
 
     const hint = document.getElementById('dashboard-limites-hint');
     if (hint) hint.textContent = hintLimites();
@@ -1174,8 +989,6 @@ function onInputBuscaFrota(e) {
   });
 });
 
-document.getElementById('dash-filtro-tipo')?.addEventListener('change', () => loadDashboard());
-
 document.getElementById('dash-dia-medicao')?.addEventListener('change', async (e) => {
   const raw = e.target.value;
   const dia = raw ? Number(raw) : null;
@@ -1326,22 +1139,18 @@ async function openVeiculoDetalhe(id, origem = 'dashboard', dadosPreload = null)
     document.getElementById('truck-campo-nav')?.classList.add('hidden');
 
     if (v.posicoes) meta = { ...meta, posicoes: v.posicoes };
-    if (v.limites && v.medicao_perfil?.codigo !== 'industrial') {
+    if (v.limites) {
       if (!limitesPainelBackup) limitesPainelBackup = { ...limitesAtuais };
       limitesAtuais = { ...limitesAtuais, ...v.limites };
       syncMarkersLimites();
     }
-    aplicarFormularioMedicao(specDoVeiculo(v), 'truck');
 
     const layoutInfo = getLayoutById(v.layout_pneus);
     const nPos = v.posicoes_layout?.length || v.layout?.posicoes?.length || v.pneus.length;
-    const unidadeVeiculo = specDoVeiculo(v)?.unidade;
-    const usoTxt = unidadeVeiculo === 'horas'
-      ? `${v.hr_atual ?? 0} h`
-      : `${v.km_atual?.toLocaleString('pt-BR') || 0} km`;
     document.getElementById('truck-header').innerHTML = `
       <h2>${escapeHtml(v.apelido || v.placa)}</h2>
-      <p class="hint">${escapeHtml(v.placa)} · ${escapeHtml(normalizarTipoLabel(v.tipo))} · ${usoTxt}
+      <p class="hint">${escapeHtml(v.placa)} · ${escapeHtml(normalizarTipoLabel(v.tipo))} · ${v.km_atual?.toLocaleString('pt-BR') || 0} km
+        ${v.hr_atual ? ` · ${escapeHtml(String(v.hr_atual))} h` : ''}
         · ${escapeHtml(layoutInfo?.nome || 'Personalizado')}
         · ${v.pneus.length}/${nPos} pneus montados</p>
     `;
@@ -1356,9 +1165,14 @@ async function openVeiculoDetalhe(id, origem = 'dashboard', dadosPreload = null)
     if (banner) {
       if (modoAcessoRapido) {
         banner.classList.remove('hidden');
-        banner.innerHTML = `
+        const semPneus = !(v.pneus || []).length;
+        banner.innerHTML = semPneus
+          ? `
+          <strong>Caminhão sem pneus</strong>
+          <span>Toque no slot (+) e use a aba <em>Do estoque</em> para puxar um pneu da filial. Se o estoque estiver vazio, cadastre um novo.</span>`
+          : `
           <strong>Modo campo (WhatsApp)</strong>
-          <span>Toque no pneu para medir, enviar à recap, estoque ou descarte</span>
+          <span>Toque no pneu para medir, enviar à recap, estoque ou descarte. Slot vazio (+) = pneu do estoque ou novo.</span>
           <span id="truck-campo-resumo">${resumoSessaoCampo()}</span>`;
       } else if (v.pneus.length === 0) {
         banner.classList.remove('hidden');
@@ -1395,7 +1209,9 @@ async function openVeiculoDetalhe(id, origem = 'dashboard', dadosPreload = null)
       });
     }
     truckDiagram.pickerHint = modoAcessoRapido
-      ? 'Toque no pneu para abrir a medição. Ao concluir, volta para o próximo.'
+      ? ((v.pneus || []).length
+        ? 'Toque no pneu para medir ou no slot (+) para montar do estoque.'
+        : 'Caminhão sem pneus — toque no slot (+) e escolha um pneu do estoque.')
       : 'Clique no pneu para medir ou no slot vazio para montar:';
     truckDiagram.render(v.pneus, meta.posicoes, posicoesLayout, { layoutId: v.layout_pneus });
     marcarPneusMedidosSessao();
@@ -1467,18 +1283,13 @@ function formatUltimaMedicaoSulco(pneu) {
   const menor = pneu.menor_sulco ?? u?.menor_sulco;
   const data = u?.data || pneu.ult_medicao;
   if (menor == null && !data) return 'Sem medição';
-  const dataTxt = data ? formatDate(data) : '—';
-  if (specDoVeiculo(veiculoAtual)?.sulco === 'simples') {
-    const mm = pneu.ult_sulco_mm ?? u?.sulco_mm ?? menor;
-    const dano = textoInspecao(pneu.ult_inspecao_danos || u?.inspecao_danos);
-    return `${mm != null ? `${mm} mm` : '—'}${dano ? ` · ${dano}` : ''} · ${dataTxt}`;
-  }
   const pts = [
     u?.sulco_externo ?? pneu.ult_sulco_ext,
     u?.sulco_central ?? pneu.ult_sulco_cent,
     u?.sulco_interno ?? pneu.ult_sulco_int,
     u?.sulco_auxiliar ?? pneu.ult_sulco_aux,
   ].map((v) => (v != null ? `${v}` : '—')).join(' · ');
+  const dataTxt = data ? formatDate(data) : '—';
   return `${menor != null ? `${menor} mm` : '—'} (${pts}) · ${dataTxt}`;
 }
 
@@ -1507,9 +1318,10 @@ function aplicarVisibilidadeAcessoRapido() {
   }
   const btnWa = document.getElementById('btn-truck-whatsapp');
   if (btnWa) btnWa.classList.toggle('hidden', modoAcessoRapido || !isGestao());
-  // No acesso rápido permite montar pneu novo; estoque fica oculto
   const tabEstoque = document.querySelector('.montar-tab[data-montar-tab="estoque"]');
-  if (tabEstoque) tabEstoque.classList.toggle('hidden', modoAcessoRapido);
+  if (tabEstoque) tabEstoque.classList.remove('hidden');
+  const linkPneus = document.getElementById('link-ir-pneus');
+  if (linkPneus) linkPneus.closest('p')?.classList.toggle('hidden', modoAcessoRapido);
   const avancado = document.querySelector('#truck-montar-novo .form-avancado');
   if (avancado && modoAcessoRapido) avancado.classList.add('hidden');
   const custo = document.getElementById('truck-novo-custo')?.closest('.form-group');
@@ -1523,7 +1335,7 @@ function aplicarVisibilidadeAcessoRapido() {
   const empty = document.querySelector('.truck-panel-empty');
   if (empty) {
     empty.innerHTML = modoAcessoRapido
-      ? '<p>Toque em um pneu no desenho</p><p class="hint">Medir sulco, enviar à recap, estoque ou descarte.</p>'
+      ? '<p>Toque em um pneu ou no slot vazio (+)</p><p class="hint">Slot vazio = pneu do estoque ou novo · Pneu montado = medir sulco.</p>'
       : '<p>Clique em uma posição</p><p class="hint">Slot vazio (+) = colocar pneu · Pneu montado = medir sulco</p>';
   }
   const bar = document.getElementById('acesso-rapido-bar');
@@ -1563,13 +1375,8 @@ function flushAutoSavePendente() {
   clearTimeout(autoSaveTimer);
   autoSaveTimer = null;
   if (!tinhaTimer || !pneuSelecionado || !veiculoAtual) return;
-  const spec = specDoVeiculo(veiculoAtual);
-  if (spec?.sulco === 'simples') {
-    if (numOrNull('truck-sulco-mm') == null) return;
-  } else {
-    const pontos = pontosFromInputs('truck');
-    if (pontos.externo == null || pontos.central == null || pontos.interno == null) return;
-  }
+  const pontos = pontosFromInputs('truck');
+  if (pontos.externo == null || pontos.central == null || pontos.interno == null) return;
   salvarMedicaoTruck();
 }
 
@@ -1600,18 +1407,8 @@ function selecionarPneuTruck(pneu) {
   document.getElementById('truck-sulco-cent').value = pneu.ult_sulco_cent ?? '';
   document.getElementById('truck-sulco-int').value = pneu.ult_sulco_int ?? '';
   document.getElementById('truck-sulco-aux').value = pneu.ult_sulco_aux ?? '';
-  const campoSimples = document.getElementById('truck-sulco-mm');
-  if (campoSimples) campoSimples.value = pneu.ult_sulco_mm ?? '';
-  document.querySelectorAll('#truck-inspecao-opcoes input').forEach((el) => { el.checked = false; });
-  const outroInspecao = document.getElementById('truck-inspecao-outro');
-  if (outroInspecao) {
-    outroInspecao.value = '';
-    outroInspecao.classList.add('hidden');
-  }
   document.getElementById('truck-pressao').value = '';
-  document.getElementById('truck-save-status').textContent = specDoVeiculo(veiculoAtual)?.sulco === 'simples'
-    ? 'Informe o sulco — salva automaticamente'
-    : 'Preencha os sulcos — salva automaticamente';
+  document.getElementById('truck-save-status').textContent = 'Preencha os sulcos — salva automaticamente';
   document.getElementById('truck-save-status').className = 'hint save-status';
 
   const diagEl = document.getElementById('truck-diagnostico');
@@ -1705,28 +1502,30 @@ async function selecionarSlotVazio(posicao) {
   document.getElementById('truck-medicao-box').classList.add('hidden');
 
   const nome = meta.posicoes[posicao] || posicao;
-  document.getElementById('truck-pneu-nome').textContent = modoAcessoRapido
-    ? `${nome} — informar pneu novo`
-    : `${nome} — vazio`;
+  document.getElementById('truck-pneu-nome').textContent = `${nome} — vazio`;
   document.getElementById('truck-pneu-status').innerHTML = '';
   document.getElementById('truck-pneu-acao').innerHTML = '';
   document.getElementById('truck-pneu-vida').innerHTML = '';
 
   resetFormMontarNovo();
-  setMontarTab('novo');
   aplicarVisibilidadeAcessoRapido();
-  if (!modoAcessoRapido) {
-    await carregarSelectEstoque();
-  }
+  await carregarSelectEstoque();
+  const temEstoque = estoqueMontarCache.length > 0;
+  const tabInicial = modoAcessoRapido && temEstoque ? 'estoque' : 'novo';
+  setMontarTab(tabInicial);
   const hintFogo = document.getElementById('truck-novo-fogo-hint');
   if (hintFogo) {
     hintFogo.textContent = 'Clique para analisar o código da unidade e a última marca cadastrada (ex.: 0110-0001).';
   }
   const hint = document.getElementById('truck-montar-hint');
   if (hint) {
-    hint.textContent = modoAcessoRapido
-      ? 'Gere a marca de fogo, informe modelo e toque em “Criar e montar”.'
-      : 'Posição vazia — coloque um pneu aqui.';
+    if (modoAcessoRapido) {
+      hint.textContent = temEstoque
+        ? 'Escolha um pneu do estoque desta filial ou cadastre um novo nesta posição.'
+        : 'Não há pneus no estoque. Informe um pneu novo nesta posição.';
+    } else {
+      hint.textContent = 'Posição vazia — coloque um pneu aqui.';
+    }
   }
   entrarMedicaoCampo();
 }
@@ -1850,6 +1649,8 @@ async function criarEMontarPneuTruck() {
 
 let estoqueMontarCache = [];
 let estoqueTrocaCache = [];
+let estoqueFilialTotal = 0;
+let estoqueBuscaTimer = null;
 
 function normalizarBuscaPneu(s) {
   return String(s || '')
@@ -2005,7 +1806,10 @@ function pneuEstoqueCombinaBusca(p, q) {
     p.numero_fogo, p.id, p.marca, p.modelo, p.dot, p.medida,
     p.condicao, p.vida_label, p.padrao_label, p.tipo_pneu,
   ].filter(Boolean).join(' '));
-  return q.split(/\s+/).every((term) => hay.includes(term));
+  if (q.split(/\s+/).every((term) => hay.includes(term))) return true;
+  const compactQ = compactarBuscaTexto(q);
+  const compactHay = compactarBuscaTexto(hay);
+  return compactQ.length >= 2 && compactHay.includes(compactQ);
 }
 
 function preencherSelectPneusEstoque(select, lista, busca, hintEl) {
@@ -2016,12 +1820,16 @@ function preencherSelectPneusEstoque(select, lista, busca, hintEl) {
 
   if (!lista.length) {
     select.innerHTML = '<option value="">Nenhum pneu no estoque</option>';
-    if (hintEl) hintEl.textContent = 'Cadastre um pneu na aba Pneus para montar daqui.';
+    if (hintEl) {
+      hintEl.textContent = modoAcessoRapido
+        ? 'Não há pneus no estoque desta filial. Use a aba Novo pneu.'
+        : 'Cadastre um pneu na aba Pneus para montar daqui.';
+    }
     return;
   }
   if (!filtrada.length) {
     select.innerHTML = `<option value="">Nenhum pneu com “${escapeHtml(String(busca || '').trim())}”</option>`;
-    if (hintEl) hintEl.textContent = 'Nada encontrado. Apague a busca para ver a lista completa.';
+    if (hintEl) hintEl.textContent = 'Nada encontrado. Tente só os números do fogo (ex.: 5316).';
     return;
   }
 
@@ -2054,14 +1862,32 @@ function atualizarListaEstoqueMontar() {
   );
 }
 
-async function carregarSelectEstoque() {
+async function carregarSelectEstoque({ limparBusca = true } = {}) {
   const buscaEl = document.getElementById('truck-estoque-busca');
-  if (buscaEl) buscaEl.value = '';
+  if (limparBusca && buscaEl) buscaEl.value = '';
+  const q = buscaEl?.value?.trim() || '';
   const select = document.getElementById('truck-estoque-select');
   try {
-    const lista = await fetchJSON(`${API}/pneus?status=estoque`);
-    estoqueMontarCache = Array.isArray(lista) ? lista : [];
+    if (modoAcessoRapido && tokenAcessoRapido) {
+      try {
+        const data = await fetchJSON(
+          `${API}/acesso-rapido/estoque?token=${encodeURIComponent(tokenAcessoRapido)}&q=${encodeURIComponent(q)}`,
+        );
+        estoqueMontarCache = Array.isArray(data.estoque) ? data.estoque : [];
+        estoqueFilialTotal = Number(data.total || estoqueMontarCache.length);
+      } catch {
+        estoqueMontarCache = Array.isArray(veiculoAtual?.estoque) ? veiculoAtual.estoque : [];
+      }
+      if (veiculoAtual) veiculoAtual.estoque = estoqueMontarCache;
+    } else {
+      const lista = await fetchJSON(`${API}/pneus?status=estoque${q ? `&q=${encodeURIComponent(q)}` : ''}`);
+      estoqueMontarCache = Array.isArray(lista) ? lista : [];
+    }
     atualizarListaEstoqueMontar();
+    const hint = document.getElementById('truck-estoque-hint');
+    if (hint && modoAcessoRapido && !q && estoqueFilialTotal > estoqueMontarCache.length) {
+      hint.textContent = `Mostrando ${estoqueMontarCache.length} de ${estoqueFilialTotal}. Digite o nº de fogo (ex.: 5316).`;
+    }
   } catch (err) {
     estoqueMontarCache = [];
     if (select) select.innerHTML = `<option value="">Erro: ${escapeHtml(err.message)}</option>`;
@@ -2073,7 +1899,32 @@ async function montarPneuDoEstoque() {
   const pneuId = parseInt(document.getElementById('truck-estoque-select').value, 10);
   if (!pneuId) return toast('Selecione um pneu do estoque', 'error');
 
+  const btn = document.getElementById('btn-truck-montar');
+  if (btn) btn.disabled = true;
   try {
+    if (modoAcessoRapido) {
+      if (!tokenAcessoRapido) throw new Error('Token de acesso rápido ausente');
+      const result = await fetchJSON(`${API}/veiculos/acesso-rapido/montar-estoque`, {
+        method: 'POST',
+        body: JSON.stringify({
+          token: tokenAcessoRapido,
+          posicao: slotPosicaoSelecionada,
+          pneu_id: pneuId,
+        }),
+      });
+      toast(result.mensagem || 'Pneu montado do estoque', 'success');
+      const pos = slotPosicaoSelecionada;
+      tokenAcessoRapido = result.token_acesso || tokenAcessoRapido;
+      await openVeiculoDetalhe(result.veiculo?.id || veiculoAtual.id, 'acesso-rapido', result.veiculo);
+      const montado = veiculoAtual?.pneus?.find((p) => p.posicao === pos);
+      if (montado) {
+        truckDiagram?.setAtivo(montado.id);
+        selecionarPneuTruck(montado);
+        toast('Agora informe os sulcos deste pneu', 'success');
+      }
+      return;
+    }
+
     await fetchJSON(`${API}/pneus/${pneuId}/montar`, {
       method: 'POST',
       body: JSON.stringify({
@@ -2093,6 +1944,8 @@ async function montarPneuDoEstoque() {
     }
   } catch (err) {
     toast(err.message, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
   }
 }
 
@@ -2201,7 +2054,9 @@ async function abrirModalTrocarEstoque() {
   try {
     let lista = [];
     if (modoAcessoRapido && tokenAcessoRapido) {
-      const data = await fetchJSON(`${API}/acesso-rapido/frota?token=${encodeURIComponent(tokenAcessoRapido)}`);
+      const data = await fetchJSON(
+        `${API}/acesso-rapido/estoque?token=${encodeURIComponent(tokenAcessoRapido)}&q=${encodeURIComponent(document.getElementById('trocar-estoque-busca')?.value || '')}`,
+      );
       lista = data.estoque || [];
     } else {
       lista = await fetchJSON(`${API}/pneus?status=estoque`);
@@ -2383,25 +2238,14 @@ function syncTruckMarkerFromInputs() {
 
 function agendarAutoSave() {
   clearTimeout(autoSaveTimer);
-  const spec = specDoVeiculo(veiculoAtual);
+  const pontos = pontosFromInputs('truck');
   const status = document.getElementById('truck-save-status');
-  if (spec?.sulco === 'simples') {
-    if (numOrNull('truck-sulco-mm') == null) {
-      if (status) {
-        status.textContent = 'Informe o sulco';
-        status.className = 'hint save-status';
-      }
-      return;
+  if (pontos.externo == null || pontos.central == null || pontos.interno == null) {
+    if (status) {
+      status.textContent = 'Informe os 3 sulcos principais (esquerdo, centro e direito)';
+      status.className = 'hint save-status';
     }
-  } else {
-    const pontos = pontosFromInputs('truck');
-    if (pontos.externo == null || pontos.central == null || pontos.interno == null) {
-      if (status) {
-        status.textContent = 'Informe os 3 sulcos principais (esquerdo, centro e direito)';
-        status.className = 'hint save-status';
-      }
-      return;
-    }
+    return;
   }
   if (status) {
     status.textContent = 'Salvando...';
@@ -2415,21 +2259,13 @@ async function salvarMedicaoTruck({ concluir = false } = {}) {
 
   const pneuId = pneuSelecionado.id;
   const veiculoId = veiculoAtual.id;
-  const spec = specDoVeiculo(veiculoAtual);
   const pontos = pontosFromInputs('truck');
   const pressao = numOrNull('truck-pressao');
-  const campos = camposMedicaoPorPerfil(spec, 'truck');
+  const km = parseInt(document.getElementById('truck-km').value, 10);
+  const hr = numOrNull('truck-hr');
   const status = document.getElementById('truck-save-status');
 
-  if (spec?.sulco === 'simples') {
-    if (campos.sulco_mm == null) {
-      if (status) {
-        status.textContent = 'Informe o sulco';
-        status.className = 'hint save-status';
-      }
-      return;
-    }
-  } else if (pontos.externo == null || pontos.central == null || pontos.interno == null) {
+  if (pontos.externo == null || pontos.central == null || pontos.interno == null) {
     if (status) {
       status.textContent = 'Informe os 3 sulcos principais (esquerdo, centro e direito)';
       status.className = 'hint save-status';
@@ -2443,8 +2279,14 @@ async function salvarMedicaoTruck({ concluir = false } = {}) {
       body: JSON.stringify({
         pneu_id: pneuId,
         data_medicao: new Date().toISOString().split('T')[0],
-        ...campos,
+        km_veiculo: Number.isFinite(km) ? km : (veiculoAtual.km_atual || null),
+        hr_veiculo: hr,
+        sulco_externo: pontos.externo,
+        sulco_central: pontos.central,
+        sulco_interno: pontos.interno,
+        sulco_auxiliar: pontos.auxiliar,
         pressao_psi: pressao,
+        marcacao_json: truckTireMarker?.getValores(),
         ...(modoAcessoRapido && tokenAcessoRapido
           ? { token_acesso: tokenAcessoRapido }
           : {}),
@@ -2457,12 +2299,10 @@ async function salvarMedicaoTruck({ concluir = false } = {}) {
 
     const atualizado = {
       ...veiculoAtual.pneus[idx],
-      ult_sulco_ext: campos.sulco_externo,
-      ult_sulco_cent: campos.sulco_central,
-      ult_sulco_int: campos.sulco_interno,
-      ult_sulco_aux: campos.sulco_auxiliar,
-      ult_sulco_mm: campos.sulco_mm,
-      ult_inspecao_danos: campos.inspecao_danos,
+      ult_sulco_ext: pontos.externo,
+      ult_sulco_cent: pontos.central,
+      ult_sulco_int: pontos.interno,
+      ult_sulco_aux: pontos.auxiliar,
       menor_sulco: result.menor_sulco,
       status_sulco: result.status_sulco,
       diagnostico: result.diagnostico,
@@ -2474,12 +2314,10 @@ async function salvarMedicaoTruck({ concluir = false } = {}) {
       rodizio_sugestao: result.rodizio_sugestao || null,
       ultima_medicao: {
         data: new Date().toISOString().split('T')[0],
-        sulco_externo: campos.sulco_externo,
-        sulco_central: campos.sulco_central,
-        sulco_interno: campos.sulco_interno,
-        sulco_auxiliar: campos.sulco_auxiliar,
-        sulco_mm: campos.sulco_mm,
-        inspecao_danos: campos.inspecao_danos,
+        sulco_externo: pontos.externo,
+        sulco_central: pontos.central,
+        sulco_interno: pontos.interno,
+        sulco_auxiliar: pontos.auxiliar,
         menor_sulco: result.menor_sulco,
       },
     };
@@ -2605,7 +2443,7 @@ async function registrarEventoPneu(tipo) {
   }
 }
 
-['truck-sulco-ext', 'truck-sulco-cent', 'truck-sulco-int', 'truck-sulco-aux', 'truck-sulco-mm', 'truck-pressao', 'truck-km', 'truck-hr']
+['truck-sulco-ext', 'truck-sulco-cent', 'truck-sulco-int', 'truck-sulco-aux', 'truck-pressao', 'truck-km', 'truck-hr']
   .forEach((id) => {
     document.getElementById(id)?.addEventListener('input', () => {
       syncTruckMarkerFromInputs();
@@ -2626,7 +2464,12 @@ document.getElementById('btn-truck-criar-montar')?.addEventListener('click', cri
 document.querySelectorAll('.montar-tab').forEach((btn) => {
   btn.addEventListener('click', () => setMontarTab(btn.dataset.montarTab));
 });
-document.getElementById('truck-estoque-busca')?.addEventListener('input', atualizarListaEstoqueMontar);
+document.getElementById('truck-estoque-busca')?.addEventListener('input', () => {
+  atualizarListaEstoqueMontar();
+  if (!(modoAcessoRapido && tokenAcessoRapido)) return;
+  clearTimeout(estoqueBuscaTimer);
+  estoqueBuscaTimer = setTimeout(() => carregarSelectEstoque({ limparBusca: false }), 280);
+});
 document.getElementById('truck-estoque-busca')?.addEventListener('keydown', (e) => {
   if (e.key === 'Enter') {
     e.preventDefault();
@@ -3328,7 +3171,7 @@ async function abrirHistoricoPneu(pneuId) {
         <thead>
           <tr>
             <th>Data</th><th>Placa</th><th>1ª</th><th>2ª</th><th>3ª</th><th>4ª</th>
-            <th>Menor</th><th>Status</th><th>Diagnóstico</th><th>KM</th><th>Hr</th><th>Desgaste</th>
+            <th>Menor</th><th>Status</th><th>Diagnóstico</th><th>KM</th><th>Hr</th><th>mm/km</th>
           </tr>
         </thead>
         <tbody>
@@ -3342,10 +3185,10 @@ async function abrirHistoricoPneu(pneuId) {
               <td>${m.sulco_auxiliar ?? '-'}</td>
               <td><strong>${m.menor_sulco ?? '-'}</strong></td>
               <td>${badge(m.status_sulco)}</td>
-              <td>${m.diagnostico_label || textoInspecao(m.inspecao_danos) || m.diagnostico || '-'}</td>
+              <td>${m.diagnostico_label || m.diagnostico || '-'}</td>
               <td>${m.km_veiculo?.toLocaleString('pt-BR') || '-'}</td>
               <td>${m.hr_veiculo != null ? m.hr_veiculo : '-'}</td>
-              <td>${m.desgaste_mm_km != null ? `${m.desgaste_mm_km} mm/km` : m.desgaste_mm_hora != null ? `${m.desgaste_mm_hora} mm/h` : '-'}</td>
+              <td>${m.desgaste_mm_km != null ? m.desgaste_mm_km : '-'}</td>
             </tr>
           `).join('')}
         </tbody>
@@ -3393,8 +3236,11 @@ function renderLayoutTags(posicoes, containerId) {
 }
 
 function layoutsParaTipo(tipo) {
-  const permitidos = tipoDoCatalogo(tipo)?.layouts_permitidos;
-  return permitidos?.length ? permitidos : null;
+  if (tipo === 'Toco / Mini') return ['toco_6'];
+  if (tipo === 'Compactador') return ['compactador'];
+  if (tipo === 'Utilitário / Varredeira') return ['utilitario_4'];
+  if (tipo === 'Trator') return ['trator_4'];
+  return ['truck_10', 'truck_8', 'truck_8_b'];
 }
 
 function preencherSelectLayouts(selectId, selectedId, { soTruckToco = false, tipo = null } = {}) {
@@ -3402,9 +3248,11 @@ function preencherSelectLayouts(selectId, selectedId, { soTruckToco = false, tip
   if (!sel || !meta.layouts) return;
   let lista = meta.layouts;
   if (soTruckToco) {
-    const ids = layoutsParaTipo(tipo || document.getElementById('v-tipo')?.value || '');
-    if (ids) lista = meta.layouts.filter((l) => ids.includes(l.id));
-    if (!lista.length) lista = meta.layouts;
+    const ids = layoutsParaTipo(tipo || document.getElementById('v-tipo')?.value || 'Truck / Tração');
+    lista = meta.layouts.filter((l) => ids.includes(l.id));
+    if (!lista.length) lista = meta.layouts.filter((l) =>
+      ['truck_10', 'truck_8', 'truck_8_b', 'toco_6', 'compactador', 'utilitario_4', 'trator_4'].includes(l.id)
+    );
   }
   sel.innerHTML = lista.map((l) =>
     `<option value="${l.id}">${l.nome}</option>`
@@ -3444,79 +3292,17 @@ function preencherCheckboxesPosicoes(containerId, selecionadas = []) {
   `).join('');
 }
 
-function optionsTipoEquipamento(valor) {
-  const tipos = meta.tipos_equipamento || [];
-  return `<option value="">Todos os tipos</option>${tipos.map((t) =>
-    `<option value="${escapeHtml(t.codigo)}"${t.codigo === valor ? ' selected' : ''}>${escapeHtml(t.label)}</option>`
-  ).join('')}`;
-}
-
-function preencherSelectTipo(id) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  const atual = el.value || '';
-  el.innerHTML = optionsTipoEquipamento(atual);
-  el.value = atual;
-}
-
-function renderIndicadoresUso(ind) {
-  const bloco = (box, titulo) => {
-    const media = box?.media == null ? '—' : Number(box.media).toLocaleString('pt-BR');
-    return `<div class="stat-card">
-      <span class="stat-value">${media}</span>
-      <span class="stat-label">${titulo}</span>
-      <span class="hint">${box?.veiculos || 0} veículo(s) · OK ${box?.ok || 0} · Monitorar ${box?.monitorar || 0} · Crítico ${box?.critico || 0}</span>
-    </div>`;
-  };
-  return `${bloco(ind?.km, 'Média KM')}${bloco(ind?.horas, 'Média horas')}`;
-}
-
 async function carregarMetaVeiculos() {
-  if (!(meta.layouts?.length && meta.posicoes && Object.keys(meta.posicoes).length)) {
-    const metaData = await fetchJSON(`${API}/veiculos/meta`);
-    meta = { ...meta, ...metaData };
+  if (meta.layouts?.length && meta.posicoes && Object.keys(meta.posicoes).length) {
+    return meta;
   }
-  preencherSelectTipo('dash-filtro-tipo');
-  preencherSelectTipo('relatorio-filtro-tipo');
+  const metaData = await fetchJSON(`${API}/veiculos/meta`);
+  meta = { ...meta, ...metaData };
+  const selectTipo = document.getElementById('v-tipo');
+  if (selectTipo && meta.tipos?.length) {
+    selectTipo.innerHTML = meta.tipos.map((t) => `<option value="${t}">${t}</option>`).join('');
+  }
   return meta;
-}
-
-function renderBotoesTipo(containerId, selecionado, onSelect) {
-  const el = document.getElementById(containerId);
-  if (!el) return;
-  el.innerHTML = htmlBotoesTipo(selecionado);
-  el.onclick = (e) => {
-    const btn = e.target.closest('.tipo-opcao');
-    if (!btn || !el.contains(btn)) return;
-    marcarBotaoTipo(el, btn.dataset.codigo);
-    onSelect?.(btn.dataset.codigo);
-  };
-}
-
-function aoEscolherTipoVeiculo(codigo) {
-  document.getElementById('v-campos')?.classList.remove('hidden');
-  document.getElementById('v-cancelar-fora')?.classList.add('hidden');
-  const input = document.getElementById('v-tipo');
-  if (input) input.value = codigo;
-  aplicarVisibilidadeUnidade(codigo, 'v-campo-km', 'v-campo-hr');
-  const sugestao = layoutSugeridoPorTipo(codigo);
-  preencherSelectLayouts('v-layout', sugestao, { soTruckToco: true, tipo: codigo });
-  const layout = getLayoutById(document.getElementById('v-layout')?.value || sugestao);
-  const auto = document.getElementById('v-layout-auto');
-  if (auto) {
-    auto.textContent = layout?.nome
-      ? `Layout aplicado: ${layout.nome}`
-      : 'Layout aplicado automaticamente.';
-  }
-  const titulo = document.getElementById('modal-veiculo-titulo');
-  if (titulo) titulo.textContent = ehTipoRodoviario(codigo) ? 'Novo caminhão' : 'Novo equipamento';
-  const diaHint = document.getElementById('v-dia-hint');
-  if (diaHint) {
-    diaHint.textContent = ehTipoRodoviario(codigo)
-      ? 'Dia da semana em que este caminhão deve ser medido. Em branco, usa o dia da frota.'
-      : 'Dia da semana em que este equipamento deve ser medido. Em branco, usa o dia da frota.';
-  }
-  document.getElementById('v-placa')?.focus();
 }
 
 async function abrirConfigLayout(veiculoId, veiculoNome, layoutAtual, posicoesAtuais) {
@@ -3659,20 +3445,21 @@ document.getElementById('file-import-pneus')?.addEventListener('change', async (
 
 const modalVeiculo = document.getElementById('modal-veiculo');
 
-document.getElementById('btn-novo-veiculo').addEventListener('click', async () => {
-  try {
-    await carregarMetaVeiculos();
-  } catch (err) {
-    toast(err.message || 'Não foi possível carregar os tipos', 'error');
-    return;
-  }
+document.getElementById('btn-novo-veiculo').addEventListener('click', () => {
   document.getElementById('form-veiculo').reset();
-  document.getElementById('v-tipo').value = '';
-  document.getElementById('v-campos')?.classList.add('hidden');
-  document.getElementById('v-cancelar-fora')?.classList.remove('hidden');
-  document.getElementById('modal-veiculo-titulo').textContent = 'Novo equipamento';
-  document.getElementById('v-tipo-hint').textContent = 'Qual o tipo de equipamento?';
-  renderBotoesTipo('v-tipo-opcoes', '', aoEscolherTipoVeiculo);
+  document.getElementById('modal-veiculo-titulo').textContent = 'Novo Veículo';
+  preencherSelectLayouts('v-layout', meta.layout_padrao, {
+    soTruckToco: true,
+    tipo: document.getElementById('v-tipo')?.value || 'Truck / Tração',
+  });
+  const tipo = document.getElementById('v-tipo');
+  if (tipo?.value) {
+    const sugestao = LAYOUT_POR_TIPO[tipo.value];
+    if (sugestao) {
+      document.getElementById('v-layout').value = sugestao;
+    }
+  }
+  onLayoutSelectChange('v-layout', 'v-layout-desc', 'v-layout-preview', 'v-layout-diagram');
   const selDiaV = document.getElementById('v-dia-medicao');
   if (selDiaV) {
     selDiaV.innerHTML = optionsDiaSemana(diaMedicaoUnidade, { incluirVazio: true, vazioLabel: '— Usar dia da frota —' });
@@ -3684,7 +3471,11 @@ document.getElementById('v-layout')?.addEventListener('change', () => {
   onLayoutSelectChange('v-layout', 'v-layout-desc', 'v-layout-preview', 'v-layout-diagram');
 });
 
-document.getElementById('btn-cancelar-veiculo-topo')?.addEventListener('click', () => modalVeiculo.close());
+document.getElementById('v-tipo')?.addEventListener('change', (e) => {
+  const tipo = e.target.value;
+  const sugestao = LAYOUT_POR_TIPO[tipo] || 'truck_10';
+  preencherSelectLayouts('v-layout', sugestao, { soTruckToco: true, tipo });
+});
 
 document.getElementById('layout-select')?.addEventListener('change', () => {
   const layout = getLayoutById(document.getElementById('layout-select').value);
@@ -3696,22 +3487,18 @@ document.getElementById('btn-cancelar-veiculo').addEventListener('click', () => 
 
 document.getElementById('form-veiculo').addEventListener('submit', async (e) => {
   e.preventDefault();
-  const tipo = document.getElementById('v-tipo').value;
-  if (!tipo) return toast('Escolha o tipo de equipamento', 'error');
-  const kmEl = document.getElementById('v-km');
-  const hrEl = document.getElementById('v-hr');
   try {
     const result = await fetchJSON(`${API}/veiculos`, {
       method: 'POST',
       body: JSON.stringify({
         placa: document.getElementById('v-placa').value,
         apelido: document.getElementById('v-apelido').value,
-        tipo,
+        tipo: document.getElementById('v-tipo').value,
         marca: document.getElementById('v-marca').value,
         modelo: document.getElementById('v-modelo').value,
         ano: parseInt(document.getElementById('v-ano').value) || null,
-        km_atual: kmEl?.value === '' ? null : (parseInt(kmEl?.value, 10) || 0),
-        hr_atual: hrEl?.value === '' ? null : (parseFloat(hrEl?.value) || 0),
+        km_atual: parseInt(document.getElementById('v-km').value) || 0,
+        hr_atual: parseFloat(document.getElementById('v-hr').value) || 0,
         layout_pneus: document.getElementById('v-layout').value,
         dia_medicao: document.getElementById('v-dia-medicao')?.value
           ? Number(document.getElementById('v-dia-medicao').value)
@@ -3824,7 +3611,6 @@ document.getElementById('med-veiculo').addEventListener('change', async (e) => {
   if (!veiculoId) {
     selectPneu.innerHTML = '<option value="">Selecione o veículo primeiro</option>';
     selectPneu.disabled = true;
-    aplicarFormularioMedicao(null, 'med');
     return;
   }
 
@@ -3841,7 +3627,6 @@ document.getElementById('med-veiculo').addEventListener('change', async (e) => {
     ).join('');
     document.getElementById('med-km').value = v.km_atual || '';
     document.getElementById('med-hr').value = v.hr_atual || '';
-    aplicarFormularioMedicao(specDoVeiculo(v), 'med');
   } catch (err) {
     toast(err.message, 'error');
   }
@@ -3851,28 +3636,23 @@ document.getElementById('btn-salvar-medicao').addEventListener('click', async ()
   const pneuId = document.getElementById('med-pneu').value;
   if (!pneuId) return toast('Selecione o pneu', 'error');
 
-  const veiculoOpt = document.getElementById('med-veiculo');
-  const veiculoMed = veiculosCache.find((v) => String(v.id) === String(veiculoOpt?.value));
-  let spec = specDoVeiculo(veiculoMed);
-  if (!spec && veiculoOpt?.value) {
-    try {
-      const detalhe = await fetchJSON(`${API}/veiculos/${veiculoOpt.value}`);
-      spec = specDoVeiculo(detalhe);
-    } catch { /* o backend ainda valida o perfil */ }
-  }
-  const campos = camposMedicaoPorPerfil(spec, 'med');
+  const pontos = pontosFromInputs('med');
   const payload = {
     pneu_id: parseInt(pneuId, 10),
     data_medicao: document.getElementById('med-data').value,
-    ...campos,
+    km_veiculo: parseInt(document.getElementById('med-km').value, 10) || null,
+    hr_veiculo: numOrNull('med-hr'),
+    sulco_externo: pontos.externo,
+    sulco_central: pontos.central,
+    sulco_interno: pontos.interno,
+    sulco_auxiliar: pontos.auxiliar,
     pressao_psi: numOrNull('med-pressao'),
     responsavel: document.getElementById('med-responsavel').value,
     observacoes: document.getElementById('med-obs').value,
+    marcacao_json: tireMarker?.getValores(),
   };
 
-  if (spec?.sulco === 'simples') {
-    if (payload.sulco_mm == null) return toast('Informe o sulco', 'error');
-  } else if (payload.sulco_externo == null && payload.sulco_central == null
+  if (payload.sulco_externo == null && payload.sulco_central == null
     && payload.sulco_interno == null && payload.sulco_auxiliar == null) {
     return toast('Informe ao menos um valor de sulco', 'error');
   }
@@ -3883,9 +3663,7 @@ document.getElementById('btn-salvar-medicao').addEventListener('click', async ()
       body: JSON.stringify(payload),
     });
 
-    const msg = !result.diagnostico_label
-      ? `Medição salva! ${result.menor_sulco ?? '—'} mm`
-      : result.acao_sugerida === 'troca'
+    const msg = result.acao_sugerida === 'troca'
       ? `Medição salva! TROCA sugerida (${result.menor_sulco} mm) — ${result.diagnostico_label}`
       : result.acao_sugerida === 'recap'
         ? `Medição salva! RECAP sugerida (${result.menor_sulco} mm)`
@@ -4513,13 +4291,6 @@ function filtrarFrotaUnidade() {
   });
 }
 
-function focarInspecaoVeiculo() {
-  const box = document.getElementById('filial-veiculo-inspecao');
-  if (!box || box.classList.contains('hidden')) return;
-  const alvo = box.querySelector('.inspecao-header') || box;
-  alvo.scrollIntoView({ behavior: 'smooth', block: 'start' });
-}
-
 function abrirVeiculoNaUnidade(filialId, veiculoId) {
   setUnidadeTab('frota');
   abrirInspecaoVeiculoFilial(filialId, veiculoId);
@@ -4583,7 +4354,7 @@ function renderUnidadeKpis(data) {
     <div class="unidade-kpis">
       <button type="button" class="unidade-kpi is-critico" data-unidade-tab="pendencias" data-pend-filtro="troca">
         <strong>${r.pneus_critico ?? 0}</strong>
-        <span>Crítico / ação necessária</span>
+        <span>Críticos</span>
       </button>
       <button type="button" class="unidade-kpi is-compra" data-unidade-tab="pendencias" data-pend-filtro="troca">
         <strong>${c.pneus_para_comprar ?? 0}</strong>
@@ -4617,14 +4388,13 @@ function renderUnidadeKpis(data) {
       <span class="h-sem" style="width:${w(r.pneus_sem_dado)}"></span>
     </div>
     <p class="unidade-health-legend hint">
-      <span class="dot-inline critico"></span> Crítico / ação necessária
+      <span class="dot-inline critico"></span> Crítico
       <span class="dot-inline alerta"></span> Monitorar
       <span class="dot-inline ok"></span> OK
       · ${total} pneus montados
       ${r.ultima_medicao ? ` · última medição ${formatDate(r.ultima_medicao)}${r.dias_sem_medicao != null ? ` (${r.dias_sem_medicao}d)` : ''}` : ' · nunca mediu'}
       ${r.precisa_medir_semana ? ' · <strong class="text-critico">medir esta semana</strong>' : ''}
     </p>
-    <div class="stats-grid stats-uso">${renderIndicadoresUso(r.indicadores_uso)}</div>
   `;
 }
 
@@ -4708,6 +4478,9 @@ function renderUnidadeFrota(data) {
       acoes: data.pendencias?.todos || [],
       diagnosticos: data.pendencias?.diagnosticos || [],
     })}
+    <div class="unidade-frota-split" id="unidade-frota-split">
+      <div id="filial-veiculo-inspecao" class="filial-inspecao hidden"></div>
+    </div>
   `;
 }
 
@@ -4718,10 +4491,9 @@ function valorCampoWa(v) {
   return s;
 }
 
-async function abrirDetalheFilial(id, tipo = document.getElementById('unidade-filtro-tipo')?.value || '') {
+async function abrirDetalheFilial(id) {
   try {
-    const q = tipo ? `?tipo=${encodeURIComponent(tipo)}` : '';
-    const data = await fetchJSON(`${API}/filiais/${id}${q}`);
+    const data = await fetchJSON(`${API}/filiais/${id}`);
     filialDetalheCache = data;
     const el = document.getElementById('filial-detalhe');
     const pend = data.pendencias || { troca: [], recap: [], monitorar: [] };
@@ -4751,8 +4523,6 @@ async function abrirDetalheFilial(id, tipo = document.getElementById('unidade-fi
             <p class="hint">${escapeHtml(data.contrato || '')}${data.login ? ` · login ${escapeHtml(data.login)}` : ''}</p>
           </div>
           <div class="unidade-head-actions" style="display:flex;gap:.5rem;flex-wrap:wrap;align-items:flex-start">
-            <label class="frota-busca-label" for="unidade-filtro-tipo">Tipo</label>
-            <select id="unidade-filtro-tipo">${optionsTipoEquipamento(tipo || '')}</select>
             <button type="button" class="btn btn-primary btn-sm" id="btn-pdf-semanal" data-filial-id="${data.id}">
               Baixar PDF semanal
             </button>
@@ -4768,9 +4538,6 @@ async function abrirDetalheFilial(id, tipo = document.getElementById('unidade-fi
           <button type="button" class="unidade-tab" data-unidade-tab="pendencias">Pendências (${nPend})</button>
           <button type="button" class="unidade-tab" data-unidade-tab="frota">Frota (${nFrota})</button>
         </nav>
-        <div class="unidade-frota-split" id="unidade-frota-split">
-          <div id="filial-veiculo-inspecao" class="filial-inspecao hidden"></div>
-        </div>
         <div data-unidade-panel="resumo">${renderUnidadeResumo(data)}</div>
         <div data-unidade-panel="pendencias" class="hidden">
           <div class="unidade-pend-filtros">
@@ -4797,11 +4564,8 @@ async function abrirDetalheFilial(id, tipo = document.getElementById('unidade-fi
     el.querySelector('.btn-excluir-filial-detalhe')?.addEventListener('click', () => {
       abrirModalExcluirFilial(id, data.nome, data.codigo);
     });
-    document.getElementById('unidade-filtro-tipo')?.addEventListener('change', (e) => {
-      abrirDetalheFilial(id, e.target.value);
-    });
     document.getElementById('btn-pdf-semanal')?.addEventListener('click', () => {
-      baixarPdfSemanalUnidade(id, document.getElementById('unidade-filtro-tipo')?.value || '');
+      baixarPdfSemanalUnidade(id);
     });
 
     el.querySelectorAll('[data-unidade-tab]').forEach((btn) => {
@@ -6304,30 +6068,19 @@ function wirePainelInspecaoEdicao() {
 }
 
 function wireEdicaoVeiculoInspecao() {
-  document.getElementById('insp-tipo-opcoes')?.addEventListener('click', (e) => {
-    const btn = e.target.closest('.tipo-opcao');
-    if (!btn) return;
-    marcarBotaoTipo(document.getElementById('insp-tipo-opcoes'), btn.dataset.codigo);
-    const hidden = document.getElementById('insp-v-tipo');
-    if (hidden) hidden.value = btn.dataset.codigo;
-    aplicarVisibilidadeUnidade(btn.dataset.codigo, 'insp-campo-km', 'insp-campo-hr');
-  });
-
   document.getElementById('btn-insp-salvar-veiculo')?.addEventListener('click', async () => {
     const filialId = inspecaoFilialIdAberto;
     const veiculoId = inspecaoVeiculoIdAberto;
     if (!filialId || !veiculoId) return;
     const placa = document.getElementById('insp-v-placa')?.value?.trim();
     if (!placa) return toast('Placa é obrigatória', 'error');
-    const tipo = document.getElementById('insp-v-tipo')?.value || '';
-    if (!tipo) return toast('Escolha o tipo de equipamento', 'error');
     try {
       await fetchJSON(`${API}/filiais/${filialId}/veiculos/${veiculoId}`, {
         method: 'PUT',
         body: JSON.stringify({
           placa,
           apelido: document.getElementById('insp-v-apelido')?.value || '',
-          tipo,
+          tipo: document.getElementById('insp-v-tipo')?.value || null,
           km_atual: numOrNull('insp-v-km'),
           hr_atual: numOrNull('insp-v-hr'),
           marca: document.getElementById('insp-v-marca')?.value || '',
@@ -6345,9 +6098,7 @@ function wireEdicaoVeiculoInspecao() {
           || document.getElementById('insp-v-placa')?.value?.trim()
           || '';
         const placa = document.getElementById('insp-v-placa')?.value?.trim()?.toUpperCase() || '';
-        const tipo = tipoDoCatalogo(document.getElementById('insp-v-tipo')?.value)?.label
-          || document.getElementById('insp-v-tipo')?.value
-          || '';
+        const tipo = document.getElementById('insp-v-tipo')?.value || '';
         const km = document.getElementById('insp-v-km')?.value || '0';
         const strong = card.querySelector('td strong');
         const hintEl = card.querySelector('td .hint');
@@ -6476,10 +6227,9 @@ async function abrirInspecaoVeiculoFilial(filialId, veiculoId) {
   inspecaoVeiculoIdAberto = idNum;
   box.classList.remove('hidden');
   box.innerHTML = '<p class="hint">Carregando diagrama e diagnósticos…</p>';
-  focarInspecaoVeiculo();
+  box.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   try {
-    await carregarMetaVeiculos().catch(() => {});
     const v = await fetchJSON(`${API}/filiais/${filialId}/veiculos/${veiculoId}`);
     if (inspecaoVeiculoIdAberto !== idNum) return;
 
@@ -6487,9 +6237,9 @@ async function abrirInspecaoVeiculoFilial(filialId, veiculoId) {
     const labels = v.posicoes_labels || {};
     const posicoes = v.posicoes_layout?.map((p) => p.codigo) || v.layout?.posicoes || [];
     const nAnom = v.anomalias?.length || 0;
-    const catAtual = tipoDoCatalogo(v.tipo_codigo) || tipoDoCatalogo(v.tipo);
-    const codigoInicial = catAtual?.codigo || v.tipo || '';
-    const unidadeInicial = catAtual?.unidade_uso || null;
+    const tiposOpts = (meta.tipos || ['Truck / Tração', 'Toco / Mini', 'Compactador', 'Utilitário / Varredeira', 'Trator']).map((t) =>
+      `<option value="${escapeHtml(t)}" ${t === v.tipo ? 'selected' : ''}>${escapeHtml(t)}</option>`
+    ).join('');
 
     box.innerHTML = `
       <div class="inspecao-header">
@@ -6507,10 +6257,7 @@ async function abrirInspecaoVeiculoFilial(filialId, veiculoId) {
       </div>
       <details class="form-avancado inspecao-corrigir" open>
         <summary>Corrigir dados do veículo</summary>
-        <p class="hint">Tipo primeiro. O campo que não se aplica a este tipo fica oculto e o valor já gravado é mantido.</p>
-        <p class="hint" style="margin-top:0">Tipo</p>
-        <div id="insp-tipo-opcoes" class="tipo-opcoes" role="group" aria-label="Tipo de equipamento">${htmlBotoesTipo(codigoInicial)}</div>
-        <input type="hidden" id="insp-v-tipo" value="${escapeHtml(codigoInicial)}">
+        <p class="hint">Use se a placa, KM ou identificação foram cadastrados errados.</p>
         <div class="form-row">
           <div class="form-group">
             <label for="insp-v-placa">Placa *</label>
@@ -6520,15 +6267,19 @@ async function abrirInspecaoVeiculoFilial(filialId, veiculoId) {
             <label for="insp-v-apelido">Apelido</label>
             <input type="text" id="insp-v-apelido" value="${escapeHtml(v.apelido || '')}">
           </div>
+          <div class="form-group">
+            <label for="insp-v-tipo">Tipo</label>
+            <select id="insp-v-tipo">${tiposOpts}</select>
+          </div>
         </div>
         <div class="form-row">
-          <div class="form-group${unidadeInicial === 'horas' ? ' hidden' : ''}" id="insp-campo-km">
+          <div class="form-group">
             <label for="insp-v-km">KM atual</label>
-            <input type="number" id="insp-v-km" min="0" inputmode="numeric" value="${v.km_atual ?? 0}">
+            <input type="number" id="insp-v-km" min="0" value="${v.km_atual ?? 0}">
           </div>
-          <div class="form-group${unidadeInicial === 'km' ? ' hidden' : ''}" id="insp-campo-hr">
-            <label for="insp-v-hr">Horímetro atual</label>
-            <input type="number" id="insp-v-hr" min="0" step="0.1" inputmode="decimal" value="${v.hr_atual ?? 0}">
+          <div class="form-group">
+            <label for="insp-v-hr">Horas</label>
+            <input type="number" id="insp-v-hr" min="0" step="0.1" value="${v.hr_atual ?? 0}">
           </div>
           <div class="form-group">
             <label for="insp-v-marca">Marca</label>
@@ -6622,7 +6373,6 @@ async function abrirInspecaoVeiculoFilial(filialId, veiculoId) {
       inspecaoDiagram.setAtivo(primeiro.id);
       setPainel(primeiro);
     }
-    focarInspecaoVeiculo();
   } catch (err) {
     if (inspecaoVeiculoIdAberto === idNum) {
       box.innerHTML = `<p class="hint login-erro">${err.message}</p>`;
@@ -7082,14 +6832,12 @@ document.getElementById('form-usuario')?.addEventListener('submit', async (e) =>
 
 // ── Relatórios diretoria ───────────────────────────────
 
-async function baixarPdfSemanalUnidade(filialId, tipo = '') {
+async function baixarPdfSemanalUnidade(filialId) {
   if (!isGestao()) return toast('Acesso restrito ao gerente', 'error');
   if (!filialId) return toast('Filial não informada', 'error');
   try {
     toast('Gerando PDF semanal…');
-    const qs = new URLSearchParams({ filial_id: String(filialId) });
-    if (tipo) qs.set('tipo', tipo);
-    const resp = await fetch(`${API}/relatorios/unidade/semanal.pdf?${qs}`, {
+    const resp = await fetch(`${API}/relatorios/unidade/semanal.pdf?filial_id=${encodeURIComponent(filialId)}`, {
       headers: { Authorization: `Bearer ${authToken}` },
     });
     if (!resp.ok) {
@@ -7119,21 +6867,17 @@ async function baixarPdfSemanalUnidade(filialId, tipo = '') {
 async function loadRelatorioDiretoria() {
   if (!isAdmin()) return;
   try {
-    const tipo = document.getElementById('relatorio-filtro-tipo')?.value || '';
-    const q = tipo ? `?tipo=${encodeURIComponent(tipo)}` : '';
-    const rel = await fetchJSON(`${API}/relatorios/diretoria${q}`);
+    const rel = await fetchJSON(`${API}/relatorios/diretoria`);
     const c = rel.consolidado || {};
     document.getElementById('relatorio-resumo').innerHTML = `
       <div class="stat-card"><span class="stat-value">${c.filiais_ativas ?? 0}</span><span class="stat-label">Filiais</span></div>
       <div class="stat-card"><span class="stat-value">${c.veiculos ?? 0}</span><span class="stat-label">Veículos</span></div>
       <div class="stat-card stat-ok"><span class="stat-value">${c.sulco_ok ?? 0}</span><span class="stat-label">Pneus OK</span></div>
       <div class="stat-card stat-alerta"><span class="stat-value">${c.sulco_monitorar ?? 0}</span><span class="stat-label">Monitorar</span></div>
-      <div class="stat-card stat-critico"><span class="stat-value">${c.sulco_critico ?? 0}</span><span class="stat-label">Crítico / ação necessária</span></div>
+      <div class="stat-card stat-critico"><span class="stat-value">${c.sulco_critico ?? 0}</span><span class="stat-label">Críticos</span></div>
       <div class="stat-card stat-troca"><span class="stat-value">${c.acao_trocar ?? 0}</span><span class="stat-label">Trocar</span></div>
       <div class="stat-card"><span class="stat-value" style="font-size:1.1rem">${formatMoney(c.custo_total_pneus)}</span><span class="stat-label">Custo total pneus</span></div>
     `;
-    const usoRel = document.getElementById('relatorio-uso');
-    if (usoRel) usoRel.innerHTML = renderIndicadoresUso(c.indicadores_uso);
     document.getElementById('relatorio-leitura').innerHTML = `
       <div class="compras-banner-inner">
         <div>
@@ -7165,9 +6909,7 @@ async function loadRelatorioDiretoria() {
       csv.onclick = async (e) => {
         e.preventDefault();
         try {
-          const tipoCsv = document.getElementById('relatorio-filtro-tipo')?.value || '';
-          const qCsv = tipoCsv ? `?tipo=${encodeURIComponent(tipoCsv)}` : '';
-          const resp = await fetch(`${API}/relatorios/diretoria.csv${qCsv}`, {
+          const resp = await fetch(`${API}/relatorios/diretoria.csv`, {
             headers: { Authorization: `Bearer ${authToken}` },
           });
           if (!resp.ok) throw new Error('Falha ao baixar CSV');
@@ -7189,7 +6931,6 @@ async function loadRelatorioDiretoria() {
 }
 
 document.getElementById('btn-relatorio-refresh')?.addEventListener('click', () => loadRelatorioDiretoria());
-document.getElementById('relatorio-filtro-tipo')?.addEventListener('change', () => loadRelatorioDiretoria());
 
 // ── Inicialização ──────────────────────────────────────
 
@@ -7241,35 +6982,20 @@ function prepararShellAcessoRapido(titulo) {
   if (subtitle) subtitle.textContent = titulo || 'Link temporário';
 }
 
-function aoEscolherTipoAcessoRapido(codigo) {
-  document.getElementById('ar-v-campos')?.classList.remove('hidden');
-  const input = document.getElementById('ar-v-tipo');
-  if (input) input.value = codigo;
-  aplicarVisibilidadeUnidade(codigo, 'ar-campo-km', 'ar-campo-hr');
-  const rodoviario = ehTipoRodoviario(codigo);
-  const titulo = document.getElementById('ar-veiculo-titulo');
-  if (titulo) titulo.textContent = rodoviario ? 'Cadastrar caminhão' : 'Cadastrar equipamento';
-  const salvar = document.getElementById('ar-v-salvar');
-  if (salvar) salvar.textContent = rodoviario ? 'Salvar caminhão' : 'Salvar equipamento';
-  const hint = document.getElementById('ar-v-layout-hint');
-  if (hint) hint.textContent = 'O layout de pneus é aplicado automaticamente.';
-  document.getElementById('ar-v-placa')?.focus();
-}
-
 async function bootArCadastroVeiculo(token) {
-  prepararShellAcessoRapido('Cadastrar equipamento');
+  prepararShellAcessoRapido('Cadastrar caminhão');
   showView('ar-veiculo');
   try {
     const data = await fetchJSON(`${API}/acesso-rapido?token=${encodeURIComponent(token)}`);
     if (data.tipo && data.tipo !== 'cadastrar_veiculo') {
-      throw new Error('Este link não é de cadastro de equipamento');
+      throw new Error('Este link não é de cadastro de caminhão');
     }
     const fil = document.getElementById('ar-veiculo-filial');
     if (fil) fil.textContent = data.filial ? `${data.filial.nome} (${data.filial.codigo || ''})` : '';
-    if (Array.isArray(data.tipos_equipamento) && data.tipos_equipamento.length) {
-      meta = { ...meta, tipos_equipamento: data.tipos_equipamento, tipos: data.tipos || meta.tipos };
+    const selTipo = document.getElementById('ar-v-tipo');
+    if (selTipo && Array.isArray(data.tipos) && data.tipos.length) {
+      selTipo.innerHTML = data.tipos.map((t) => `<option value="${t}">${t}</option>`).join('');
     }
-    renderBotoesTipo('ar-v-tipo-opcoes', '', aoEscolherTipoAcessoRapido);
   } catch (err) {
     mostrarErroToken(err.message);
     return;
@@ -7282,43 +7008,28 @@ async function bootArCadastroVeiculo(token) {
     const ok = document.getElementById('ar-veiculo-ok');
     erro?.classList.add('hidden');
     if (ok) ok.textContent = '';
-    const tipo = document.getElementById('ar-v-tipo')?.value;
-    if (!tipo) {
-      if (erro) {
-        erro.textContent = 'Escolha o tipo de equipamento';
-        erro.classList.remove('hidden');
-      }
-      return;
-    }
-    const unidade = unidadeCadastro(tipo);
-    const kmDigitado = Number(document.getElementById('ar-v-km')?.value) || 0;
-    const hrDigitado = Number(document.getElementById('ar-v-hr')?.value) || 0;
-    const body = {
-      token,
-      placa: document.getElementById('ar-v-placa')?.value,
-      apelido: document.getElementById('ar-v-apelido')?.value || null,
-      tipo,
-    };
-    if (unidade !== 'horas' || kmDigitado) body.km_atual = kmDigitado;
-    if (unidade !== 'km' || hrDigitado) body.hr_atual = hrDigitado;
-    const btn = form.querySelector('button[type="submit"]');
-    if (btn) btn.disabled = true;
     try {
       const resp = await fetchJSON(`${API}/acesso-rapido/veiculo`, {
         method: 'POST',
-        body: JSON.stringify(body),
+        body: JSON.stringify({
+          token,
+          placa: document.getElementById('ar-v-placa')?.value,
+          apelido: document.getElementById('ar-v-apelido')?.value || null,
+          tipo: document.getElementById('ar-v-tipo')?.value,
+          km_atual: Number(document.getElementById('ar-v-km')?.value) || 0,
+        }),
       });
-      if (ok) ok.textContent = resp.mensagem || 'Equipamento cadastrado. Pode fechar esta página.';
+      if (ok) ok.textContent = resp.mensagem || 'Caminhão cadastrado! Pode fechar esta página.';
+      form.querySelector('button[type="submit"]')?.setAttribute('disabled', 'true');
       toast(resp.mensagem || 'Salvo', 'success');
     } catch (err) {
-      if (btn) btn.disabled = false;
       if (erro) {
         erro.textContent = err.message;
         erro.classList.remove('hidden');
       }
       toast(err.message, 'error');
     }
-  });
+  }, { once: true });
 }
 
 async function bootArCadastroPneu(token) {
