@@ -353,6 +353,7 @@ async function fetchJSON(url, options = {}) {
       : 'Erro na requisição');
     const err = new Error(msg);
     err.data = data;
+    err.status = resp.status;
     throw err;
   }
   return data;
@@ -428,6 +429,34 @@ function toast(msg, type = '') {
   el.textContent = msg;
   el.className = `toast ${type}`;
   setTimeout(() => el.classList.add('hidden'), 3500);
+}
+
+function fecharDialog(el) {
+  const dialog = typeof el === 'string' ? document.getElementById(el) : el;
+  if (dialog?.open) dialog.close();
+}
+
+function formDesativar(form) {
+  if (!form) return;
+  form.dataset.salvando = '1';
+  form.querySelectorAll('input, select, textarea, button').forEach((el) => {
+    el.disabled = true;
+  });
+}
+
+function travarSubmit(form, travar, texto = 'Salvando…') {
+  const btn = form?.querySelector('button[type="submit"]');
+  if (!btn) return;
+  if (travar) {
+    btn.dataset.labelOriginal = btn.textContent;
+    btn.disabled = true;
+    btn.textContent = texto;
+    return;
+  }
+  btn.disabled = false;
+  if (btn.textContent === texto && btn.dataset.labelOriginal) {
+    btn.textContent = btn.dataset.labelOriginal;
+  }
 }
 
 function ehCadastroPendente(v) {
@@ -1347,7 +1376,7 @@ function voltarDesenhoCampo({ toastProx = false } = {}) {
   }
 }
 
-async function openVeiculoDetalhe(id, origem = 'dashboard', dadosPreload = null) {
+async function openVeiculoDetalhe(id, origem = 'dashboard', dadosPreload = null, opts = {}) {
   voltarPara = origem;
   const seq = ++veiculoDetalheSeq;
   try {
@@ -1486,6 +1515,7 @@ async function openVeiculoDetalhe(id, origem = 'dashboard', dadosPreload = null)
     aplicarVisibilidadeAcessoRapido();
     showView('veiculo-detalhe');
   } catch (err) {
+    if (opts.silencioso) throw err;
     toast(err.message, 'error');
   }
 }
@@ -1794,7 +1824,9 @@ async function criarEMontarPneuTruck() {
   if (!modelo) return toast('Informe o modelo do pneu', 'error');
 
   const btn = document.getElementById('btn-truck-criar-montar');
+  if (btn?.disabled) return;
   if (btn) btn.disabled = true;
+  let criado = null;
   try {
     if (modoAcessoRapido) {
       if (!tokenAcessoRapido) throw new Error('Token de acesso rápido ausente');
@@ -1826,7 +1858,7 @@ async function criarEMontarPneuTruck() {
       return;
     }
 
-    const criado = await fetchJSON(`${API}/pneus`, {
+    criado = await fetchJSON(`${API}/pneus`, {
       method: 'POST',
       body: JSON.stringify({
         numero_fogo: fogo,
@@ -1842,7 +1874,7 @@ async function criarEMontarPneuTruck() {
       }),
     });
     const pneuId = criado.pneu?.id || criado.id;
-    if (!pneuId) throw new Error('Pneu criado sem id');
+    if (!pneuId) throw new Error('O servidor não confirmou o pneu. Confira o estoque antes de cadastrar de novo.');
 
     await fetchJSON(`${API}/pneus/${pneuId}/montar`, {
       method: 'POST',
@@ -1853,16 +1885,21 @@ async function criarEMontarPneuTruck() {
         hr_veiculo: numOrNull('truck-hr') ?? veiculoAtual.hr_atual,
       }),
     });
-    toast('Pneu criado e montado');
+    toast(criado.mensagem ? `${criado.mensagem} e montado` : 'Pneu criado e montado', 'success');
     const pos = slotPosicaoSelecionada;
-    await openVeiculoDetalhe(veiculoAtual.id, voltarPara);
-    const montado = veiculoAtual.pneus.find((p) => p.posicao === pos);
+    await openVeiculoDetalhe(veiculoAtual.id, voltarPara, null, { silencioso: true });
+    const montado = veiculoAtual?.pneus?.find((p) => p.posicao === pos);
     if (montado) {
       truckDiagram?.setAtivo(montado.id);
       selecionarPneuTruck(montado);
     }
   } catch (err) {
-    toast(err.message, 'error');
+    const fogoSalvo = criado?.pneu?.numero_fogo;
+    if (criado?.pneu?.id) {
+      toast(`Pneu salvo no estoque${fogoSalvo ? ` (fogo ${fogoSalvo})` : ''}. Não montou: ${err.message}`, 'error');
+    } else {
+      toast(err.message, 'error');
+    }
   } finally {
     if (btn) btn.disabled = false;
   }
@@ -2822,8 +2859,9 @@ async function loadPneus() {
       return `
         <article class="pneu-card card${p.status_pneu === 'descarte' ? ' pneu-card-descarte' : ''}">
           <div class="pneu-card-main">
-            <h3>Fogo ${p.numero_fogo || '—'}</h3>
-            <p class="hint">${[p.marca, p.dot ? `DOT ${p.dot}` : null, p.vida_label].filter(Boolean).join(' · ')}</p>
+            <h3>Fogo ${escapeHtml(p.numero_fogo || '—')}</h3>
+            <p>${escapeHtml([p.marca, p.modelo].filter(Boolean).join(' ') || 'Sem modelo')}</p>
+            <p class="hint">${[p.dot ? `DOT ${escapeHtml(p.dot)}` : null, p.vida_label].filter(Boolean).join(' · ')}</p>
             <p class="hint">${onde} · ${p.padrao_label || labelPadraoPneu(p.tipo_pneu)}
               ${p.menor_sulco != null ? ` · sulco ${p.menor_sulco} mm` : ' · sem medição'}
               ${p.ultima_medicao?.data ? ` · ${formatDate(p.ultima_medicao.data)}` : ''}</p>
@@ -3159,32 +3197,51 @@ document.getElementById('btn-pneu-enviar-descarte')?.addEventListener('click', (
 
 document.getElementById('form-pneu')?.addEventListener('submit', async (e) => {
   e.preventDefault();
+  const form = e.currentTarget;
+  if (form.dataset.salvando === '1') return;
   const id = document.getElementById('pneu-edit-id').value;
   const payload = payloadFormPneu();
   if (!payload.modelo?.trim()) {
     return toast('Informe o modelo do pneu', 'error');
   }
+  form.dataset.salvando = '1';
+  travarSubmit(form, true);
   try {
     if (id) {
-      await fetchJSON(`${API}/pneus/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
-      toast('Pneu atualizado');
-      document.getElementById('modal-pneu').close();
+      const result = await fetchJSON(`${API}/pneus/${id}`, { method: 'PUT', body: JSON.stringify(payload) });
+      fecharDialog('modal-pneu');
+      toast(result.mensagem || 'Pneu atualizado', 'success');
       loadPneus();
     } else {
       const result = await fetchJSON(`${API}/pneus`, { method: 'POST', body: JSON.stringify(payload) });
-      document.getElementById('modal-pneu').close();
-      document.getElementById('pneus-filtro-status').value = 'estoque';
-      await loadPneus();
       const pneuId = result.pneu?.id;
-      const fogo = result.pneu?.numero_fogo || payload.numero_fogo;
-      if (pneuId) {
-        abrirModalPneuPosCriar(pneuId, fogo);
-      } else {
-        toast('Pneu no estoque', 'success');
+      if (!pneuId) {
+        throw new Error('O servidor não confirmou o pneu. Confira o estoque antes de cadastrar de novo.');
       }
+      fecharDialog('modal-pneu');
+      const filtro = document.getElementById('pneus-filtro-status');
+      if (filtro) filtro.value = 'estoque';
+      toast(result.mensagem || 'Pneu cadastrado no estoque', 'success');
+      try {
+        await loadPneus();
+      } catch (err) {
+        toast(`Pneu salvo. A lista não atualizou: ${err.message}`, 'error');
+      }
+      abrirModalPneuPosCriar(pneuId, result.pneu?.numero_fogo || payload.numero_fogo);
     }
   } catch (err) {
+    if (!id && err.status === 409) {
+      toast(err.message, 'error');
+      if (err.data?.id) {
+        fecharDialog('modal-pneu');
+        loadPneus();
+      }
+      return;
+    }
     toast(err.message, 'error');
+  } finally {
+    form.dataset.salvando = '0';
+    travarSubmit(form, false);
   }
 });
 
@@ -3744,7 +3801,7 @@ function restaurarModalVeiculoNovo() {
   const hint = form?.querySelector(':scope > p.hint');
   if (hint) hint.textContent = 'Informe a placa e a configuração dos eixos. Depois você coloca os pneus no diagrama.';
   const submit = form?.querySelector('button[type="submit"]');
-  if (submit) submit.textContent = 'Salvar e abrir diagrama';
+  if (submit) submit.textContent = 'Salvar veículo';
   form?.querySelector('details.form-avancado')?.removeAttribute('open');
 }
 
@@ -3833,10 +3890,14 @@ document.getElementById('btn-cancelar-veiculo').addEventListener('click', () => 
 
 document.getElementById('form-veiculo').addEventListener('submit', async (e) => {
   e.preventDefault();
-  if (concluirVeiculoId) {
-    const id = concluirVeiculoId;
-    const origem = concluirOrigem;
-    try {
+  const form = e.currentTarget;
+  if (form.dataset.salvando === '1') return;
+  form.dataset.salvando = '1';
+  travarSubmit(form, true);
+  try {
+    if (concluirVeiculoId) {
+      const id = concluirVeiculoId;
+      const origem = concluirOrigem;
       const result = await fetchJSON(`${API}/veiculos/${id}/concluir`, {
         method: 'POST',
         body: JSON.stringify({
@@ -3849,19 +3910,22 @@ document.getElementById('form-veiculo').addEventListener('submit', async (e) => 
           layout_pneus: document.getElementById('v-layout').value,
         }),
       });
-      modalVeiculo.close();
+      if (!result?.veiculo_id && !result?.mensagem) {
+        throw new Error('O servidor não confirmou a conclusão. Confira o veículo antes de tentar de novo.');
+      }
+      fecharDialog(modalVeiculo);
       restaurarModalVeiculoNovo();
       toast(result.mensagem || 'Cadastro concluído', 'success');
       if (origem === 'veiculos') loadVeiculos();
-      else if (origem === 'filiais') loadDashboard();
       else loadDashboard();
-      await openVeiculoDetalhe(id, origem === 'veiculos' ? 'veiculos' : 'dashboard');
-    } catch (err) {
-      toast(err.message, 'error');
+      try {
+        await openVeiculoDetalhe(id, origem === 'veiculos' ? 'veiculos' : 'dashboard', null, { silencioso: true });
+      } catch (err) {
+        toast(`Cadastro concluído. Não abriu o diagrama: ${err.message}`, 'error');
+      }
+      return;
     }
-    return;
-  }
-  try {
+
     const result = await fetchJSON(`${API}/veiculos`, {
       method: 'POST',
       body: JSON.stringify({
@@ -3879,11 +3943,27 @@ document.getElementById('form-veiculo').addEventListener('submit', async (e) => 
           : null,
       }),
     });
-    modalVeiculo.close();
-    toast('Veículo pronto — clique nas posições vazias para colocar os pneus', 'success');
-    await openVeiculoDetalhe(result.id, 'veiculos');
+    if (!result?.id) {
+      throw new Error('O servidor não confirmou o veículo. Confira a lista antes de cadastrar de novo.');
+    }
+    fecharDialog(modalVeiculo);
+    toast(result.mensagem || 'Veículo cadastrado', 'success');
+    try {
+      await openVeiculoDetalhe(result.id, 'veiculos', null, { silencioso: true });
+    } catch (err) {
+      toast(`Veículo salvo. Não abriu o diagrama: ${err.message}`, 'error');
+    }
   } catch (err) {
+    if (err.status === 409 && err.data?.id) {
+      fecharDialog(modalVeiculo);
+      toast(err.message, 'error');
+      openVeiculoDetalhe(err.data.id, 'veiculos');
+      return;
+    }
     toast(err.message, 'error');
+  } finally {
+    form.dataset.salvando = '0';
+    travarSubmit(form, false);
   }
 });
 
@@ -7401,6 +7481,12 @@ async function bootArCadastroVeiculo(token) {
     if (Array.isArray(data.layouts) && data.layouts.length) {
       meta = { ...meta, layouts: data.layouts };
     }
+    if (data.ja_gravado) {
+      const ok = document.getElementById('ar-veiculo-ok');
+      if (ok) ok.textContent = data.mensagem || 'Este veículo já estava cadastrado.';
+      formDesativar(document.getElementById('form-ar-veiculo'));
+      return;
+    }
     const v = data.veiculo;
     const codigoInicial = codigoTipo(v?.tipo) || 'truck_tracao';
     const aplicarAr = (codigo, layoutSalvo = null) => {
@@ -7445,10 +7531,13 @@ async function bootArCadastroVeiculo(token) {
   const form = document.getElementById('form-ar-veiculo');
   form?.addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (form.dataset.salvando === '1') return;
     const erro = document.getElementById('ar-veiculo-erro');
     const ok = document.getElementById('ar-veiculo-ok');
     erro?.classList.add('hidden');
     if (ok) ok.textContent = '';
+    form.dataset.salvando = '1';
+    travarSubmit(form, true);
     try {
       const resp = await fetchJSON(`${API}/acesso-rapido/veiculo`, {
         method: 'POST',
@@ -7464,17 +7553,22 @@ async function bootArCadastroVeiculo(token) {
           hr_atual: Number(document.getElementById('ar-v-hr')?.value) || 0,
         }),
       });
-      if (ok) ok.textContent = resp.mensagem || 'Caminhão cadastrado! Pode fechar esta página.';
-      form.querySelector('button[type="submit"]')?.setAttribute('disabled', 'true');
-      toast(resp.mensagem || 'Salvo', 'success');
+      if (!resp?.veiculo_id && !resp?.ja_gravado) {
+        throw new Error('O servidor não confirmou o veículo. Confira a lista antes de cadastrar de novo.');
+      }
+      if (ok) ok.textContent = resp.mensagem || 'Caminhão cadastrado. Pode fechar esta página.';
+      formDesativar(form);
+      toast(resp.mensagem || 'Veículo cadastrado', 'success');
     } catch (err) {
+      form.dataset.salvando = '0';
+      travarSubmit(form, false);
       if (erro) {
         erro.textContent = err.message;
         erro.classList.remove('hidden');
       }
       toast(err.message, 'error');
     }
-  }, { once: true });
+  });
 }
 
 async function bootArCadastroPneu(token) {
@@ -7487,6 +7581,12 @@ async function bootArCadastroPneu(token) {
     }
     const fil = document.getElementById('ar-pneu-filial');
     if (fil) fil.textContent = data.filial ? `${data.filial.nome} (${data.filial.codigo || ''})` : '';
+    if (data.ja_gravado) {
+      const ok = document.getElementById('ar-pneu-ok');
+      if (ok) ok.textContent = data.mensagem || 'Este pneu já estava no estoque.';
+      formDesativar(document.getElementById('form-ar-pneu'));
+      return;
+    }
     const p = data.pneu;
     if (p) {
       const inpFogo = document.getElementById('ar-p-fogo');
@@ -7512,10 +7612,13 @@ async function bootArCadastroPneu(token) {
   const form = document.getElementById('form-ar-pneu');
   form?.addEventListener('submit', async (e) => {
     e.preventDefault();
+    if (form.dataset.salvando === '1') return;
     const erro = document.getElementById('ar-pneu-erro');
     const ok = document.getElementById('ar-pneu-ok');
     erro?.classList.add('hidden');
     if (ok) ok.textContent = '';
+    form.dataset.salvando = '1';
+    travarSubmit(form, true);
     try {
       const sulcoRaw = document.getElementById('ar-p-sulco')?.value;
       const resp = await fetchJSON(`${API}/acesso-rapido/pneu`, {
@@ -7530,17 +7633,22 @@ async function bootArCadastroPneu(token) {
           sulco_inicial_mm: sulcoRaw === '' || sulcoRaw == null ? null : Number(String(sulcoRaw).replace(',', '.')),
         }),
       });
-      if (ok) ok.textContent = resp.mensagem || 'Pneu no estoque! Pode fechar esta página.';
-      form.querySelector('button[type="submit"]')?.setAttribute('disabled', 'true');
-      toast(resp.mensagem || 'Salvo', 'success');
+      if (!resp?.pneu?.id && !resp?.pneu_id && !resp?.ja_gravado) {
+        throw new Error('O servidor não confirmou o pneu. Confira o estoque antes de cadastrar de novo.');
+      }
+      if (ok) ok.textContent = resp.mensagem || 'Pneu no estoque. Pode fechar esta página.';
+      formDesativar(form);
+      toast(resp.mensagem || 'Pneu cadastrado', 'success');
     } catch (err) {
+      form.dataset.salvando = '0';
+      travarSubmit(form, false);
       if (erro) {
         erro.textContent = err.message;
         erro.classList.remove('hidden');
       }
       toast(err.message, 'error');
     }
-  }, { once: true });
+  });
 }
 
 async function bootArTroca(token) {

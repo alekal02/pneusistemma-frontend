@@ -270,31 +270,27 @@
         <span class="hint" id="veiculos-busca-count"></span>
       </div>
 
-      <div class="carga-frota-banner card">
-        <div>
-          <h3>Carga inicial da frota</h3>
-          <p class="hint" style="margin:0">
-            Já tem a frota em planilha? Importe caminhões e pneus de uma vez. No dia a dia: abra o veículo e meça o sulco.
-          </p>
+      <details class="ops-extra">
+        <summary>Importar planilha</summary>
+        <div class="carga-frota-banner card">
+          <div>
+            <h3>Carga inicial da frota</h3>
+            <p class="hint" style="margin:0">Caminhões e pneus de uma vez. No dia a dia, abra o veículo e meça o sulco.</p>
+          </div>
+          <div class="section-actions">
+            <a class="btn btn-primary" id="btn-modelo-frota" href="#">Baixar planilha da frota</a>
+            <label class="btn btn-ghost btn-file">
+              Importar carga da frota
+              <input type="file" id="file-import-frota" accept=".csv,text/csv" hidden>
+            </label>
+          </div>
         </div>
-        <div class="section-actions">
-          <a class="btn btn-primary" id="btn-modelo-frota" href="#">Baixar planilha da frota</a>
-          <label class="btn btn-ghost btn-file">
-            Importar carga da frota
-            <input type="file" id="file-import-frota" accept=".csv,text/csv" hidden>
-          </label>
-        </div>
-      </div>
-      <div id="import-resultado-frota" class="import-resultado hidden"></div>
-
-      <ol class="fluxo-passos">
-        <li class="ativo"><strong>1.</strong> Cadastre o veículo</li>
-        <li><strong>2.</strong> Abra o diagrama e clique nas posições vazias para colocar os pneus</li>
-      </ol>
-      <details class="import-hint-details">
-        <summary>Dica para importação CSV de veículos</summary>
-        <p class="hint import-hint">Layouts aceitos: <code>truck_10</code>, <code>truck_8</code>, <code>truck_8_b</code>, <code>toco_6</code>.</p>
+        <details class="import-hint-details">
+          <summary>Só veículos (CSV)</summary>
+          <p class="hint import-hint">Layouts aceitos: <code>truck_10</code>, <code>truck_8</code>, <code>truck_8_b</code>, <code>toco_6</code>.</p>
+        </details>
       </details>
+      <div id="import-resultado-frota" class="import-resultado hidden"></div>
       <div id="import-resultado-veiculos" class="import-resultado hidden"></div>
       <div id="veiculos-lista" class="card-list"></div>
     </section>
@@ -311,15 +307,13 @@
           <button class="btn btn-primary" id="btn-novo-pneu">+ Novo pneu</button>
         </div>
       </div>
-      <ol class="fluxo-passos">
-        <li class="ativo"><strong>Estoque</strong> — cadastre pneus avulsos aqui</li>
-        <li><strong>Planilha</strong> — preencha placa e posição para já montar no caminhão</li>
-        <li><strong>Atalho</strong> — no veículo, clique no slot vazio e crie o pneu na hora</li>
-      </ol>
-      <p class="hint">Use esta aba para estoque, histórico e pneus em descarte. Na planilha, placa + posição montam o pneu no caminhão já cadastrado.</p>
-      <details class="import-hint-details">
-        <summary>Dica para importação CSV de pneus</summary>
-        <p class="hint import-hint">Campos: nº de fogo, <code>placa</code>, <code>posicao</code> (ex.: 1E, 2EE), padrão (<code>direcional</code>, <code>misto</code>, <code>borrachudo</code>), condição. Com placa e posição preenchidas o pneu já entra montado no caminhão. Sem placa, vai para o estoque.</p>
+      <p class="hint">Estoque, recap, descarte e histórico. Para montar, abra o caminhão e toque no slot vazio.</p>
+      <details class="ops-extra">
+        <summary>Importar planilha</summary>
+        <details class="import-hint-details">
+          <summary>Colunas do CSV</summary>
+          <p class="hint import-hint">Nº de fogo, <code>placa</code>, <code>posicao</code> (ex.: 1E, 2EE), padrão (<code>direcional</code>, <code>misto</code>, <code>borrachudo</code>) e condição. Com placa e posição, o pneu entra montado. Sem placa, vai para o estoque.</p>
+        </details>
       </details>
       <div id="import-resultado-pneus" class="import-resultado hidden"></div>
       <div class="pneus-toolbar">
@@ -964,9 +958,10 @@
   </main>
 
   <dialog id="modal-veiculo" class="modal modal-wide modal-veiculo">
-    <form id="form-veiculo" method="dialog">
+    <form id="form-veiculo" method="dialog" onsubmit="event.preventDefault()">
       <h3 id="modal-veiculo-titulo">Novo Veículo</h3>
-      <p class="hint" style="margin-top:0">Informe a placa e a configuração dos eixos. Depois você coloca os pneus no diagrama.</p>
+      <p class="hint" style="margin-top:0">Placa, tipo e eixos. Marca e KM podem ficar para depois.</p>
+      <p class="form-bloco-titulo">Identificação</p>
       <div class="form-row">
         <div class="form-group">
           <label for="v-placa">Placa *</label>
@@ -977,6 +972,7 @@
           <input type="text" id="v-apelido" placeholder="Ex: Compactador 01">
         </div>
       </div>
+      <p class="form-bloco-titulo">Tipo e eixos</p>
       <div class="form-group">
         <label>Tipo do veículo *</label>
         <div id="v-tipo-opcoes" class="tipo-opcoes" role="group" aria-label="Tipo de equipamento"></div>
@@ -1025,7 +1021,7 @@
       </details>
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost" id="btn-cancelar-veiculo">Cancelar</button>
-        <button type="submit" class="btn btn-primary">Salvar e abrir diagrama</button>
+        <button type="submit" class="btn btn-primary">Salvar veículo</button>
       </div>
     </form>
   </dialog>
@@ -1125,8 +1121,9 @@
   </dialog>
 
   <dialog id="modal-pneu" class="modal">
-    <form id="form-pneu" method="dialog">
+    <form id="form-pneu" method="dialog" onsubmit="event.preventDefault()">
       <h3 id="modal-pneu-titulo">Novo pneu no estoque</h3>
+      <p class="form-bloco-titulo">Identificação</p>
       <input type="hidden" id="pneu-edit-id" value="">
       <div class="form-group">
         <label for="pneu-fogo">Nº de fogo</label>
@@ -1134,8 +1131,19 @@
           <input type="text" id="pneu-fogo" placeholder="0110-0001" autocomplete="off">
           <button type="button" class="btn btn-primary btn-sm" id="btn-gerar-fogo">Gerar marca de fogo</button>
         </div>
-        <small class="field-hint" id="pneu-fogo-hint">Clique para analisar o código da unidade e a última marca cadastrada (ex.: 0110-0001).</small>
+        <small class="field-hint" id="pneu-fogo-hint">Vazio gera o próximo número da unidade.</small>
       </div>
+      <div class="form-row">
+        <div class="form-group">
+          <label for="pneu-marca">Marca</label>
+          <input type="text" id="pneu-marca" placeholder="Ex: Michelin">
+        </div>
+        <div class="form-group">
+          <label for="pneu-modelo">Modelo *</label>
+          <input type="text" id="pneu-modelo" required placeholder="Ex: X Multi D">
+        </div>
+      </div>
+      <p class="form-bloco-titulo">Onde usa</p>
       <div class="form-row">
         <div class="form-group">
           <label for="pneu-tipo">Padrão *</label>
@@ -1153,16 +1161,6 @@
             <option value="recapado">Recapado</option>
           </select>
           <small class="field-hint" id="pneu-condicao-hint">Novo ou recapado — pode corrigir na edição</small>
-        </div>
-      </div>
-      <div class="form-row">
-        <div class="form-group">
-          <label for="pneu-marca">Marca</label>
-          <input type="text" id="pneu-marca" placeholder="Ex: Michelin">
-        </div>
-        <div class="form-group">
-          <label for="pneu-modelo">Modelo *</label>
-          <input type="text" id="pneu-modelo" required placeholder="Ex: X Multi D">
         </div>
       </div>
       <div class="form-row">
@@ -1221,7 +1219,7 @@
       </div>
       <div class="modal-actions">
         <button type="button" class="btn btn-ghost" id="btn-cancelar-pneu">Cancelar</button>
-        <button type="submit" class="btn btn-primary">Salvar</button>
+        <button type="submit" class="btn btn-primary">Salvar no estoque</button>
       </div>
     </form>
   </dialog>

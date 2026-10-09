@@ -2781,3 +2781,33 @@ h3 {
   margin: .25rem 0 .75rem;
   font-size: 1.35rem;
 }
+.ar-form-wrap .btn-primary { min-height: 2.75rem; width: 100%; }
+
+.form-bloco-titulo {
+  margin: .85rem 0 .4rem;
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .04em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.modal-veiculo .modal-actions,
+#modal-pneu .modal-actions {
+  position: sticky;
+  bottom: 0;
+  background: var(--surface);
+  padding-top: .75rem;
+}
+.ops-extra {
+  margin: .75rem 0 1rem;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  background: var(--surface);
+  padding: .35rem .9rem .7rem;
+}
+.ops-extra > summary {
+  cursor: pointer;
+  font-weight: 600;
+  padding: .45rem 0;
+}
+.pneu-card-main p { margin: .15rem 0; }
