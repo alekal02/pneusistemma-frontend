@@ -373,17 +373,24 @@ function textoHintFogo(info) {
     : `Sugestão ${info.proximo}. Outros formatos antigos ainda são aceitos.`;
 }
 
-async function fetchProximoFogo() {
+async function fetchProximoFogo(tokenRapido) {
+  if (tokenRapido) {
+    return fetchJSON(`${API}/acesso-rapido/proximo-fogo?token=${encodeURIComponent(tokenRapido)}`);
+  }
   if (modoAcessoRapido && tokenAcessoRapido) {
     return fetchJSON(`${API}/acesso-rapido/proximo-fogo?token=${encodeURIComponent(tokenAcessoRapido)}`);
   }
   return fetchJSON(`${API}/pneus/proximo-fogo`);
 }
 
-async function gerarMarcaFogoNoCampo(inputId, hintId, btn) {
-  if (btn) btn.disabled = true;
+async function gerarMarcaFogoNoCampo(inputId, hintId, btn, tokenRapido) {
+  if (btn?.disabled || btn?.dataset.gerando === '1') return null;
+  if (btn) {
+    btn.disabled = true;
+    btn.dataset.gerando = '1';
+  }
   try {
-    const dados = await fetchProximoFogo();
+    const dados = await fetchProximoFogo(tokenRapido);
     if (!dados?.proximo) {
       toast('Não foi possível gerar a marca de fogo. Confira o código da filial.', 'error');
       return null;
@@ -406,7 +413,10 @@ async function gerarMarcaFogoNoCampo(inputId, hintId, btn) {
     toast(err.message || 'Falha ao gerar marca de fogo', 'error');
     return null;
   } finally {
-    if (btn) btn.disabled = false;
+    if (btn) {
+      btn.disabled = false;
+      delete btn.dataset.gerando;
+    }
   }
 }
 
@@ -3372,7 +3382,12 @@ document.getElementById('btn-truck-gerar-fogo')?.addEventListener('click', (e) =
   gerarMarcaFogoNoCampo('truck-novo-fogo', 'truck-novo-fogo-hint', e.currentTarget);
 });
 document.getElementById('btn-ar-gerar-fogo')?.addEventListener('click', (e) => {
-  gerarMarcaFogoNoCampo('ar-p-fogo', 'ar-p-fogo-hint', e.currentTarget);
+  const token = e.currentTarget.dataset.tokenAcesso || '';
+  if (!token) {
+    toast('Link inválido — token ausente.', 'error');
+    return;
+  }
+  gerarMarcaFogoNoCampo('ar-p-fogo', 'ar-p-fogo-hint', e.currentTarget, token);
 });
 document.getElementById('btn-cancelar-pneu')?.addEventListener('click', () => {
   document.getElementById('modal-pneu').close();
@@ -8098,6 +8113,8 @@ async function bootArCadastroVeiculo(token) {
 
 async function bootArCadastroPneu(token) {
   prepararShellAcessoRapido('Cadastrar pneu');
+  const btnFogo = document.getElementById('btn-ar-gerar-fogo');
+  if (btnFogo) btnFogo.dataset.tokenAcesso = token || '';
   showView('ar-pneu');
   try {
     const data = await fetchJSON(`${API}/acesso-rapido?token=${encodeURIComponent(token)}`);

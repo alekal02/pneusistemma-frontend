@@ -636,19 +636,21 @@
           <nav class="cad-nav" aria-label="Seções do veículo"></nav>
           <section class="cad-secao">
             <h4><span>1</span> Identificação</h4>
-            <div class="form-group">
-              <label for="ar-v-placa">Placa <abbr class="req" title="obrigatório">*</abbr></label>
-              <input type="text" id="ar-v-placa" required placeholder="Ex: BH123" autocomplete="off">
-            </div>
-            <div class="form-group">
-              <label for="ar-v-apelido">Apelido</label>
-              <input type="text" id="ar-v-apelido" placeholder="Opcional">
+            <div class="form-row">
+              <div class="form-group">
+                <label for="ar-v-placa">Placa <abbr class="req" title="obrigatório">*</abbr></label>
+                <input type="text" id="ar-v-placa" required placeholder="ABC1D23" autocomplete="off">
+              </div>
+              <div class="form-group">
+                <label for="ar-v-apelido">Apelido / nome interno</label>
+                <input type="text" id="ar-v-apelido" placeholder="Ex: Compactador 01">
+              </div>
             </div>
           </section>
           <section class="cad-secao">
             <h4><span>2</span> Configuração operacional</h4>
             <div class="form-group">
-              <label>Tipo <abbr class="req" title="obrigatório">*</abbr></label>
+              <label>Tipo do veículo <abbr class="req" title="obrigatório">*</abbr></label>
               <div id="ar-v-tipo-opcoes" class="tipo-opcoes" role="group" aria-label="Tipo de equipamento"></div>
               <input type="hidden" id="ar-v-tipo" value="">
             </div>
@@ -656,7 +658,7 @@
           <section class="cad-secao">
             <h4><span>3</span> Layout de pneus</h4>
             <div class="form-group">
-              <label for="ar-v-layout">Configuração dos eixos <abbr class="req" title="obrigatório">*</abbr></label>
+              <label for="ar-v-layout">Quantos pneus / eixos? <abbr class="req" title="obrigatório">*</abbr></label>
               <select id="ar-v-layout" required></select>
               <small class="field-hint" id="ar-v-layout-desc"></small>
             </div>
@@ -665,21 +667,25 @@
           </section>
           <section class="cad-secao">
             <h4><span>4</span> Informações complementares</h4>
-            <div class="form-group">
-              <label for="ar-v-marca">Fabricante <abbr class="req" title="obrigatório">*</abbr></label>
-              <input type="text" id="ar-v-marca" required placeholder="Ex: Mercedes">
+            <div class="form-row">
+              <div class="form-group">
+                <label for="ar-v-marca">Marca <abbr class="req" title="obrigatório">*</abbr></label>
+                <input type="text" id="ar-v-marca" required placeholder="Ex: Mercedes">
+              </div>
+              <div class="form-group">
+                <label for="ar-v-modelo">Modelo <abbr class="req" title="obrigatório">*</abbr></label>
+                <input type="text" id="ar-v-modelo" required placeholder="Ex: Atego">
+              </div>
             </div>
-            <div class="form-group">
-              <label for="ar-v-modelo">Modelo <abbr class="req" title="obrigatório">*</abbr></label>
-              <input type="text" id="ar-v-modelo" required placeholder="Ex: Atego">
-            </div>
-            <div class="form-group" id="ar-campo-km">
-              <label for="ar-v-km">KM atual</label>
-              <input type="number" id="ar-v-km" min="0" value="0">
-            </div>
-            <div class="form-group" id="ar-campo-hr">
-              <label for="ar-v-hr">Horímetro atual</label>
-              <input type="number" id="ar-v-hr" min="0" step="0.1" value="0">
+            <div class="form-row">
+              <div class="form-group" id="ar-campo-km">
+                <label for="ar-v-km">KM atual</label>
+                <input type="number" id="ar-v-km" min="0" value="0">
+              </div>
+              <div class="form-group" id="ar-campo-hr">
+                <label for="ar-v-hr">Horas atual</label>
+                <input type="number" id="ar-v-hr" min="0" step="0.1" value="0">
+              </div>
             </div>
           </section>
           <p class="hint login-erro hidden" id="ar-veiculo-erro"></p>
@@ -711,13 +717,15 @@
               </div>
               <small class="field-hint" id="ar-p-fogo-hint">Clique para analisar o código da unidade e a última marca cadastrada (ex.: 0110-0001).</small>
             </div>
-            <div class="form-group">
-              <label for="ar-p-modelo">Modelo <abbr class="req" title="obrigatório">*</abbr></label>
-              <input type="text" id="ar-p-modelo" required placeholder="Ex: X Multi D">
-            </div>
-            <div class="form-group">
-              <label for="ar-p-marca">Marca</label>
-              <input type="text" id="ar-p-marca" placeholder="Ex: Michelin">
+            <div class="form-row">
+              <div class="form-group">
+                <label for="ar-p-marca">Marca</label>
+                <input type="text" id="ar-p-marca" placeholder="Ex: Michelin">
+              </div>
+              <div class="form-group">
+                <label for="ar-p-modelo">Modelo <abbr class="req" title="obrigatório">*</abbr></label>
+                <input type="text" id="ar-p-modelo" required placeholder="Ex: X Multi D">
+              </div>
             </div>
           </section>
           <section class="cad-secao">
@@ -726,9 +734,10 @@
               <label for="ar-p-tipo">Padrão <abbr class="req" title="obrigatório">*</abbr></label>
               <select id="ar-p-tipo">
                 <option value="direcional">Direcional</option>
-                <option value="misto" selected>Misto</option>
+                <option value="misto" selected>Misto (tração)</option>
                 <option value="borrachudo">Borrachudo</option>
               </select>
+              <small class="field-hint">Direcional = dianteira · Misto/Borrachudo = tração</small>
             </div>
           </section>
           <section class="cad-secao">
@@ -741,7 +750,7 @@
               </select>
             </div>
             <div class="form-group">
-              <label for="ar-p-sulco">Sulco inicial (mm)</label>
+              <label for="ar-p-sulco">Espessura inicial (mm)</label>
               <input type="number" id="ar-p-sulco" step="0.1" min="0" placeholder="Ex: 14">
             </div>
           </section>

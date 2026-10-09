@@ -2864,7 +2864,18 @@ h3 {
   margin: .25rem 0 .75rem;
   font-size: 1.35rem;
 }
-.ar-form-wrap .btn-primary { min-height: 2.75rem; width: 100%; }
+.ar-form-wrap .cad-acoes > .btn-primary {
+  min-height: 2.75rem;
+  width: 100%;
+}
+.ar-form-wrap .fogo-gerar-row .btn {
+  width: auto;
+  flex: 0 0 auto;
+}
+.ar-form-wrap .fogo-gerar-row input {
+  flex: 1 1 auto;
+  min-width: 8rem;
+}
 
 .modal-cadastro { max-width: 640px; width: 95%; }
 .cad-obrigatorio {
@@ -2952,6 +2963,29 @@ abbr.req {
   .cad-acoes .btn { width: 100%; margin-left: 0; }
   .cad-nav { overflow-x: auto; flex-wrap: nowrap; }
   .cad-nav button { flex: 0 0 auto; }
+  .ar-form-wrap .cad-nav {
+    overflow: visible;
+    flex-wrap: wrap;
+  }
+  .ar-form-wrap .cad-nav button {
+    flex: 1 1 auto;
+    white-space: normal;
+    text-align: center;
+    line-height: 1.25;
+  }
+  .ar-form-wrap .fogo-gerar-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .ar-form-wrap .fogo-gerar-row input {
+    flex: 0 0 auto;
+    width: 100%;
+    min-width: 0;
+  }
+  .ar-form-wrap .fogo-gerar-row .btn {
+    width: auto;
+    align-self: flex-start;
+  }
 }
 
 .form-bloco-titulo {
