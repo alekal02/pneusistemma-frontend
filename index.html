@@ -210,8 +210,10 @@
         <label class="frota-busca-label" for="dash-frota-tipo">Tipo</label>
         <select id="dash-frota-tipo" aria-label="Tipo de equipamento"></select>
         <label class="frota-busca-label" for="dash-frota-busca">Buscar veículo</label>
-        <input type="search" id="dash-frota-busca" list="dash-frota-sugestoes" placeholder="Placa, apelido ou modelo…" autocomplete="off">
-        <datalist id="dash-frota-sugestoes"></datalist>
+        <div class="busca-campo">
+          <input type="text" class="campo-busca" id="dash-frota-busca" placeholder="Placa, apelido ou modelo…" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="search" inputmode="search">
+          <button type="button" class="busca-limpar" hidden aria-label="Limpar pesquisa">×</button>
+        </div>
         <span class="hint" id="dash-frota-busca-count"></span>
         <div class="dash-dia-row" id="dash-dia-wrap">
           <label for="dash-dia-medicao">Dia da medição da frota</label>
@@ -310,8 +312,10 @@
         <label class="frota-busca-label" for="veiculos-filtro-tipo">Tipo</label>
         <select id="veiculos-filtro-tipo" aria-label="Tipo de equipamento"></select>
         <label class="frota-busca-label" for="veiculos-busca">Buscar veículo</label>
-        <input type="search" id="veiculos-busca" list="veiculos-sugestoes" placeholder="Placa, apelido ou modelo…" autocomplete="off">
-        <datalist id="veiculos-sugestoes"></datalist>
+        <div class="busca-campo">
+          <input type="text" class="campo-busca" id="veiculos-busca" placeholder="Placa, apelido ou modelo…" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="search" inputmode="search">
+          <button type="button" class="busca-limpar" hidden aria-label="Limpar pesquisa">×</button>
+        </div>
         <span class="hint" id="veiculos-busca-count"></span>
       </div>
 
@@ -375,7 +379,10 @@
         </div>
         <div class="form-group" style="margin:0;flex:1">
           <label for="pneus-busca">Buscar</label>
-          <input type="search" id="pneus-busca" placeholder="Nº fogo, marca, DOT, placa...">
+          <div class="busca-campo">
+            <input type="text" class="campo-busca" id="pneus-busca" placeholder="Nº fogo, marca, DOT, placa..." autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="search" inputmode="search">
+            <button type="button" class="busca-limpar" hidden aria-label="Limpar pesquisa">×</button>
+          </div>
         </div>
       </div>
       <div id="pneu-historico-panel" class="hidden" style="margin-bottom:1rem"></div>
@@ -510,7 +517,10 @@
               <div id="truck-montar-estoque" class="montar-tab-panel hidden">
                 <div class="form-group">
                   <label for="truck-estoque-busca">Buscar no estoque</label>
-                  <input type="search" id="truck-estoque-busca" placeholder="Nº de fogo, ex.: 5316" autocomplete="off">
+                  <div class="busca-campo">
+                    <input type="text" class="campo-busca" id="truck-estoque-busca" placeholder="Nº de fogo, ex.: 5316" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="search" inputmode="search">
+                    <button type="button" class="busca-limpar" hidden aria-label="Limpar pesquisa">×</button>
+                  </div>
                 </div>
                 <div class="form-group">
                   <label for="truck-estoque-select">Pneu do estoque</label>
@@ -1455,7 +1465,10 @@
       <p class="hint" id="trocar-estoque-resumo">Retira o pneu atual e monta outro do estoque na mesma posição.</p>
       <div class="form-group">
         <label for="trocar-estoque-busca">Buscar no estoque</label>
-        <input type="search" id="trocar-estoque-busca" placeholder="Fogo, marca, modelo…" autocomplete="off">
+        <div class="busca-campo">
+          <input type="text" class="campo-busca" id="trocar-estoque-busca" placeholder="Fogo, marca, modelo…" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="search" inputmode="search">
+          <button type="button" class="busca-limpar" hidden aria-label="Limpar pesquisa">×</button>
+        </div>
       </div>
       <div class="form-group">
         <label for="trocar-estoque-select">Pneu do estoque *</label>
