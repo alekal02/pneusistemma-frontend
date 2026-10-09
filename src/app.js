@@ -569,6 +569,11 @@ function numOrNull(id) {
   return Number.isFinite(v) ? v : null;
 }
 
+function pressaoSalvaDoPneu(pneu) {
+  const v = pneu?.ultima_medicao?.pressao_psi ?? pneu?.ult_pressao_psi;
+  return v != null && v !== '' ? v : '';
+}
+
 function atualizarPreviewLimites() {
   const critico = parseFloat(document.getElementById('cfg-critico')?.value) || limitesAtuais.sulco_critico_mm;
   const monitorar = parseFloat(document.getElementById('cfg-alerta')?.value) || limitesAtuais.sulco_alerta_mm;
@@ -1917,7 +1922,7 @@ function selecionarPneuTruck(pneu) {
   document.getElementById('truck-sulco-cent').value = pneu.ult_sulco_cent ?? '';
   document.getElementById('truck-sulco-int').value = pneu.ult_sulco_int ?? '';
   document.getElementById('truck-sulco-aux').value = pneu.ult_sulco_aux ?? '';
-  document.getElementById('truck-pressao').value = '';
+  document.getElementById('truck-pressao').value = pressaoSalvaDoPneu(pneu);
   document.getElementById('truck-save-status').textContent = 'Preencha os sulcos — salva automaticamente';
   document.getElementById('truck-save-status').className = 'hint save-status';
 
@@ -2965,6 +2970,7 @@ async function salvarMedicaoTruck({ concluir = false } = {}) {
       ult_sulco_cent: pontos.central,
       ult_sulco_int: pontos.interno,
       ult_sulco_aux: pontos.auxiliar,
+      ult_pressao_psi: pressao,
       menor_sulco: result.menor_sulco,
       status_sulco: result.status_sulco,
       diagnostico: result.diagnostico,
@@ -2980,6 +2986,7 @@ async function salvarMedicaoTruck({ concluir = false } = {}) {
         sulco_central: pontos.central,
         sulco_interno: pontos.interno,
         sulco_auxiliar: pontos.auxiliar,
+        pressao_psi: result.pressao_psi ?? pressao,
         menor_sulco: result.menor_sulco,
       },
     };
@@ -4512,11 +4519,14 @@ async function initMedicao() {
   }
 }
 
+let medPneusCache = [];
+
 document.getElementById('med-veiculo').addEventListener('change', async (e) => {
   const veiculoId = e.target.value;
   const selectPneu = document.getElementById('med-pneu');
 
   if (!veiculoId) {
+    medPneusCache = [];
     selectPneu.innerHTML = '<option value="">Selecione o veículo primeiro</option>';
     selectPneu.disabled = true;
     return;
@@ -4524,6 +4534,7 @@ document.getElementById('med-veiculo').addEventListener('change', async (e) => {
 
   try {
     const v = await fetchJSON(`${API}/veiculos/${veiculoId}`);
+    medPneusCache = v.pneus || [];
     selectPneu.disabled = false;
     if (!v.pneus.length) {
       selectPneu.innerHTML = '<option value="">Nenhum pneu montado — monte na aba Veículos</option>';
@@ -4535,9 +4546,17 @@ document.getElementById('med-veiculo').addEventListener('change', async (e) => {
     ).join('');
     document.getElementById('med-km').value = v.km_atual || '';
     document.getElementById('med-hr').value = v.hr_atual || '';
+    document.getElementById('med-pneu')?.dispatchEvent(new Event('change'));
   } catch (err) {
     toast(err.message, 'error');
   }
+});
+
+document.getElementById('med-pneu')?.addEventListener('change', () => {
+  const id = document.getElementById('med-pneu')?.value;
+  const pneu = medPneusCache.find((p) => String(p.id) === String(id));
+  const campo = document.getElementById('med-pressao');
+  if (campo) campo.value = pressaoSalvaDoPneu(pneu);
 });
 
 document.getElementById('btn-salvar-medicao').addEventListener('click', async () => {
@@ -4579,8 +4598,24 @@ document.getElementById('btn-salvar-medicao').addEventListener('click', async ()
 
     toast(msg, result.acao_sugerida === 'troca' ? 'error' : 'success');
 
-    ['med-externo', 'med-central', 'med-interno', 'med-auxiliar', 'med-pressao', 'med-obs']
+    const salvo = medPneusCache.find((p) => String(p.id) === String(pneuId));
+    const pressaoSalva = result.pressao_psi ?? payload.pressao_psi;
+    if (salvo) {
+      salvo.ult_pressao_psi = pressaoSalva;
+      salvo.ultima_medicao = {
+        ...(salvo.ultima_medicao || {}),
+        pressao_psi: pressaoSalva,
+        sulco_externo: payload.sulco_externo,
+        sulco_central: payload.sulco_central,
+        sulco_interno: payload.sulco_interno,
+        sulco_auxiliar: payload.sulco_auxiliar,
+      };
+    }
+
+    ['med-externo', 'med-central', 'med-interno', 'med-auxiliar', 'med-obs']
       .forEach((id) => { document.getElementById(id).value = ''; });
+    const campoPressao = document.getElementById('med-pressao');
+    if (campoPressao) campoPressao.value = pressaoSalva ?? '';
     tireMarker?.reset();
     document.getElementById('med-perfil').innerHTML = '';
   } catch (err) {
