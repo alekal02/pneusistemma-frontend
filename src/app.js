@@ -861,6 +861,14 @@ document.querySelectorAll('.tab').forEach((tab) => {
       }
       loadConfiguracoes();
     }
+    if (view === 'diagnostico-frota') {
+      if (!isGestao()) {
+        toast('Diagnóstico da frota: só gerente e administrador', 'error');
+        showView(isGerente() ? 'filiais' : 'dashboard');
+        return;
+      }
+      loadDiagnosticoFrota().catch((err) => toast(err.message, 'error'));
+    }
     if (view === 'filiais') {
       if (!isGestao()) {
         toast('Acesso restrito a gerentes e admin', 'error');
@@ -7973,6 +7981,212 @@ document.getElementById('form-usuario')?.addEventListener('submit', async (e) =>
   } catch (err) {
     toast(err.message, 'error');
   }
+});
+
+// ── Diagnóstico da frota (gerente e admin) ─────────────
+
+let diagAtual = null;
+
+function diagQuery() {
+  const qs = new URLSearchParams();
+  const filial = document.getElementById('diag-filial')?.value;
+  const placa = document.getElementById('diag-placa')?.value?.trim();
+  const tipo = document.getElementById('diag-tipo')?.value;
+  const pendencia = document.getElementById('diag-pendencia')?.value;
+  const inicio = document.getElementById('diag-inicio')?.value;
+  const fim = document.getElementById('diag-fim')?.value;
+  if (filial) qs.set('filial_id', filial);
+  if (placa) qs.set('placa', placa);
+  if (tipo) qs.set('tipo', tipo);
+  if (pendencia) qs.set('pendencia', pendencia);
+  if (inicio) qs.set('periodo_inicio', inicio);
+  if (fim) qs.set('periodo_fim', fim);
+  return qs;
+}
+
+function labelSeveridadeDiag(s) {
+  if (s === 'critica') return 'Crítica';
+  if (s === 'atencao') return 'Atenção';
+  if (s === 'cadastral') return 'Cadastral';
+  return s || '—';
+}
+
+function preencherTiposDiag() {
+  const sel = document.getElementById('diag-tipo');
+  if (!sel || sel.dataset.pronto === '1') return;
+  const tipos = meta.tipos_equipamento || [];
+  sel.innerHTML = `<option value="">Todos</option>${tipos.map((t) => (
+    `<option value="${escapeHtml(t.codigo)}">${escapeHtml(t.label)}</option>`
+  )).join('')}`;
+  sel.dataset.pronto = '1';
+}
+
+function pintarDetalheDiag(veiculo) {
+  const box = document.getElementById('diag-detalhe');
+  if (!box) return;
+  if (!veiculo) {
+    box.classList.add('hidden');
+    box.innerHTML = '';
+    return;
+  }
+  const itens = veiculo.pendencias || [];
+  box.classList.remove('hidden');
+  box.innerHTML = `
+    <h3>${escapeHtml(veiculo.placa)} · ${escapeHtml(veiculo.filial)} (${escapeHtml(veiculo.codigo)})</h3>
+    <p class="hint">${escapeHtml(veiculo.tipo || 'Sem tipo')}${veiculo.dia_medicao_label ? ` · dia de medição ${escapeHtml(veiculo.dia_medicao_label)}` : ' · dia de medição não configurado'} · última medição ${veiculo.ultima_medicao ? formatDate(veiculo.ultima_medicao) : '—'}</p>
+    ${itens.length ? itens.map((p) => `
+      <article class="diag-item">
+        <strong class="diag-sev-${escapeHtml(p.severidade)}">${labelSeveridadeDiag(p.severidade)}${p.reprova ? '' : ' · aviso'}</strong>
+        <p><strong>${escapeHtml(veiculo.placa)}</strong> · ${escapeHtml(p.posicao_label || p.posicao || 'Veículo')} · fogo ${escapeHtml(p.numero_fogo || '—')} · última medição ${p.data_medicao ? formatDate(p.data_medicao) : '—'}</p>
+        <p>${escapeHtml(p.descricao)}</p>
+        <p><strong>O que fazer:</strong> ${escapeHtml(p.orientacao)}</p>
+      </article>
+    `).join('') : '<p>Nenhuma pendência neste veículo.</p>'}
+  `;
+  box.scrollIntoView({ block: 'nearest' });
+}
+
+function pintarDiagnosticoFrota(dados) {
+  const r = dados.resumo || {};
+  const pct = r.conformidade_pct == null
+    ? '—'
+    : `${Number(r.conformidade_pct).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+  const kpis = [
+    ['Veículos analisados', r.veiculos_analisados ?? 0, ''],
+    ['Sem pendência', r.veiculos_conformes ?? 0, 'stat-ok'],
+    ['Com pendências', r.veiculos_com_pendencia ?? 0, 'stat-alerta'],
+    ['Pneus sem fogo', r.pneus_sem_fogo ?? 0, ''],
+    ['Pneus sem medição', r.pneus_sem_medicao ?? 0, 'stat-alerta'],
+    ['Medições atrasadas', r.medicoes_atrasadas ?? 0, 'stat-critico'],
+    ['Posições sem pneu', r.posicoes_sem_pneu ?? 0, ''],
+    ['Conformidade', pct, 'stat-ok'],
+  ];
+  const kpiEl = document.getElementById('diag-kpis');
+  if (kpiEl) {
+    kpiEl.innerHTML = kpis.map(([rotulo, valor, cls]) => `
+      <article class="stat-card ${cls}">
+        <p class="hint" style="margin:0">${escapeHtml(rotulo)}</p>
+        <strong>${escapeHtml(String(valor))}</strong>
+      </article>
+    `).join('');
+  }
+
+  const sel = document.getElementById('diag-filial');
+  if (sel) {
+    const atual = sel.value;
+    sel.innerHTML = `<option value="">Todas do meu acesso</option>${(dados.filiais || []).map((f) => (
+      `<option value="${f.id}">${escapeHtml(f.nome)} (${escapeHtml(f.codigo)})</option>`
+    )).join('')}`;
+    if ([...sel.options].some((o) => o.value === atual)) sel.value = atual;
+  }
+
+  const corpoFiliais = document.getElementById('diag-filiais');
+  if (corpoFiliais) {
+    const linhas = dados.por_filial || [];
+    corpoFiliais.innerHTML = linhas.length ? linhas.map((f) => `
+      <tr>
+        <td>${escapeHtml(f.filial)} <span class="hint">${escapeHtml(f.codigo)}</span></td>
+        <td>${f.veiculos_analisados}</td>
+        <td>${f.veiculos_conformes}</td>
+        <td>${f.veiculos_com_pendencia}</td>
+        <td>${f.pneus_sem_fogo}</td>
+        <td>${f.pneus_sem_medicao}</td>
+        <td>${f.medicoes_atrasadas}</td>
+        <td>${f.posicoes_sem_pneu}</td>
+        <td>${f.conformidade_pct == null ? '—' : `${Number(f.conformidade_pct).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`}</td>
+      </tr>
+    `).join('') : '<tr><td colspan="9">Nenhuma filial no filtro.</td></tr>';
+  }
+
+  const inc = dados.cadastros_incompletos || { veiculos: [], pneus: [] };
+  const incEl = document.getElementById('diag-incompletos');
+  if (incEl) {
+    const veiculos = inc.veiculos || [];
+    const pneus = inc.pneus || [];
+    incEl.innerHTML = `
+      <p>${veiculos.length} veículo(s) e ${pneus.length} pneu(s) montado(s) com cadastro incompleto. Eles não entram no percentual de conformidade.</p>
+      ${veiculos.slice(0, 30).map((v) => `<p>${escapeHtml(v.filial)} · ${escapeHtml(v.placa)} — ${escapeHtml(v.descricao)} ${escapeHtml(v.orientacao)}</p>`).join('')}
+      ${veiculos.length > 30 ? `<p>e mais ${veiculos.length - 30} veículo(s).</p>` : ''}
+      ${pneus.slice(0, 30).map((p) => `<p>${escapeHtml(p.filial)} · ${escapeHtml(p.placa)} · ${escapeHtml(p.posicao_label || 'sem posição')} · fogo ${escapeHtml(p.numero_fogo || '—')} — ${escapeHtml(p.orientacao)}</p>`).join('')}
+      ${pneus.length > 30 ? `<p>e mais ${pneus.length - 30} pneu(s).</p>` : ''}
+    `;
+  }
+
+  const corpo = document.getElementById('diag-veiculos');
+  if (corpo) {
+    const lista = dados.veiculos || [];
+    corpo.innerHTML = lista.length ? lista.map((v) => `
+      <tr class="unidade-veiculo-row" data-diag-id="${v.id}">
+        <td>${escapeHtml(v.filial)}</td>
+        <td>${escapeHtml(v.placa)}</td>
+        <td>${escapeHtml(v.tipo || '—')}</td>
+        <td>${v.ultima_medicao ? formatDate(v.ultima_medicao) : '—'}</td>
+        <td>${v.conforme ? 'Conforme' : 'Com pendência'}</td>
+      </tr>
+    `).join('') : '<tr><td colspan="5">Nenhum veículo analisado neste filtro.</td></tr>';
+    corpo.querySelectorAll('[data-diag-id]').forEach((tr) => {
+      tr.addEventListener('click', () => {
+        const id = Number(tr.dataset.diagId);
+        pintarDetalheDiag((diagAtual?.veiculos || []).find((v) => Number(v.id) === id));
+      });
+    });
+  }
+  const regra = document.getElementById('diag-regra-atraso');
+  if (regra && dados.semana) {
+    regra.textContent = `O filtro de período só escolhe quais medições aparecem na lista. O atraso é calculado pela semana de ${formatDate(dados.semana.inicio)} a ${formatDate(dados.semana.fim)} (${dados.semana.dia_hoje_label || 'hoje'}), segundo o dia de medição já configurado. Medição prevista para hoje não é atraso.`;
+  }
+  pintarDetalheDiag(null);
+}
+
+async function loadDiagnosticoFrota() {
+  if (!isGestao()) throw new Error('Acesso restrito a gerente e administrador');
+  preencherTiposDiag();
+  const dados = await fetchJSON(`${API}/relatorios/diagnostico-frota?${diagQuery()}`);
+  diagAtual = dados;
+  pintarDiagnosticoFrota(dados);
+}
+
+async function baixarPdfDiagnosticoFrota() {
+  if (!isGestao()) return toast('Acesso restrito a gerente e administrador', 'error');
+  try {
+    toast('Gerando PDF do diagnóstico…');
+    const resp = await fetch(`${API}/relatorios/diagnostico-frota.pdf?${diagQuery()}`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    });
+    if (!resp.ok) {
+      let msg = 'Falha ao gerar PDF';
+      try {
+        const err = await resp.json();
+        if (err?.erro) msg = err.erro;
+      } catch { /* resposta não é JSON */ }
+      throw new Error(msg);
+    }
+    const blob = await resp.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `diagnostico-frota-${new Date().toISOString().slice(0, 10)}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast('PDF do diagnóstico baixado', 'success');
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+document.getElementById('btn-diag-atualizar')?.addEventListener('click', () => {
+  loadDiagnosticoFrota().catch((err) => toast(err.message, 'error'));
+});
+document.getElementById('btn-diag-pdf')?.addEventListener('click', () => {
+  baixarPdfDiagnosticoFrota();
+});
+for (const id of ['diag-filial', 'diag-tipo', 'diag-pendencia', 'diag-inicio', 'diag-fim']) {
+  document.getElementById(id)?.addEventListener('change', () => {
+    loadDiagnosticoFrota().catch((err) => toast(err.message, 'error'));
+  });
+}
+document.getElementById('diag-placa')?.addEventListener('change', () => {
+  loadDiagnosticoFrota().catch((err) => toast(err.message, 'error'));
 });
 
 // ── Relatórios diretoria ───────────────────────────────

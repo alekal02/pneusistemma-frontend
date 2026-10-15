@@ -272,7 +272,48 @@ h3 {
   font-weight: 600;
   margin-bottom: .75rem;
 }
-.hint { font-size: .85rem; color: var(--text-muted); margin-bottom: 1rem; }
+.diag-filtros {
+  display: flex;
+  flex-wrap: wrap;
+  gap: .75rem 1rem;
+  margin-bottom: 1rem;
+  align-items: end;
+}
+.diag-filtros label {
+  display: flex;
+  flex-direction: column;
+  gap: .25rem;
+  font-size: .78rem;
+  color: var(--text-muted);
+}
+.diag-filtros select,
+.diag-filtros input {
+  min-width: 9rem;
+  font-size: .9rem;
+}
+#view-diagnostico-frota .unidade-table { width: 100%; border-collapse: collapse; }
+#view-diagnostico-frota .unidade-table th,
+#view-diagnostico-frota .unidade-table td {
+  padding: .45rem .55rem;
+  text-align: left;
+  white-space: nowrap;
+  border-bottom: 1px solid var(--border);
+}
+.diag-sev-critica { color: var(--critico); font-weight: 600; }
+.diag-sev-atencao { color: var(--alerta); font-weight: 600; }
+.diag-sev-cadastral { color: var(--brand-deeper); font-weight: 600; }
+.diag-item { margin: 0 0 .65rem; }
+.diag-item p { margin: .15rem 0 0; overflow-wrap: anywhere; }
+@media (max-width: 700px) {
+  .diag-filtros label { flex: 1 1 100%; }
+  .diag-filtros select,
+  .diag-filtros input { width: 100%; min-width: 0; max-width: 100%; }
+  #view-diagnostico-frota .section-header { align-items: stretch; }
+  #view-diagnostico-frota .section-actions { width: 100%; }
+  #view-diagnostico-frota .section-actions .btn { flex: 1 1 12rem; }
+  #view-diagnostico-frota .unidade-table { min-width: 42rem; }
+  #view-diagnostico-frota .stats-grid { grid-template-columns: 1fr 1fr; }
+}
 
 /* Stats */
 .stats-grid {

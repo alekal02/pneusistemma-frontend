@@ -117,12 +117,14 @@
     <nav class="nav-tabs hidden" id="nav-tabs-gerente" aria-label="Menu do gerente">
       <div class="nav-group">
         <button class="tab active" data-view="filiais" aria-current="page">Início</button>
+        <button class="tab" data-view="diagnostico-frota">Diagnóstico</button>
         <button class="tab" data-view="usuarios">Acessos</button>
       </div>
     </nav>
     <nav class="nav-tabs hidden" id="nav-tabs-admin" aria-label="Menu do administrador">
       <div class="nav-group">
         <button class="tab active" data-view="relatorios" aria-current="page">Diretoria</button>
+        <button class="tab" data-view="diagnostico-frota">Diagnóstico</button>
         <button class="tab" data-view="filiais">Unidades</button>
         <button class="tab" data-view="usuarios">Acessos</button>
       </div>
@@ -176,6 +178,82 @@
         Senhas ficam criptografadas — ao redefinir, a provisória aparece só nesta tela.
       </p>
       <div id="usuarios-lista" class="card" style="overflow-x:auto"></div>
+    </section>
+
+    <section id="view-diagnostico-frota" class="view">
+      <div class="section-header">
+        <h2>Diagnóstico da frota</h2>
+        <div class="section-actions">
+          <button type="button" class="btn btn-ghost" id="btn-diag-atualizar">Atualizar</button>
+          <button type="button" class="btn btn-primary" id="btn-diag-pdf">Exportar diagnóstico em PDF</button>
+        </div>
+      </div>
+      <p class="hint">Veículos ativos com cadastro completo e pneus montados. Cadastros incompletos ficam fora da conformidade.</p>
+      <p class="hint" id="diag-regra-atraso">O filtro de período só escolhe quais medições aparecem na lista. O atraso é calculado pela semana de referência e pelo dia de medição já configurado. Medição prevista para hoje não é atraso.</p>
+      <div class="diag-filtros">
+        <label>Filial
+          <select id="diag-filial"><option value="">Todas do meu acesso</option></select>
+        </label>
+        <label>Placa
+          <input id="diag-placa" type="search" placeholder="Parte da placa" autocomplete="off">
+        </label>
+        <label>Tipo
+          <select id="diag-tipo"><option value="">Todos</option></select>
+        </label>
+        <label>Pendência
+          <select id="diag-pendencia">
+            <option value="">Todas</option>
+            <option value="critica">Crítica</option>
+            <option value="atencao">Atenção</option>
+            <option value="cadastral">Cadastral</option>
+          </select>
+        </label>
+        <label>Período das medições exibidas
+          <input id="diag-inicio" type="date">
+        </label>
+        <label>até
+          <input id="diag-fim" type="date">
+        </label>
+      </div>
+      <p class="hint">Essas duas datas não mudam o que é atraso. Elas apenas limitam a lista às medições desse intervalo. Veículo com pneu ainda sem medição continua na lista.</p>
+      <div id="diag-kpis" class="stats-grid"></div>
+      <h3 class="diag-subtitulo">Por filial</h3>
+      <div class="unidade-table-wrap">
+        <table class="unidade-table">
+          <thead>
+            <tr>
+              <th>Filial</th>
+              <th>Analisados</th>
+              <th>Conformes</th>
+              <th>Com pendência</th>
+              <th>Sem fogo</th>
+              <th>Sem medição</th>
+              <th>Atrasadas</th>
+              <th>Posição vazia</th>
+              <th>Conformidade</th>
+            </tr>
+          </thead>
+          <tbody id="diag-filiais"></tbody>
+        </table>
+      </div>
+      <h3 class="diag-subtitulo">Cadastros incompletos</h3>
+      <div id="diag-incompletos" class="hint"></div>
+      <h3 class="diag-subtitulo">Veículos analisados</h3>
+      <div class="unidade-table-wrap">
+        <table class="unidade-table">
+          <thead>
+            <tr>
+              <th>Filial</th>
+              <th>Placa</th>
+              <th>Tipo</th>
+              <th>Última medição</th>
+              <th>Situação</th>
+            </tr>
+          </thead>
+          <tbody id="diag-veiculos"></tbody>
+        </table>
+      </div>
+      <div id="diag-detalhe" class="card hidden"></div>
     </section>
 
     <section id="view-filiais" class="view">
