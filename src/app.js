@@ -884,6 +884,10 @@ document.querySelectorAll('.tab').forEach((tab) => {
       if (!isAdmin()) return toast('Relatórios da diretoria: só admin total', 'error');
       loadRelatorioDiretoria();
     }
+    if (view === 'saude') {
+      if (!isAdmin()) return toast('Saúde e desgaste: só administrador total', 'error');
+      loadSaudeDesgaste();
+    }
   });
 });
 
@@ -8736,3 +8740,268 @@ async function init() {
 }
 
 init();
+
+
+// ── Saúde e desgaste (presidente) ─────────────────────
+
+let saudeAtual = null;
+
+function mmOuTraco(v) {
+  return v == null || v === '' ? '—' : String(v);
+}
+
+function textoConsumoSaude(p) {
+  if (p.consumo?.mm_por_1000_km != null) return `${p.consumo.mm_por_1000_km} mm/1.000 km`;
+  if (p.consumo?.mm_por_100_h != null) return `${p.consumo.mm_por_100_h} mm/100 h`;
+  return '—';
+}
+
+function textoProjecaoSaude(alvo, unidade) {
+  if (!alvo) return '—';
+  if (alvo.ja_atingido) return 'Já atingido';
+  const uso = alvo.uso_restante != null
+    ? `${alvo.uso_restante} ${unidade === 'horas' ? 'h' : 'km'}`
+    : '';
+  const data = alvo.data ? formatDate(alvo.data) : '';
+  return [uso, data].filter(Boolean).join(' · ') || '—';
+}
+
+function textoDesgasteSaude(p) {
+  const rotulos = {
+    uniforme: 'Uniforme',
+    uniforme_parcial: 'Uniforme parcial',
+    progressivo: 'Progressivo',
+    irregular: 'Irregular',
+    insuficiente: 'Insuficiente',
+  };
+  return rotulos[p.desgaste?.padrao] || '—';
+}
+
+function textoRecapSaude(p) {
+  const e = p.elegibilidade || {};
+  if (p.faixa === 'critico' || p.faixa === 'critico_equipamento') return 'Crítico — não apto';
+  if (e.candidato_programacao) return 'Programar avaliação';
+  if (e.bloqueios?.length) return 'Bloqueado';
+  return 'Sem envio';
+}
+
+function saudeFiltrado(lista) {
+  const filial = document.getElementById('saude-filial')?.value || '';
+  const q = (document.getElementById('saude-busca')?.value || '').trim().toLowerCase();
+  return (lista || []).filter((p) => {
+    if (filial && String(p.filial_id) !== filial) return false;
+    if (!q) return true;
+    const blob = `${p.placa || ''} ${p.apelido || ''} ${p.numero_fogo || ''} ${p.filial || ''}`.toLowerCase();
+    return blob.includes(q);
+  });
+}
+
+function renderSaudeDesgaste() {
+  const rel = saudeAtual;
+  if (!rel) return;
+  const filial = document.getElementById('saude-filial')?.value || '';
+  const busca = (document.getElementById('saude-busca')?.value || '').trim();
+  const unidades = (rel.por_unidade || []).filter((u) => !filial || String(u.filial_id) === filial);
+  const veiculos = saudeFiltrado(rel.por_veiculo || []);
+  const montados = saudeFiltrado((rel.pneus || []).filter((p) => p.status_pneu === 'montado'));
+  const compras = (rel.compras_por_medida || []).filter((c) => !filial || String(c.filial_id) === filial);
+  const faixas = {
+    acompanhamento_normal: 0,
+    monitoramento_preventivo: 0,
+    programar_recapagem: 0,
+    critico: 0,
+  };
+  for (const p of montados) {
+    if (faixas[p.faixa] != null) faixas[p.faixa] += 1;
+  }
+  const c = rel.consolidado || {};
+  document.getElementById('saude-resumo').innerHTML = `
+    <div class="stat-card stat-ok"><span class="stat-value">${faixas.acompanhamento_normal}</span><span class="stat-label">Acima de 8 mm</span></div>
+    <div class="stat-card stat-alerta"><span class="stat-value">${faixas.monitoramento_preventivo}</span><span class="stat-label">Acima de 5 até 8 mm</span></div>
+    <div class="stat-card stat-recap"><span class="stat-value">${faixas.programar_recapagem}</span><span class="stat-label">Programar recapagem</span></div>
+    <div class="stat-card stat-critico"><span class="stat-value">${faixas.critico}</span><span class="stat-label">Crítico · não apto</span></div>
+    <div class="stat-card"><span class="stat-value">${montados.filter((p) => p.faixa === 'sem_medicao').length}</span><span class="stat-label">Sem medição de banda</span></div>
+    <div class="stat-card"><span class="stat-value">${montados.filter((p) => p.desgaste?.padrao === 'irregular').length}</span><span class="stat-label">Desgaste irregular</span></div>
+    <div class="stat-card"><span class="stat-value">${montados.filter((p) => p.comparacao?.acima).length}</span><span class="stat-label">Acima da média</span></div>
+  `;
+  document.getElementById('saude-regras').innerHTML = `
+    <div class="compras-banner-inner">
+      <div>
+        <h3>Régua e segurança</h3>
+        <p class="hint">Gerado em ${formatDateTime(rel.gerado_em)}. ${busca || filial ? 'Os cartões seguem o filtro da tela.' : `${c.pneus_montados ?? 0} pneus montados em ${c.filiais ?? 0} unidades.`}</p>
+        <ul style="margin:.5rem 0 0;padding-left:1.1rem">
+          <li>Acima de 8 mm: acompanhamento normal.</li>
+          <li>Acima de 5 até 8 mm: monitoramento preventivo.</li>
+          <li>Acima de 3 até 5 mm: programar recapagem, depois de elegibilidade, danos e histórico.</li>
+          <li>3 mm ou menos: crítico, retirada e avaliação urgente. Nunca apto automático.</li>
+          <li>Dianteira de caminhão continua exigindo pneu novo.</li>
+        </ul>
+      </div>
+    </div>`;
+  document.getElementById('saude-limitacoes').innerHTML = `
+    <div>
+      <h3>Limitações dos dados</h3>
+      <ul style="margin:.5rem 0 0;padding-left:1.1rem">
+        ${(rel.limitacoes || []).map((l) => `<li>${escapeHtml(l)}</li>`).join('')}
+      </ul>
+    </div>`;
+  document.querySelector('#saude-tabela-unidades tbody').innerHTML = unidades.map((u) => {
+    const fx = u.faixas || {};
+    return `<tr>
+      <td>${escapeHtml(u.filial)}</td>
+      <td>${u.veiculos}</td><td>${u.pneus_montados}</td>
+      <td>${fx.acompanhamento_normal || 0}</td>
+      <td>${fx.monitoramento_preventivo || 0}</td>
+      <td>${fx.programar_recapagem || 0}</td>
+      <td>${fx.critico || 0}</td>
+      <td>${fx.sem_medicao || 0}</td>
+      <td>${u.irregulares || 0}</td>
+      <td>${u.acima_da_media || 0}</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="10">Nenhuma unidade no filtro.</td></tr>';
+  document.querySelector('#saude-tabela-veiculos tbody').innerHTML = veiculos.map((v) => `
+    <tr>
+      <td>${escapeHtml(v.filial)}</td>
+      <td>${escapeHtml(v.placa || '—')}${v.apelido ? ` · ${escapeHtml(v.apelido)}` : ''}</td>
+      <td>${escapeHtml(v.tipo || '—')}</td>
+      <td>${v.pneus}</td>
+      <td><span class="saude-faixa ${escapeHtml(v.pior_faixa || '')}">${escapeHtml(v.pior_faixa_label || '—')}</span></td>
+      <td>${mmOuTraco(v.menor_sulco)}</td>
+      <td>${v.irregulares}</td>
+    </tr>`).join('') || '<tr><td colspan="7">Nenhum veículo no filtro.</td></tr>';
+  document.querySelector('#saude-tabela-pneus tbody').innerHTML = montados.map((p) => `
+    <tr>
+      <td>${escapeHtml(p.filial)}</td>
+      <td>${escapeHtml(p.placa || '—')}</td>
+      <td>${escapeHtml(p.numero_fogo || p.id)}</td>
+      <td>${escapeHtml(p.posicao || '—')}</td>
+      <td>${mmOuTraco(p.sulcos?.externo)}</td>
+      <td>${mmOuTraco(p.sulcos?.central)}</td>
+      <td>${mmOuTraco(p.sulcos?.interno)}</td>
+      <td>${mmOuTraco(p.menor_sulco)}</td>
+      <td><span class="saude-faixa ${escapeHtml(p.faixa)}">${escapeHtml(p.faixa_label)}</span></td>
+      <td>${escapeHtml(textoDesgasteSaude(p))}</td>
+      <td title="${escapeHtml(p.consumo?.motivo || p.ciclo_motivo || '')}">${escapeHtml(textoConsumoSaude(p))}</td>
+      <td>${escapeHtml(p.regua_recap ? textoProjecaoSaude(p.consumo?.projecao?.alvo_5, p.unidade) : '—')}</td>
+      <td>${escapeHtml(p.regua_recap ? textoProjecaoSaude(p.consumo?.projecao?.alvo_3, p.unidade) : '—')}</td>
+      <td title="${escapeHtml((p.elegibilidade?.bloqueios || []).concat(p.elegibilidade?.motivo || '').filter(Boolean).join(' · '))}">${escapeHtml(textoRecapSaude(p))}</td>
+    </tr>`).join('') || '<tr><td colspan="14">Nenhum pneu montado no filtro.</td></tr>';
+
+  const irregulares = montados.filter((p) => (p.desgaste?.hipoteses || []).length);
+  document.getElementById('saude-hipoteses').innerHTML = irregulares.length
+    ? irregulares.map((p) => `
+      <article class="saude-evolucao-item">
+        <strong>${escapeHtml(p.filial)} · ${escapeHtml(p.placa || '—')} · fogo ${escapeHtml(p.numero_fogo || p.id)} · ${escapeHtml(p.posicao || '—')}</strong>
+        ${(p.desgaste?.hipoteses || []).map((h) => `<p class="saude-hipotese hint">${escapeHtml(h.texto)}</p>`).join('')}
+      </article>`).join('')
+    : '<p class="hint">Nenhuma hipótese de desgaste no filtro.</p>';
+
+  const comEvolucao = montados.filter((p) => (p.evolucao || []).some((c) => (c.medicoes || []).length));
+  document.getElementById('saude-evolucao').innerHTML = comEvolucao.length
+    ? comEvolucao.map((p) => `
+      <details class="saude-evolucao-item">
+        <summary>${escapeHtml(p.filial)} · ${escapeHtml(p.placa || '—')} · fogo ${escapeHtml(p.numero_fogo || p.id)} · ciclo ${escapeHtml(p.ciclo_label || '—')} · ${escapeHtml(textoConsumoSaude(p))}</summary>
+        ${(p.evolucao || []).map((ciclo) => `
+          <p><strong>${escapeHtml(ciclo.ciclo_label)}</strong> · ${ciclo.medicoes_total || 0} medição(ões)${ciclo.consumo_motivo ? ` · ${escapeHtml(ciclo.consumo_motivo)}` : ''}</p>
+          <table class="historico-table">
+            <thead><tr><th>Data</th><th>Ext.</th><th>Cent.</th><th>Int.</th><th>Menor</th><th>Km</th><th>Horas</th></tr></thead>
+            <tbody>
+              ${(ciclo.medicoes || []).map((m) => `<tr>
+                <td>${formatDate(m.data)}</td>
+                <td>${mmOuTraco(m.externo)}</td>
+                <td>${mmOuTraco(m.central)}</td>
+                <td>${mmOuTraco(m.interno)}</td>
+                <td>${mmOuTraco(m.menor)}</td>
+                <td>${mmOuTraco(m.km)}</td>
+                <td>${mmOuTraco(m.horas)}</td>
+              </tr>`).join('')}
+            </tbody>
+          </table>
+        `).join('')}
+      </details>`).join('')
+    : '<p class="hint">Sem série de medições separada por ciclo no filtro. Quando o ciclo não está delimitado, a evolução não é montada.</p>';
+
+  const nomeFilial = (id) => (rel.por_unidade || []).find((u) => u.filial_id === id)?.filial || id;
+  const semMedidaMontados = montados.filter((p) => !String(p.medida || '').trim()).length;
+  const alertaCompras = document.getElementById('saude-alerta-compras');
+  if (alertaCompras) {
+    alertaCompras.innerHTML = semMedidaMontados
+      ? `<p class="saude-alerta-incompleto">${semMedidaMontados} pneu(s) montado(s) estão sem medida neste recorte. A recomendação de compra não é definitiva: o saldo ignora esses pneus e só fecha onde a medida foi informada.</p>`
+      : '';
+  }
+  const thCompra = document.querySelector('#saude-tabela-compras thead th:nth-child(6)');
+  if (thCompra) thCompra.textContent = semMedidaMontados ? 'Comprar novo (não definitivo)' : 'Comprar novo';
+  document.querySelector('#saude-tabela-compras tbody').innerHTML = compras.map((cpr) => {
+    let compraTxt = String(cpr.comprar_novo);
+    if (!cpr.medida_informada) compraTxt = `${cpr.necessidade_pneu_novo} sem saldo`;
+    else if (cpr.recomendacao_definitiva === false || semMedidaMontados) compraTxt = `${cpr.comprar_novo} · não definitivo`;
+    return `
+    <tr>
+      <td>${escapeHtml(nomeFilial(cpr.filial_id))}</td>
+      <td>${escapeHtml(cpr.medida || 'Sem medida')}</td>
+      <td>${cpr.estoque_novo}</td>
+      <td>${cpr.estoque_recapado}</td>
+      <td>${cpr.em_recapagem}</td>
+      <td>${escapeHtml(compraTxt)}</td>
+      <td>${cpr.candidatos_recap}</td>
+      <td>${cpr.avaliacao_urgente}</td>
+      <td>novo ${cpr.previsao_novo_90d} · recap ${cpr.previsao_recap_90d}</td>
+    </tr>`;
+  }).join('') || '<tr><td colspan="9">Sem estoque ou demanda no filtro.</td></tr>';
+}
+
+async function loadSaudeDesgaste() {
+  if (!isAdmin()) return;
+  try {
+    const rel = await fetchJSON(`${API}/relatorios/saude-desgaste`);
+    saudeAtual = rel;
+    const select = document.getElementById('saude-filial');
+    if (select) {
+      const atual = select.value;
+      select.innerHTML = '<option value="">Todas as unidades</option>'
+        + (rel.por_unidade || []).map((u) => `<option value="${u.filial_id}">${escapeHtml(u.filial)}</option>`).join('');
+      if ([...select.options].some((o) => o.value === atual)) select.value = atual;
+    }
+    renderSaudeDesgaste();
+  } catch (err) {
+    toast(err.message || 'Falha ao carregar saúde e desgaste', 'error');
+  }
+}
+
+async function baixarPdfSaude() {
+  if (!isAdmin()) return;
+  try {
+    toast('Gerando PDF executivo…');
+    const filial = document.getElementById('saude-filial')?.value || '';
+    const q = filial ? `?filial_id=${encodeURIComponent(filial)}` : '';
+    const resp = await fetch(`${API}/relatorios/saude-desgaste.pdf${q}`, {
+      headers: { Authorization: `Bearer ${authToken}` },
+    });
+    if (!resp.ok) {
+      let msg = 'Falha ao gerar PDF';
+      try {
+        const err = await resp.json();
+        if (err?.erro) msg = err.erro;
+      } catch { /* ignore */ }
+      throw new Error(msg);
+    }
+    const blob = await resp.blob();
+    const cd = resp.headers.get('Content-Disposition') || '';
+    const match = cd.match(/filename="?([^"]+)"?/i);
+    const filename = match?.[1] || 'saude-desgaste-pneus.pdf';
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast('PDF executivo baixado', 'success');
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
+document.getElementById('btn-saude-refresh')?.addEventListener('click', () => loadSaudeDesgaste());
+document.getElementById('btn-saude-pdf')?.addEventListener('click', () => baixarPdfSaude());
+document.getElementById('saude-filial')?.addEventListener('change', () => renderSaudeDesgaste());
+document.getElementById('saude-busca')?.addEventListener('input', () => renderSaudeDesgaste());

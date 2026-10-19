@@ -124,6 +124,7 @@
     <nav class="nav-tabs hidden" id="nav-tabs-admin" aria-label="Menu do administrador">
       <div class="nav-group">
         <button class="tab active" data-view="relatorios" aria-current="page">Diretoria</button>
+        <button class="tab" data-view="saude">Saúde e desgaste</button>
         <button class="tab" data-view="diagnostico-frota">Diagnóstico</button>
         <button class="tab" data-view="filiais">Unidades</button>
         <button class="tab" data-view="usuarios">Acessos</button>
@@ -136,6 +137,89 @@
   </header>
 
   <main class="container">
+    <section id="view-saude" class="view">
+      <div class="section-header">
+        <h2>Saúde e desgaste dos pneus</h2>
+        <div class="section-actions">
+          <button type="button" class="btn btn-ghost" id="btn-saude-refresh">Atualizar</button>
+          <button type="button" class="btn btn-primary" id="btn-saude-pdf">Relatório executivo PDF</button>
+        </div>
+      </div>
+      <p class="hint">Visão do presidente, somente leitura. A régua de recapagem do caminhão usa o menor sulco entre externo, central e interno. Pneu em 3 mm ou menos não é tratado como apto para recapagem.</p>
+      <div class="frota-busca-bar">
+        <label class="frota-busca-label" for="saude-filial">Unidade</label>
+        <select id="saude-filial"><option value="">Todas as unidades</option></select>
+        <label class="frota-busca-label" for="saude-busca">Buscar</label>
+        <input type="search" id="saude-busca" placeholder="Placa, fogo ou apelido" autocomplete="off">
+      </div>
+      <div id="saude-resumo" class="stats-grid"></div>
+      <div id="saude-regras" class="compras-banner"></div>
+      <div id="saude-limitacoes" class="compras-banner"></div>
+      <div class="card" style="margin-top:1.25rem;overflow-x:auto">
+        <h3>Por unidade</h3>
+        <table class="historico-table" id="saude-tabela-unidades">
+          <thead>
+            <tr>
+              <th>Unidade</th><th>Veículos</th><th>Pneus</th>
+              <th>Normal</th><th>Preventivo</th><th>Programar</th><th>Crítico</th><th>Sem medição</th>
+              <th>Irregular</th><th>Acima da média</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="card" style="margin-top:1.25rem;overflow-x:auto">
+        <h3>Por veículo</h3>
+        <table class="historico-table" id="saude-tabela-veiculos">
+          <thead>
+            <tr>
+              <th>Unidade</th><th>Veículo</th><th>Tipo</th><th>Pneus</th>
+              <th>Pior situação</th><th>Menor sulco</th><th>Irregulares</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="card" style="margin-top:1.25rem;overflow-x:auto">
+        <h3>Pneus montados</h3>
+        <p class="hint">Consumo em mm por 1.000 km ou por 100 horas, só dentro do ciclo atual. Projeção de 5 mm e 3 mm fica em branco quando o histórico não sustenta a conta.</p>
+        <table class="historico-table" id="saude-tabela-pneus">
+          <thead>
+            <tr>
+              <th>Unidade</th><th>Veículo</th><th>Fogo</th><th>Posição</th>
+              <th>Ext.</th><th>Cent.</th><th>Int.</th><th>Menor</th>
+              <th>Faixa</th><th>Desgaste</th><th>Consumo</th>
+              <th>Até 5 mm</th><th>Até 3 mm</th><th>Recapagem</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+      <div class="card" style="margin-top:1.25rem;overflow-x:auto">
+        <h3>Hipóteses de desgaste</h3>
+        <p class="hint">Possíveis causas para inspeção, inclusive o consumo progressivo do ombro externo. Não são diagnósticos automáticos.</p>
+        <div id="saude-hipoteses"></div>
+      </div>
+      <div class="card" style="margin-top:1.25rem;overflow-x:auto">
+        <h3>Evolução por pneu e ciclo</h3>
+        <div id="saude-evolucao"></div>
+      </div>
+      <div class="card" style="margin-top:1.25rem;overflow-x:auto">
+        <h3>Recapagem, estoque e previsão de compras</h3>
+        <div id="saude-alerta-compras"></div>
+        <table class="historico-table" id="saude-tabela-compras">
+          <thead>
+            <tr>
+              <th>Unidade</th><th>Medida</th><th>Estoque novo</th><th>Estoque recapado</th>
+              <th>Em recapagem</th><th>Comprar novo</th><th>Candidatos a recap</th>
+              <th>Avaliação urgente</th><th>Previsão 90 dias</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </section>
+
     <section id="view-relatorios" class="view">
       <div class="section-header">
         <h2>Diretoria</h2>
