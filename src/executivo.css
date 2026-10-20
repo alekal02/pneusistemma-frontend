@@ -531,6 +531,163 @@
 
 .ex-limites li + li { margin-top: 0.35rem; }
 
+.ex-kpis.ex-kpis-tres {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.ex-secao-titulo {
+  margin: 0 0 0.65rem;
+  font-size: 0.98rem;
+  font-weight: 600;
+}
+
+.ex-filiais-compra {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 17.5rem), 1fr));
+  gap: 0.75rem;
+}
+
+.ex-filial-compra {
+  background: #fff;
+  border: 1px solid #e3e6e2;
+  border-radius: 12px;
+  padding: 0.85rem 0.95rem 0.9rem;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+}
+
+.ex-filial-compra header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 0.6rem;
+}
+
+.ex-filial-compra h3 {
+  margin: 0;
+  font-size: 1.02rem;
+  font-weight: 600;
+  overflow-wrap: anywhere;
+}
+
+.ex-fatos {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.45rem 0.75rem;
+  margin: 0;
+}
+
+.ex-fatos dt {
+  margin: 0;
+  color: #66716b;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ex-fatos dd {
+  margin: 0.1rem 0 0;
+  font-family: Barlow, "IBM Plex Sans", sans-serif;
+  font-size: 1.2rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.ex-fatos-nota,
+.ex-fatos-estimativa {
+  display: inline;
+  margin-left: 0.3rem;
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.ex-fatos-nota { color: #66716b; }
+.ex-fatos-estimativa { color: #6b5424; }
+
+.ex-medidas,
+.ex-alertas {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.28rem;
+}
+
+.ex-medidas li {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1.1fr) auto;
+  gap: 0.35rem;
+  align-items: baseline;
+  font-size: 0.78rem;
+  color: #3e4a44;
+}
+
+.ex-medidas strong {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.ex-alertas {
+  color: #8a5a12;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
+.ex-acao {
+  margin: 0;
+  padding-top: 0.15rem;
+  color: #1c2420;
+  font-size: 0.84rem;
+  line-height: 1.35;
+}
+
+.ex-acao span {
+  display: block;
+  margin-bottom: 0.12rem;
+  color: #66716b;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ex-analise-toggle {
+  width: 100%;
+  text-align: left;
+  border: 1px solid #e3e6e2;
+  border-radius: 12px;
+  background: #fff;
+  padding: 0.75rem 1rem;
+  font-weight: 600;
+}
+
+.ex-analise-toggle[aria-expanded="true"] {
+  border-bottom-left-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.ex-analise-corpo {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  margin-top: -1px;
+  padding: 0.85rem 0.75rem 0.75rem;
+  border: 1px solid #e3e6e2;
+  border-top: 0;
+  border-radius: 0 0 12px 12px;
+  background: #f7f8f6;
+}
+
+.ex-analise-corpo[hidden] { display: none; }
+
 .ex-sr {
   position: absolute;
   width: 1px;
@@ -585,5 +742,6 @@
   .exec-top { align-items: flex-start; flex-direction: column; }
   .ex-card-head { flex-direction: column; gap: 0.2rem; }
   .ex-kpi strong { font-size: 1.45rem; }
+  .ex-kpis.ex-kpis-tres { grid-template-columns: 1fr; }
   .ex-prioridades-grade { grid-template-columns: 1fr; }
 }
