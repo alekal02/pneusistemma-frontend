@@ -326,6 +326,11 @@
   overflow-x: auto;
 }
 
+.ex-pendencias {
+  max-height: 22rem;
+  overflow: auto;
+}
+
 .ex-tabela {
   width: 100%;
   border-collapse: collapse;

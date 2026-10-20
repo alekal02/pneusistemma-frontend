@@ -7,6 +7,7 @@
 const ABAS = [
   { id: 'visao', label: 'Visão Geral' },
   { id: 'filiais', label: 'Filiais' },
+  { id: 'qualidade', label: 'Qualidade' },
   { id: 'decisoes', label: 'Decisões de Compra' },
 ];
 
@@ -37,6 +38,7 @@ let estado = {
   filialId: null,
   comparar: new Set(),
   filtro: 'todas',
+  filtroQualidade: 'todas',
   relatorio: null,
   modelo: null,
   erro: '',
@@ -466,6 +468,67 @@ export function classificarDecisoes(compras = [], nomes = new Map(), { pneus = n
     || String(a.medida || '').localeCompare(String(b.medida || ''), 'pt-BR'));
 }
 
+export function percentual(parte, total) {
+  if (!Number.isInteger(parte) || !Number.isInteger(total) || total <= 0 || parte < 0 || parte > total) return null;
+  return Math.round((parte * 1000) / total) / 10;
+}
+
+function textoOuNulo(valor) {
+  const texto = String(valor ?? '').trim();
+  return texto || null;
+}
+
+/**
+ * Completude da medida sobre os pneus montados que o relatório já contou.
+ * Sem montados, o percentual fica em branco. A compra fica bloqueada se falta medida
+ * ou se alguma decisão da filial não tem quantidade confirmada.
+ */
+export function qualidadePorFilial(unidades = [], { decisoes = [] } = {}) {
+  const lista = unidades.map((unidade) => {
+    const montados = inteiro(unidade.pneus_montados) ?? 0;
+    const semMedida = inteiro(unidade.sem_medida) ?? 0;
+    const comMedida = semMedida <= montados ? montados - semMedida : null;
+    const filialId = idFilial(unidade.filial_id);
+    const insuficiente = decisoes.some((item) => item.filial_id === filialId && item.tipo === 'dados_insuficientes');
+    return {
+      filial_id: filialId,
+      filial: unidade.filial || '',
+      codigo: unidade.codigo || null,
+      montados,
+      sem_medida: semMedida,
+      com_medida: comMedida,
+      completude: comMedida == null ? null : percentual(comMedida, montados),
+      incompletos: percentual(semMedida, montados),
+      compra_bloqueada: semMedida > 0 || insuficiente,
+    };
+  });
+  return lista.sort((a, b) => (b.incompletos ?? -1) - (a.incompletos ?? -1)
+    || b.sem_medida - a.sem_medida
+    || String(a.filial).localeCompare(String(b.filial), 'pt-BR'));
+}
+
+export function filtrarQualidade(lista = [], filtro = 'todas') {
+  if (filtro === 'bloqueadas') return lista.filter((item) => item.compra_bloqueada);
+  if (filtro === 'sem_medida') return lista.filter((item) => item.sem_medida > 0);
+  if (filtro === 'completas') return lista.filter((item) => item.montados > 0 && item.sem_medida === 0);
+  return lista;
+}
+
+export function pendenciasMedida(pneus, filialId) {
+  if (!Array.isArray(pneus)) return null;
+  const id = idFilial(filialId);
+  return pneus
+    .filter((pneu) => pneu?.status_pneu === 'montado' && idFilial(pneu.filial_id) === id && !chaveMedida(pneu.medida))
+    .map((pneu) => ({
+      veiculo: textoOuNulo(pneu.placa) || textoOuNulo(pneu.apelido),
+      posicao: textoOuNulo(pneu.posicao),
+      numero_fogo: textoOuNulo(pneu.numero_fogo),
+    }))
+    .sort((a, b) => String(a.veiculo || '').localeCompare(String(b.veiculo || ''), 'pt-BR')
+      || String(a.posicao || '').localeCompare(String(b.posicao || ''), 'pt-BR')
+      || String(a.numero_fogo || '').localeCompare(String(b.numero_fogo || ''), 'pt-BR'));
+}
+
 export function prepararPainel(relatorio) {
   const unidadesBrutas = relatorio?.por_unidade || [];
   const unidades = unidadesBrutas.filter((unidade) => !unidadeForaDoPainel(unidade));
@@ -518,14 +581,18 @@ export function prepararPainel(relatorio) {
     excluidas.push(unidade);
   }
 
+  const decisoes = classificarDecisoes(compras, nomes, { pneus });
+  const qualidade = qualidadePorFilial(ranking, { decisoes });
+
   return {
     gerado_em: relatorio?.gerado_em || null,
     indicadores,
     ranking,
+    qualidade,
     veiculos,
     pneus,
     posicoes: necessidadesPorPosicao(pneus || []),
-    decisoes: classificarDecisoes(compras, nomes, { pneus }),
+    decisoes,
     excluidas,
     limitacoes: (relatorio?.limitacoes || []).slice(0, 4),
   };
@@ -834,6 +901,130 @@ function htmlDecisoes(modelo) {
       </section>` : ''}`;
 }
 
+function formatarPercentual(valor) {
+  if (valor == null) return '—';
+  const texto = Number.isInteger(valor) ? String(valor) : valor.toFixed(1).replace(/0$/, '').replace(/\.$/, '');
+  return `${texto.replace('.', ',')}%`;
+}
+
+function seloCompra(item) {
+  if (item.montados === 0 && item.sem_medida === 0) {
+    return '<span class="ex-selo ex-selo-dados_insuficientes">Sem montados</span>';
+  }
+  if (item.compra_bloqueada) return '<span class="ex-selo ex-selo-comprar">Bloqueada</span>';
+  return '<span class="ex-selo ex-selo-nao_comprar">Não bloqueada</span>';
+}
+
+function htmlDetalheQualidade(modelo) {
+  const unidade = modelo.qualidade.find((item) => item.filial_id === estado.filialId);
+  if (!unidade) return '';
+  const pendencias = pendenciasMedida(modelo.pneus, unidade.filial_id);
+  const lista = Array.isArray(pendencias) ? pendencias : [];
+  const diverge = Array.isArray(pendencias) && lista.length !== unidade.sem_medida;
+  let aviso = '';
+  if (!Array.isArray(pendencias)) {
+    aviso = unidade.sem_medida > 0
+      ? `O relatório informa ${unidade.sem_medida} pneu(s) montado(s) sem medida e não trouxe a lista individual.`
+      : 'O relatório não trouxe a lista individual de pneus.';
+  } else if (diverge) {
+    aviso = `A conta da filial informa ${unidade.sem_medida} montado(s) sem medida. A lista do relatório traz ${lista.length}. A tabela mostra só esses registros.`;
+  } else if (!lista.length) {
+    aviso = 'Nenhum pneu montado sem medida nesta filial.';
+  }
+  return `
+    <section class="ex-card ex-detalhe">
+      <header class="ex-card-head">
+        <div>
+          <h3>${esc(unidade.filial)}</h3>
+          <p>${unidade.montados} montados · ${unidade.sem_medida} sem medida · completude ${formatarPercentual(unidade.completude)} · ${unidade.compra_bloqueada ? 'compra bloqueada' : 'compra não bloqueada'}</p>
+        </div>
+        <button type="button" class="ex-btn ex-btn-quiet" data-fechar-filial>Fechar</button>
+      </header>
+      <h4>Pneus montados sem medida</h4>
+      ${aviso ? `<p class="ex-nota">${esc(aviso)}</p>` : ''}
+      ${lista.length ? `
+        <div class="ex-tabela-wrap ex-pendencias">
+          <table class="ex-tabela">
+            <caption class="ex-sr">Pendências de medida informadas no relatório</caption>
+            <thead>
+              <tr>
+                <th scope="col">Veículo</th>
+                <th scope="col">Posição</th>
+                <th scope="col">Número de fogo</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${lista.map((pneu) => `
+                <tr>
+                  <td>${esc(pneu.veiculo || 'Sem identificação')}</td>
+                  <td>${esc(pneu.posicao || '—')}</td>
+                  <td>${esc(pneu.numero_fogo || '—')}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>` : ''}
+    </section>`;
+}
+
+function htmlQualidade(modelo) {
+  const base = modelo.qualidade || [];
+  const lista = filtrarQualidade(base, estado.filtroQualidade);
+  const contagem = {
+    todas: base.length,
+    bloqueadas: base.filter((item) => item.compra_bloqueada).length,
+    sem_medida: base.filter((item) => item.sem_medida > 0).length,
+    completas: base.filter((item) => item.montados > 0 && item.sem_medida === 0).length,
+  };
+  const filtros = [
+    ['todas', 'Todas'],
+    ['bloqueadas', 'Compra bloqueada'],
+    ['sem_medida', 'Sem medida'],
+    ['completas', 'Medidas completas'],
+  ];
+  return `
+    <div class="ex-filtros" role="tablist" aria-label="Filtro de qualidade dos dados">
+      ${filtros.map(([id, rotulo]) => `
+        <button type="button" class="ex-chip ${estado.filtroQualidade === id ? 'is-ativa' : ''}" data-filtro-qualidade="${id}">
+          ${rotulo} <span>${contagem[id]}</span>
+        </button>`).join('')}
+    </div>
+    <p class="ex-nota">A completude é a parcela dos pneus montados com medida informada. A ordem começa por quem tem mais dados incompletos. A compra fica bloqueada quando a filial tem montado sem medida ou alguma decisão sem quantidade confirmada.</p>
+    <section class="ex-card">
+      <header class="ex-card-head">
+        <h3>Qualidade dos dados por filial</h3>
+        <p>Toque na unidade para ver as pendências que o relatório lista.</p>
+      </header>
+      ${lista.length ? `
+        <div class="ex-tabela-wrap">
+          <table class="ex-tabela">
+            <caption class="ex-sr">Completude das medidas e bloqueio de compra</caption>
+            <thead>
+              <tr>
+                <th scope="col">Filial</th>
+                <th scope="col">Montados</th>
+                <th scope="col">Sem medida</th>
+                <th scope="col">Completude</th>
+                <th scope="col">Incompletos</th>
+                <th scope="col">Compra</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${lista.map((unidade) => `
+                <tr class="${estado.filialId === unidade.filial_id ? 'is-ativa' : ''}" data-filial="${unidade.filial_id}">
+                  <td><button type="button" class="ex-link" data-abrir-filial="${unidade.filial_id}">${esc(unidade.filial)}</button></td>
+                  <td>${unidade.montados}</td>
+                  <td>${unidade.sem_medida}</td>
+                  <td>${formatarPercentual(unidade.completude)}</td>
+                  <td>${formatarPercentual(unidade.incompletos)}</td>
+                  <td>${seloCompra(unidade)}</td>
+                </tr>`).join('')}
+            </tbody>
+          </table>
+        </div>` : '<p class="ex-vazio">Nenhuma filial neste filtro.</p>'}
+    </section>
+    ${htmlDetalheQualidade(modelo)}`;
+}
+
 function htmlConteudo() {
   if (estado.carregando && !estado.modelo) {
     return '<p class="ex-estado">Carregando as filiais operacionais…</p>';
@@ -843,12 +1034,14 @@ function htmlConteudo() {
   }
   if (!estado.modelo) return '<p class="ex-estado">Nenhum relatório carregado.</p>';
   if (estado.aba === 'filiais') return htmlFiliais(estado.modelo);
+  if (estado.aba === 'qualidade') return htmlQualidade(estado.modelo);
   if (estado.aba === 'decisoes') return htmlDecisoes(estado.modelo);
   return htmlVisao(estado.modelo);
 }
 
 function tituloAba() {
   if (estado.aba === 'filiais') return 'Filiais';
+  if (estado.aba === 'qualidade') return 'Qualidade dos dados';
   if (estado.aba === 'decisoes') return 'Decisões de compra';
   return 'Visão geral';
 }
@@ -876,7 +1069,7 @@ function pintar() {
 }
 
 function abrirFilial(id) {
-  estado.aba = 'filiais';
+  if (estado.aba !== 'qualidade') estado.aba = 'filiais';
   estado.filialId = id;
   pintar();
   document.getElementById('exec-conteudo')?.querySelector('.ex-detalhe')?.scrollIntoView({ block: 'nearest' });
@@ -886,6 +1079,12 @@ function onClick(evento) {
   const aba = evento.target.closest('[data-aba]');
   if (aba) {
     estado.aba = aba.dataset.aba;
+    pintar();
+    return;
+  }
+  const filtroQualidade = evento.target.closest('[data-filtro-qualidade]');
+  if (filtroQualidade) {
+    estado.filtroQualidade = filtroQualidade.dataset.filtroQualidade;
     pintar();
     return;
   }
