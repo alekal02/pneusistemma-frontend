@@ -84,6 +84,41 @@
   </div>
 
   <div id="app-shell" class="hidden">
+  <div id="exec-app" class="exec-app hidden">
+    <aside class="exec-side">
+      <div class="exec-marca">
+        <svg viewBox="0 0 40 40" width="32" height="32" aria-hidden="true"><circle cx="20" cy="20" r="16" fill="#e7ece8"/><circle cx="20" cy="20" r="7" fill="#1c2420"/><circle cx="20" cy="20" r="3" fill="#e7ece8"/></svg>
+        <div>
+          <strong>Sistemma Pneus</strong>
+          <span>Presidente</span>
+        </div>
+      </div>
+      <nav class="exec-nav" aria-label="Painel executivo">
+        <button type="button" data-aba="visao" class="is-ativa" aria-current="page">Visão Geral</button>
+        <button type="button" data-aba="filiais">Filiais</button>
+        <button type="button" data-aba="decisoes">Decisões de Compra</button>
+      </nav>
+      <div class="exec-side-foot">
+        <p id="exec-usuario">Presidente</p>
+        <button type="button" data-exec-sair>Sair</button>
+      </div>
+    </aside>
+    <div class="exec-main">
+      <header class="exec-top">
+        <div>
+          <p class="exec-kicker">Painel executivo</p>
+          <h2 id="exec-titulo">Visão geral</h2>
+          <p id="exec-quando"></p>
+        </div>
+        <div class="exec-top-acoes">
+          <button type="button" data-exec-atualizar>Atualizar</button>
+          <button type="button" data-exec-pdf>PDF</button>
+          <button type="button" data-exec-sair>Sair</button>
+        </div>
+      </header>
+      <div id="exec-conteudo" aria-live="polite"></div>
+    </div>
+  </div>
   <header class="header">
     <div class="header-top">
       <div class="header-brand">

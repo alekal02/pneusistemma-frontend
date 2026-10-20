@@ -1,0 +1,494 @@
+/* Painel executivo do presidente. O restante do sistema não usa estas classes. */
+
+#exec-app {
+  display: none;
+  background: #f3f4f2;
+  color: #1c2420;
+  font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+}
+
+#app-shell.modo-executivo > .header,
+#app-shell.modo-executivo > .container {
+  display: none !important;
+}
+
+#app-shell.modo-executivo {
+  min-height: 100vh;
+  background: #f3f4f2;
+  overflow-x: clip;
+}
+
+#app-shell.modo-executivo #exec-app:not(.hidden) {
+  display: grid;
+  grid-template-columns: 220px minmax(0, 1fr);
+  min-height: 100vh;
+}
+
+.exec-side {
+  background: #1c2420;
+  color: #e7ece8;
+  display: flex;
+  flex-direction: column;
+  padding: 1.25rem 0.9rem 1rem;
+  gap: 1.5rem;
+}
+
+.exec-marca {
+  display: flex;
+  gap: 0.7rem;
+  align-items: center;
+  padding: 0 0.45rem;
+}
+
+.exec-marca strong {
+  display: block;
+  font-family: Barlow, "IBM Plex Sans", sans-serif;
+  font-size: 0.98rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+}
+
+.exec-marca span {
+  display: block;
+  margin-top: 0.1rem;
+  color: #b7c2bb;
+  font-size: 0.72rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.exec-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 0;
+}
+
+.exec-nav button {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: #d5ddd8;
+  text-align: left;
+  font: inherit;
+  font-size: 0.92rem;
+  padding: 0.62rem 0.75rem;
+  border-radius: 8px;
+  cursor: pointer;
+  flex: 0 0 auto;
+}
+
+.exec-nav button:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.exec-nav button.is-ativa {
+  background: #f3f4f2;
+  color: #1c2420;
+  font-weight: 600;
+}
+
+.exec-side-foot {
+  margin-top: auto;
+  padding: 0.75rem 0.45rem 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.exec-side-foot p {
+  margin: 0;
+  font-size: 0.82rem;
+  color: #c5d0c9;
+}
+
+.exec-side-foot button,
+.exec-top button,
+.ex-btn {
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+.exec-side-foot button {
+  align-self: flex-start;
+  color: #d7e0da;
+  font-size: 0.82rem;
+  padding: 0.2rem 0;
+}
+
+.exec-main {
+  min-width: 0;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+#exec-conteudo {
+  padding: 1.15rem 1.5rem 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  max-width: 1180px;
+  min-width: 0;
+}
+
+.ex-card,
+.ex-tabela-wrap {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.exec-top {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  gap: 1rem;
+  padding: 1.25rem 1.5rem 0.9rem;
+  border-bottom: 1px solid #e1e4e0;
+  background: #f7f8f6;
+}
+
+.exec-kicker {
+  margin: 0;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #66716b;
+}
+
+.exec-top h2 {
+  margin: 0.15rem 0 0;
+  font-family: Barlow, "IBM Plex Sans", sans-serif;
+  font-size: 1.45rem;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+#exec-quando {
+  margin: 0.2rem 0 0;
+  color: #66716b;
+  font-size: 0.8rem;
+}
+
+.exec-top-acoes {
+  display: flex;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.exec-top [data-exec-sair] { display: none; }
+
+.exec-top button,
+.ex-btn {
+  border-color: #d5dbd6;
+  background: #fff;
+  color: #1c2420;
+  border-radius: 8px;
+  padding: 0.42rem 0.7rem;
+  font-size: 0.82rem;
+}
+
+.exec-top button:hover,
+.ex-btn:hover {
+  border-color: #b7c0b9;
+}
+
+.ex-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.ex-kpis-compactas {
+  margin-bottom: 0.9rem;
+}
+
+.ex-kpi {
+  background: #fff;
+  border: 1px solid #e3e6e2;
+  border-radius: 10px;
+  padding: 0.85rem 0.95rem 0.75rem;
+}
+
+.ex-kpi p {
+  margin: 0;
+  color: #66716b;
+  font-size: 0.75rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.ex-kpi strong {
+  display: block;
+  margin-top: 0.35rem;
+  font-family: Barlow, "IBM Plex Sans", sans-serif;
+  font-size: 1.7rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.03em;
+}
+
+.ex-kpi em {
+  display: block;
+  margin-top: 0.2rem;
+  color: #66716b;
+  font-style: normal;
+  font-size: 0.75rem;
+}
+
+.ex-kpi-risco strong { color: #9f2c2c; }
+.ex-kpi-atencao strong { color: #8a5a12; }
+.ex-kpi-neutro strong { color: #3e4a44; }
+
+.ex-nota,
+.ex-vazio,
+.ex-estado {
+  margin: 0;
+  color: #4d5852;
+  font-size: 0.88rem;
+  line-height: 1.45;
+}
+
+.ex-estado-erro { color: #9f2c2c; }
+
+.ex-card {
+  background: #fff;
+  border: 1px solid #e3e6e2;
+  border-radius: 12px;
+  padding: 0.95rem 1rem 1rem;
+}
+
+.ex-card-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  align-items: baseline;
+  margin-bottom: 0.75rem;
+}
+
+.ex-card h3,
+.ex-detalhe h4 {
+  margin: 0;
+  font-size: 0.98rem;
+  font-weight: 600;
+}
+
+.ex-detalhe h4 {
+  margin: 1rem 0 0.45rem;
+}
+
+.ex-card-head p {
+  margin: 0;
+  color: #66716b;
+  font-size: 0.8rem;
+}
+
+.ex-barras {
+  display: flex;
+  flex-direction: column;
+  gap: 0.55rem;
+}
+
+.ex-barra-linha {
+  display: grid;
+  grid-template-columns: minmax(7rem, 11rem) minmax(0, 1fr) 2rem;
+  gap: 0.7rem;
+  align-items: center;
+  font-size: 0.86rem;
+}
+
+.ex-barra-trilho {
+  height: 8px;
+  background: #eef0ee;
+  border-radius: 99px;
+  overflow: hidden;
+}
+
+.ex-barra-trilho i {
+  display: block;
+  height: 100%;
+  background: #9f2c2c;
+  border-radius: inherit;
+}
+
+.ex-barra-linha strong {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  text-align: right;
+}
+
+.ex-tabela-wrap {
+  overflow-x: auto;
+}
+
+.ex-tabela {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.86rem;
+}
+
+.ex-tabela th,
+.ex-tabela td {
+  text-align: left;
+  padding: 0.55rem 0.45rem;
+  border-bottom: 1px solid #eceeea;
+  vertical-align: top;
+  font-variant-numeric: tabular-nums;
+}
+
+.ex-tabela th {
+  color: #66716b;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ex-tabela tr.is-ativa td { background: #f6f7f5; }
+
+.ex-tabela tbody tr[data-filial] { cursor: pointer; }
+
+.ex-num-risco {
+  color: #9f2c2c;
+  font-weight: 600;
+}
+
+.ex-link {
+  border: 0;
+  background: transparent;
+  padding: 0;
+  color: inherit;
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+}
+
+.ex-motivo {
+  min-width: 16rem;
+  color: #3e4a44;
+  font-variant-numeric: normal;
+  line-height: 1.4;
+}
+
+.ex-codes {
+  color: #66716b;
+  font-size: 0.78rem;
+}
+
+.ex-filtros {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.ex-chip {
+  border: 1px solid #d5dbd6;
+  background: #fff;
+  color: #1c2420;
+  border-radius: 999px;
+  padding: 0.32rem 0.7rem;
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.ex-chip span {
+  color: #66716b;
+  margin-left: 0.25rem;
+}
+
+.ex-chip.is-ativa {
+  background: #1c2420;
+  border-color: #1c2420;
+  color: #f3f4f2;
+}
+
+.ex-chip.is-ativa span { color: #c5d0c9; }
+
+.ex-selo {
+  display: inline-block;
+  border-radius: 999px;
+  padding: 0.12rem 0.45rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  background: #f1f2f0;
+  color: #3e4a44;
+  white-space: nowrap;
+}
+
+.ex-selo-comprar { background: #f8ecec; color: #9f2c2c; }
+.ex-selo-transferir { background: #eef3f8; color: #1e3a5f; }
+.ex-selo-nao_comprar { background: #eef6f0; color: #1f4d32; }
+.ex-selo-dados_insuficientes { background: #f1f2f0; color: #3e4a44; }
+.ex-selo-estimativa { background: #f4f1ea; color: #6b5424; }
+
+.ex-limites {
+  margin: 0;
+  padding-left: 1.1rem;
+  color: #3e4a44;
+  font-size: 0.86rem;
+}
+
+.ex-limites li + li { margin-top: 0.35rem; }
+
+.ex-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+@media (max-width: 980px) {
+  #app-shell.modo-executivo #exec-app:not(.hidden) {
+    grid-template-columns: 1fr;
+  }
+
+  .exec-side {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    flex-direction: row;
+    align-items: center;
+    padding: 0.7rem 0.8rem;
+    gap: 0.75rem;
+  }
+
+  .exec-nav {
+    flex-direction: row;
+    flex: 1;
+    overflow-x: auto;
+  }
+
+  .exec-nav button {
+    white-space: nowrap;
+    padding: 0.5rem 0.65rem;
+  }
+
+  .exec-side-foot { display: none; }
+
+  .exec-top [data-exec-sair] { display: inline-block; }
+
+  .ex-kpis { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+
+  .exec-top,
+  #exec-conteudo { padding-left: 0.9rem; padding-right: 0.9rem; }
+
+  .ex-barra-linha { grid-template-columns: minmax(5.5rem, 8rem) minmax(0, 1fr) 1.6rem; }
+}
+
+@media (max-width: 640px) {
+  .exec-marca span { display: none; }
+  .exec-top { align-items: flex-start; flex-direction: column; }
+  .ex-card-head { flex-direction: column; gap: 0.2rem; }
+  .ex-kpi strong { font-size: 1.45rem; }
+}

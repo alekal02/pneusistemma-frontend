@@ -1,6 +1,7 @@
 import { TireMarker } from './tire-marker.js';
 import { TruckDiagram, renderLayoutPreview, svgMiniCaminhao } from './truck-diagram.js';
 import { renderPerfilSulco } from './perfil-sulco.js';
+import { exibirExecutivo, iniciarExecutivo } from './executivo.js';
 
 /** Normaliza VITE_API_URL — em prod precisa terminar com /api */
 function resolveApiBase() {
@@ -722,6 +723,8 @@ function showLogin() {
   document.getElementById('app-boot')?.setAttribute('aria-busy', 'false');
   document.getElementById('app-login').classList.remove('hidden');
   document.getElementById('app-shell').classList.add('hidden');
+  document.getElementById('app-shell')?.classList.remove('modo-executivo');
+  document.getElementById('exec-app')?.classList.add('hidden');
   setCabecalho({
     unidade: 'Pneu Sistemma',
     papel: '',
@@ -732,7 +735,8 @@ function showLogin() {
 
 function showAppShell() {
   document.getElementById('app-login').classList.add('hidden');
-  document.getElementById('app-shell').classList.remove('hidden');
+  const shell = document.getElementById('app-shell');
+  shell.classList.remove('hidden');
   finalizarBootVisual();
 
   const navFilial = document.getElementById('nav-tabs-filial');
@@ -744,6 +748,21 @@ function showAppShell() {
   navAdmin.classList.add('hidden');
   navGerente?.classList.add('hidden');
   document.getElementById('tab-saude')?.classList.toggle('hidden', !isPresidente());
+  shell.classList.remove('modo-executivo');
+  document.getElementById('exec-app')?.classList.add('hidden');
+
+  if (isPresidente()) {
+    shell.classList.add('modo-executivo');
+    document.getElementById('exec-app')?.classList.remove('hidden');
+    setCabecalho({
+      unidade: 'Painel executivo',
+      papel: 'Presidente',
+      login: currentUser.login,
+      subtitle: 'Filiais operacionais',
+    });
+    aplicarVisibilidadeOrientacaoGestao();
+    return;
+  }
 
   if (isAdmin()) {
     navAdmin.classList.remove('hidden');
@@ -8734,8 +8753,33 @@ async function bootAcessoRapido(token) {
   }
 }
 
+async function abrirDashboardExecutivo() {
+  if (!isPresidente()) return;
+  exibirExecutivo({
+    carregando: true,
+    usuario: currentUser?.login || 'Presidente',
+  });
+  try {
+    const rel = await fetchJSON(`${API}/relatorios/saude-desgaste`);
+    exibirExecutivo({
+      relatorio: rel,
+      usuario: currentUser?.login || 'Presidente',
+    });
+  } catch (err) {
+    exibirExecutivo({
+      erro: err.message || 'Falha ao carregar o painel executivo',
+      usuario: currentUser?.login || 'Presidente',
+    });
+    toast(err.message || 'Falha ao carregar o painel executivo', 'error');
+  }
+}
+
 async function bootApp() {
   showAppShell();
+  if (isPresidente()) {
+    await abrirDashboardExecutivo();
+    return;
+  }
   try {
     const config = await fetchConfiguracoes();
     limitesAtuais = { ...limitesAtuais, ...config };
@@ -8764,6 +8808,11 @@ async function bootApp() {
 }
 
 async function init() {
+  iniciarExecutivo({
+    aoSair() { document.getElementById('btn-logout')?.click(); },
+    aoAtualizar() { abrirDashboardExecutivo(); },
+    aoPdf(filialId) { baixarPdfSaude(filialId); },
+  });
   ligarIndicacaoMenuRolavel();
   const params = new URLSearchParams(window.location.search);
   const tokenUrl = params.get('token');
@@ -9023,11 +9072,13 @@ async function loadSaudeDesgaste() {
   }
 }
 
-async function baixarPdfSaude() {
+async function baixarPdfSaude(filialId) {
   if (!isPresidente()) return;
   try {
     toast('Gerando PDF executivo…');
-    const filial = document.getElementById('saude-filial')?.value || '';
+    const filial = filialId != null && filialId !== ''
+      ? String(filialId)
+      : (document.getElementById('saude-filial')?.value || '');
     const q = filial ? `?filial_id=${encodeURIComponent(filial)}` : '';
     const resp = await fetch(`${API}/relatorios/saude-desgaste.pdf${q}`, {
       headers: { Authorization: `Bearer ${authToken}` },
