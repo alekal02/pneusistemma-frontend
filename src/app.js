@@ -258,8 +258,12 @@ function clearAuth() {
   localStorage.removeItem(AUTH_KEY);
 }
 
+function isPresidente() {
+  return currentUser?.papel === 'presidente';
+}
+
 function isAdmin() {
-  return currentUser?.papel === 'admin';
+  return currentUser?.papel === 'admin' || isPresidente();
 }
 
 function isGerente() {
@@ -677,6 +681,7 @@ function mostrarRodizioSugestao(pneuOuResult) {
 }
 
 function showView(name) {
+  if (name === 'saude' && !isPresidente()) return;
   if (name !== 'chatbot') stopWaPoll();
   document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
   const el = document.getElementById(`view-${name}`);
@@ -738,14 +743,17 @@ function showAppShell() {
   navFilial.classList.add('hidden');
   navAdmin.classList.add('hidden');
   navGerente?.classList.add('hidden');
+  document.getElementById('tab-saude')?.classList.toggle('hidden', !isPresidente());
 
   if (isAdmin()) {
     navAdmin.classList.remove('hidden');
     setCabecalho({
       unidade: 'Todas as unidades',
-      papel: 'Administrador',
+      papel: isPresidente() ? 'Presidente' : 'Administrador',
       login: currentUser.login,
-      subtitle: 'Diretoria, unidades e configuração',
+      subtitle: isPresidente()
+        ? 'Diretoria, unidades e visão executiva'
+        : 'Diretoria, unidades e configuração',
     });
     if (tituloAcessos) tituloAcessos.textContent = 'Acessos';
     document.getElementById('btn-salvar-config')?.classList.remove('hidden');
@@ -885,7 +893,12 @@ document.querySelectorAll('.tab').forEach((tab) => {
       loadRelatorioDiretoria();
     }
     if (view === 'saude') {
-      if (!isAdmin()) return toast('Saúde e desgaste: só administrador total', 'error');
+      if (!isPresidente()) {
+        toast('Saúde e desgaste: exclusivo do perfil presidente', 'error');
+        const volta = isAdmin() ? 'relatorios' : (isGerente() ? 'filiais' : 'dashboard');
+        showView(volta);
+        return;
+      }
       loadSaudeDesgaste();
     }
   });
@@ -7734,7 +7747,9 @@ async function loadUsuarios() {
         </thead>
         <tbody>
           ${rows.map((u) => {
-            const badgePapel = u.papel === 'gerente'
+            const badgePapel = u.papel === 'presidente'
+              ? '<span class="badge badge-ok">Presidente</span>'
+              : u.papel === 'gerente'
               ? '<span class="badge badge-alerta">Gerente</span>'
               : u.papel === 'admin'
                 ? '<span class="badge badge-ok">Admin</span>'
@@ -7758,7 +7773,7 @@ async function loadUsuarios() {
                     Editar tipo
                   </button>` : ''}
                 <button type="button" class="btn btn-ghost btn-sm btn-reset-user" data-id="${u.id}" data-login="${escapeHtml(u.login)}">Redefinir senha</button>
-                ${isAdmin() && u.papel !== 'admin' ? `
+                ${isAdmin() && u.papel !== 'admin' && u.papel !== 'presidente' ? `
                   <button type="button" class="btn btn-ghost btn-sm btn-toggle-user" data-id="${u.id}" data-ativo="${u.ativo ? 1 : 0}">
                     ${u.ativo ? 'Desativar' : 'Ativar'}
                   </button>` : ''}
@@ -7802,6 +7817,32 @@ async function loadUsuarios() {
   }
 }
 
+function ehContaPresidente(usuario) {
+  return String(usuario?.id) === '34'
+    && String(usuario?.login || '').toLowerCase() === 'presidente'
+    && usuario?.papel === 'presidente';
+}
+
+function configurarSelectPapel(usuario) {
+  const select = document.getElementById('u-papel');
+  if (!select) return;
+  const reservado = ehContaPresidente(usuario);
+  let option = select.querySelector('option[value="presidente"]');
+  if (reservado) {
+    if (!option) {
+      option = document.createElement('option');
+      option.value = 'presidente';
+      option.textContent = 'Presidente — exclusivo deste usuário';
+      select.appendChild(option);
+    }
+    select.value = 'presidente';
+    select.disabled = true;
+    return;
+  }
+  option?.remove();
+  select.disabled = false;
+}
+
 function atualizarHintPapelUsuario() {
   const papel = document.getElementById('u-papel')?.value;
   const hint = document.getElementById('u-papel-hint');
@@ -7813,8 +7854,11 @@ function atualizarHintPapelUsuario() {
   } else if (papel === 'gerente') {
     hint.textContent = 'Gerente: Minha unidade, alertas/compras e frota da sua unidade.';
     filialWrap?.classList.remove('hidden');
+  } else if (papel === 'presidente') {
+    hint.textContent = 'Presidente: mesmas permissões do admin total, mais Saúde e desgaste. Sem vínculo de filial.';
+    filialWrap?.classList.add('hidden');
   } else {
-    hint.textContent = 'Admin total: relatórios, usuários, filiais, WhatsApp e limites.';
+    hint.textContent = 'Admin total: relatórios, usuários, filiais, WhatsApp e limites. Sem a aba Saúde e desgaste.';
     filialWrap?.classList.add('hidden');
   }
 }
@@ -7852,6 +7896,7 @@ async function abrirModalUsuario(usuario = null) {
     btnSalvar.textContent = 'Salvar';
     loginInput.value = usuario.login || '';
     loginInput.readOnly = true;
+    configurarSelectPapel(usuario);
     document.getElementById('u-papel').value = usuario.papel || 'filial';
     document.getElementById('u-whatsapp').value = usuario.whatsapp || '';
     senhaWrap?.classList.add('hidden');
@@ -7861,10 +7906,12 @@ async function abrirModalUsuario(usuario = null) {
     titulo.textContent = 'Novo usuário';
     btnSalvar.textContent = 'Criar';
     loginInput.readOnly = false;
+    configurarSelectPapel(null);
     senhaWrap?.classList.remove('hidden');
     senhaInput.required = true;
   }
   atualizarHintPapelUsuario();
+  configurarSelectPapel(usuario);
   document.getElementById('modal-usuario').showModal();
 }
 
@@ -7942,6 +7989,12 @@ document.getElementById('form-usuario')?.addEventListener('submit', async (e) =>
   const id = document.getElementById('u-id').value;
   const papel = document.getElementById('u-papel').value;
   const filialId = document.getElementById('u-filial').value || null;
+  const contaPresidente = document.getElementById('u-papel')?.disabled
+    && String(id) === '34';
+
+  if (!contaPresidente && papel === 'presidente') {
+    return toast('O papel presidente não pode ser atribuído por esta tela', 'error');
+  }
 
   if (papel === 'filial' && !filialId) {
     return toast('Operador de filial precisa de uma filial', 'error');
@@ -7952,8 +8005,10 @@ document.getElementById('form-usuario')?.addEventListener('submit', async (e) =>
       await fetchJSON(`${API}/usuarios/${id}`, {
         method: 'PATCH',
         body: JSON.stringify({
-          papel,
-          filial_id: papel === 'admin' ? null : filialId,
+          ...(contaPresidente ? {} : {
+            papel,
+            filial_id: papel === 'admin' ? null : filialId,
+          }),
           whatsapp: document.getElementById('u-whatsapp').value || null,
         }),
       });
@@ -8951,7 +9006,7 @@ function renderSaudeDesgaste() {
 }
 
 async function loadSaudeDesgaste() {
-  if (!isAdmin()) return;
+  if (!isPresidente()) return;
   try {
     const rel = await fetchJSON(`${API}/relatorios/saude-desgaste`);
     saudeAtual = rel;
@@ -8969,7 +9024,7 @@ async function loadSaudeDesgaste() {
 }
 
 async function baixarPdfSaude() {
-  if (!isAdmin()) return;
+  if (!isPresidente()) return;
   try {
     toast('Gerando PDF executivo…');
     const filial = document.getElementById('saude-filial')?.value || '';
