@@ -260,6 +260,37 @@ assert.equal(consultaIncompleta.filiais[0].necessidade.selo, 'NECESSIDADE TÉCNI
 assert.equal(consultaIncompleta.filiais[0].necessidade.faltam, null);
 assert.equal(consultaIncompleta.filiais[0].necessidade.numero, 2);
 assert.equal(consultaIncompleta.filiais[0].medidas[0].selo, 'NECESSIDADE TÉCNICA');
+const consultaFlagIsolada = montarConsulta({
+  por_unidade: [{
+    filial_id: 10,
+    filial: 'Ariquemes',
+    codigo: '0110',
+    pneus_montados: 4,
+    situacao_mes: 'no_ciclo',
+    faixas: { critico: 2 },
+  }],
+  compras_por_filial: [{
+    filial_id: 10,
+    montados_sem_medida: 4,
+    recomendacao_definitiva: false,
+    comprar_novo: 2,
+  }],
+  compras_por_medida: [{
+    filial_id: 10,
+    medida: '275/80R22.5',
+    medida_informada: true,
+    recomendacao_definitiva: true,
+    montados_sem_medida: 4,
+    necessidade_pneu_novo: 2,
+    comprar_novo: 2,
+    estoque_novo: 0,
+    estoque_recapado: 0,
+    em_recapagem: 0,
+  }],
+});
+assert.equal(consultaFlagIsolada.filiais[0].medidas[0].selo, 'NECESSIDADE TÉCNICA');
+assert.equal(consultaFlagIsolada.filiais[0].medidas[0].faltam, null);
+assert.equal(consultaFlagIsolada.filiais[0].parecer.quantidade_compra, null);
 assert.equal(consultaIncompleta.filiais[0].veiculos_cadastrados, 5);
 assert.equal(consultaIncompleta.filiais[0].veiculos, 2);
 const relatorioIncompleto = {

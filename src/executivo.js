@@ -2060,7 +2060,10 @@ function leituraMedida(linha, montados) {
   const chave = chaveMedida(linha.medida);
   const doGrupo = montados.filter((pneu) => chaveMedida(pneu.medida) === chave);
   const novos = doGrupo.filter((pneu) => precisaPneuNovo(pneu));
-  const definitiva = linha.recomendacao_definitiva === true && linha.medida_informada === true;
+  const semMedidaUnidade = inteiro(linha.montados_sem_medida);
+  const definitiva = linha.recomendacao_definitiva === true
+    && linha.medida_informada === true
+    && semMedidaUnidade === 0;
   const necessidade = inteiro(linha.necessidade_pneu_novo) || 0;
   const faltam = inteiro(linha.comprar_novo) || 0;
   const estoque = inteiro(linha.estoque_novo) || 0;
@@ -2211,8 +2214,11 @@ export function montarConsulta(relatorio) {
       ? resumo.recomendacao_definitiva === true
       : semMedida === 0 && linhas.every((linha) => linha.recomendacao_definitiva === true);
     const necessidade = linhas.reduce((soma, linha) => soma + (inteiro(linha.necessidade_pneu_novo) || 0), 0);
-    const faltam = linhas.filter((linha) => linha.recomendacao_definitiva === true && linha.medida_informada === true)
-      .reduce((soma, linha) => soma + (inteiro(linha.comprar_novo) || 0), 0);
+    const faltam = linhas.filter((linha) => (
+      linha.recomendacao_definitiva === true
+      && linha.medida_informada === true
+      && inteiro(linha.montados_sem_medida) === 0
+    )).reduce((soma, linha) => soma + (inteiro(linha.comprar_novo) || 0), 0);
     const estoqueNovo = linhas.reduce((soma, linha) => soma + (inteiro(linha.estoque_novo) || 0), 0);
     const candidatos = inteiro(unidade.candidatos_recap)
       ?? montados.filter((pneu) => pneu.elegibilidade?.candidato_programacao === true).length;
