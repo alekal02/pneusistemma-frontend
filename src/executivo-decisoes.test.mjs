@@ -1,10 +1,13 @@
 import assert from 'node:assert/strict';
 import {
   classificarDecisoes,
+  compraProntaParaDecisao,
   filtrarCartoesCompra,
   htmlPainelDecisoes,
+  montarFilaDecisao,
   montarResumoCompra,
   qualidadePorFilial,
+  valorTotalConfiavel,
 } from './executivo.js';
 
 const nomes = new Map([
@@ -226,15 +229,34 @@ assert.equal(cardSemCadastro.sem_medida, null);
 assert.equal(cardSemCadastro.compra, 1);
 assert.equal(cardSemCadastro.situacao, null);
 
+function trecho(html, inicio, fim) {
+  const i = html.indexOf(inicio);
+  assert.notEqual(i, -1, inicio);
+  const j = fim ? html.indexOf(fim, i) : html.length;
+  return html.slice(i, j === -1 ? html.length : j);
+}
+
 const html = htmlPainelDecisoes(modeloCompra, 'todas');
-assert.match(html, /Compra recomendada<\/p>\s*<strong>4<\/strong>\s*<em>pneus<\/em>/);
-assert.match(html, /Transferência recomendada<\/p>\s*<strong>0<\/strong>\s*<em>pneus<\/em>/);
-assert.match(html, /Em análise<\/p>\s*<strong>0<\/strong>\s*<em>filiais<\/em>/);
-assert.match(html, /Compra confirmada<\/dt>\s*<dd>4/);
-assert.match(html, /Necessidade preliminar<\/dt>\s*<dd>2<span class="ex-fatos-estimativa">estimativa<\/span>/);
-assert.match(html, /Dianteira · Pneu novo · estimativa/);
-assert.match(html, /Projeção 90 dias · estimativa/);
-assert.doesNotMatch(html, /Compra confirmada<\/dt>\s*<dd>(?:9|7|5)</);
+const aguardando = trecho(html, 'id="ex-aguardando-decisao"', 'id="ex-precisam-conferencia"');
+const conferencia = trecho(html, 'id="ex-precisam-conferencia"', 'id="ex-analise-detalhada"');
+assert.match(aguardando, /<strong>Comprar 4 pneus<\/strong>/);
+assert.match(aguardando, /Medida 275\/80R22\.5/);
+assert.match(aguardando, /1 pneu novo no estoque desta filial/);
+assert.match(aguardando, /Nenhuma transferência confirmada/);
+assert.match(aguardando, /Ainda não informado/);
+assert.match(aguardando, /disabled aria-disabled="true"/);
+assert.match(aguardando, /APROVAR COMPRA/);
+assert.match(aguardando, /REPROVAR COMPRA/);
+assert.match(aguardando, /SOLICITAR REVISÃO/);
+assert.match(aguardando, /Indisponível nesta etapa/);
+assert.doesNotMatch(aguardando, /<strong>Comprar (?:9|7|5) pneus<\/strong>/);
+assert.equal(conferencia.includes('APROVAR COMPRA'), false);
+assert.equal(conferencia.includes('REPROVAR COMPRA'), false);
+assert.equal(conferencia.includes('SOLICITAR REVISÃO'), false);
+assert.match(conferencia, /Dianteira · Pneu novo · estimativa/);
+assert.match(conferencia, /Projeção 90 dias · estimativa/);
+assert.match(conferencia, /295\/80R22\.5 · Tração · leitura não confirmada/);
+assert.match(conferencia, /A filial precisa:/);
 assert.match(html, /data-filtro="todas"/);
 assert.match(html, /data-filtro="comprar"/);
 assert.match(html, /data-filtro="transferir"/);
@@ -245,7 +267,6 @@ assert.match(html, /id="ex-analise-detalhada" class="ex-analise-corpo" hidden/);
 assert.match(html, /Decisões a partir dos saldos já calculados/);
 assert.match(html, /Necessidade preliminar por medida e posição/);
 assert.match(html, /Dianteira permanece com pneu novo/);
-assert.match(html, /295\/80R22\.5 · Tração · leitura não confirmada/);
 assert.equal(html.includes('R$'), false);
 
 const aberta = htmlPainelDecisoes(modeloCompra, 'todas', { analiseAberta: true });
@@ -261,21 +282,26 @@ assert.match(htmlMisto, /Contagem/);
 
 const htmlFiltro = htmlPainelDecisoes(modeloMisto, 'comprar');
 const detalhe = htmlFiltro.split('id="ex-analise-detalhada"')[1];
-assert.match(htmlFiltro, /Compra recomendada<\/p>\s*<strong>2<\/strong>/);
+assert.match(htmlFiltro, /<strong>Comprar 2 pneus<\/strong>/);
 assert.match(detalhe, /Compra recomendada/);
 assert.equal(detalhe.includes('Estoque suficiente'), false);
 assert.match(htmlFiltro, /data-filtro="todas"/);
 assert.match(htmlFiltro, new RegExp(`Todas <span>${misto.length}</span>`));
 
 const htmlBloqueado = htmlPainelDecisoes(modeloBloqueado, 'todas');
-assert.match(htmlBloqueado, /Em análise<\/p>\s*<strong>1<\/strong>/);
+assert.equal(htmlBloqueado.includes('APROVAR COMPRA'), false);
+assert.equal(htmlBloqueado.includes('REPROVAR COMPRA'), false);
+assert.equal(htmlBloqueado.includes('SOLICITAR REVISÃO'), false);
 assert.equal(htmlBloqueado.includes('Compra confirmada'), false);
-assert.match(htmlBloqueado, /Sem medida<\/dt>\s*<dd>4/);
+assert.match(htmlBloqueado, /4 pneus montados estão sem medida/);
 assert.match(htmlBloqueado, /Completar a medida de 4 pneus montados/);
 
 const htmlSemCadastro = htmlPainelDecisoes({ decisoes: semCadastro, qualidade: [], posicoes: [] });
-assert.match(htmlSemCadastro, /Sem medida<\/dt>\s*<dd>—/);
+assert.match(htmlSemCadastro, /<strong>Comprar 1 pneu<\/strong>/);
+assert.match(htmlSemCadastro, /disabled aria-disabled="true"/);
+assert.match(htmlSemCadastro, /Ainda não informado/);
 assert.equal(htmlSemCadastro.includes('<dd>0'), false);
+assert.equal(htmlSemCadastro.includes('R$'), false);
 
 const compraEMedida = classificarDecisoes([
   linha({
@@ -297,5 +323,37 @@ assert.equal(cardCompraEMedida.sem_medida, 1);
 assert.equal(cardCompraEMedida.situacao, 'Em análise');
 assert.equal(cardCompraEMedida.proxima_acao, 'Comprar 2 pneus. Completar a medida de 1 pneu montado.');
 assert.equal(cardCompraEMedida.compra + cardCompraEMedida.sem_medida === cardCompraEMedida.compra, false);
+
+const htmlCompraEMedida = htmlPainelDecisoes({
+  decisoes: compraEMedida,
+  qualidade: [cadastro(1, 'Aparecida', 8, 1, compraEMedida)],
+  posicoes: [],
+});
+assert.equal(htmlCompraEMedida.includes('APROVAR COMPRA'), false);
+assert.equal(htmlCompraEMedida.includes('REPROVAR COMPRA'), false);
+assert.equal(htmlCompraEMedida.includes('SOLICITAR REVISÃO'), false);
+assert.match(htmlCompraEMedida, /Completar a medida de 1 pneu montado/);
+assert.match(htmlCompraEMedida, /ainda não está pronta/);
+
+assert.equal(compraProntaParaDecisao({ tipo: 'dados_insuficientes', confirmada: false, quantidade: 4, medida: '275/80R22.5', filial_id: 1 }), false);
+assert.equal(compraProntaParaDecisao({ tipo: 'estimativa', confirmada: false, quantidade: 3, medida: '275/80R22.5', filial_id: 1 }), false);
+assert.equal(compraProntaParaDecisao({ tipo: 'comprar', confirmada: false, quantidade: 4, medida: '275/80R22.5', filial_id: 1 }), false);
+assert.equal(compraProntaParaDecisao({ tipo: 'transferir', confirmada: true, quantidade: 3, medida: '275/80R22.5', filial_id: 1 }), false);
+assert.equal(compraProntaParaDecisao({ tipo: 'comprar', confirmada: true, quantidade: 4, medida: '275/80R22.5', filial_id: 1 }, new Set([1])), false);
+assert.equal(compraProntaParaDecisao(compraComEstimativa.find((item) => item.tipo === 'comprar')), true);
+assert.equal(valorTotalConfiavel({ custo: 800, quantidade: 4 }), null);
+assert.equal(valorTotalConfiavel({ valor_total: 800 }), null);
+assert.equal(valorTotalConfiavel({ preco_confiavel: false, valor_total: 800 }), null);
+assert.equal(valorTotalConfiavel({ preco_confiavel: true, valor_total: 0 }), null);
+assert.equal(valorTotalConfiavel({ preco_confiavel: true, valor_total: 1250.5 }), 1250.5);
+
+const filaMista = montarFilaDecisao(modeloMisto, 'todas');
+assert.equal(filaMista.aguardando.length, 1);
+assert.equal(filaMista.aguardando[0].filial, 'Aparecida');
+assert.equal(filaMista.aguardando[0].quantidade, 2);
+assert.match(filaMista.aguardando[0].transferencia, /3 pneus de Contagem/);
+assert.equal(filaMista.aguardando[0].valor_total, null);
+assert.equal(filaMista.conferencia.some((item) => item.filial === 'Contagem'), false);
+assert.equal(montarFilaDecisao(modeloBloqueado, 'todas').aguardando.length, 0);
 
 console.log('executivo-decisoes: ok');

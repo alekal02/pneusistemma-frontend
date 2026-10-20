@@ -712,6 +712,7 @@
     align-items: center;
     padding: 0.7rem 0.8rem;
     gap: 0.75rem;
+    overflow: hidden;
   }
 
   .exec-nav {
@@ -744,4 +745,277 @@
   .ex-kpi strong { font-size: 1.45rem; }
   .ex-kpis.ex-kpis-tres { grid-template-columns: 1fr; }
   .ex-prioridades-grade { grid-template-columns: 1fr; }
+}
+
+/* Central de decisão do presidente. Vale só para a aba Decisões de Compra. */
+.ex-decisoes {
+  display: flex;
+  flex-direction: column;
+  gap: 1.35rem;
+  min-width: 0;
+  max-width: 100%;
+  color: #14201a;
+  font-size: 1.125rem;
+  line-height: 1.5;
+}
+
+.ex-decisoes-intro,
+.ex-aguardando > p,
+.ex-conferencias > p,
+.ex-decisoes .ex-vazio {
+  margin: 0;
+  color: #14201a;
+  font-size: 1.125rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+
+.ex-aguardando > h2,
+.ex-conferencias > h2 {
+  margin: 0 0 0.35rem;
+  color: #14201a;
+  font-size: 1.7rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.ex-decisoes .ex-filtros,
+.ex-aguardando,
+.ex-conferencias,
+.ex-decisao,
+.ex-conferencia {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.ex-decisoes .ex-filtros {
+  gap: 0.65rem;
+}
+
+.ex-decisoes .ex-chip {
+  min-height: 2.75rem;
+  padding: 0.45rem 0.9rem;
+  border-width: 2px;
+  font-size: 1.125rem;
+}
+
+.ex-decisoes .ex-chip:focus-visible,
+.ex-decisoes .ex-analise-toggle:focus-visible,
+.ex-decisao-nav button:focus-visible {
+  outline: 3px solid #14201a;
+  outline-offset: 3px;
+}
+
+.ex-decisoes-fila {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.ex-decisao,
+.ex-conferencia {
+  background: #fff;
+  color: #14201a;
+  border: 2px solid #14201a;
+  border-radius: 16px;
+  padding: 1.2rem 1.15rem 1.3rem;
+}
+
+.ex-decisao-indice,
+.ex-decisao-filial {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 700;
+}
+
+.ex-decisao h3,
+.ex-conferencia h3 {
+  margin: 0.15rem 0 0.45rem;
+  font-size: 1.85rem;
+  font-weight: 700;
+  line-height: 1.15;
+  overflow-wrap: anywhere;
+}
+
+.ex-decisao-qtd {
+  margin: 0 0 1rem;
+  font-size: 1.35rem;
+}
+
+.ex-decisao-qtd strong {
+  display: block;
+  font-size: 2rem;
+  line-height: 1.1;
+}
+
+.ex-decisao-fatos {
+  display: flex;
+  flex-direction: column;
+  gap: 0.95rem;
+  margin: 0;
+}
+
+.ex-decisao-fatos dt {
+  margin: 0;
+  font-size: 1.125rem;
+  font-weight: 700;
+}
+
+.ex-decisao-fatos dd {
+  margin: 0.15rem 0 0;
+  font-size: 1.25rem;
+}
+
+.ex-decisao-acoes {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+  margin-top: 1.3rem;
+}
+
+.ex-decisao-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.2rem;
+  min-height: 4.75rem;
+  padding: 0.75rem 0.9rem;
+  border-radius: 14px;
+  border: 3px solid #14201a;
+  background: #f7f4ee;
+  color: #14201a;
+  font: inherit;
+  cursor: not-allowed;
+}
+
+.ex-decisao-btn:nth-child(2) {
+  border-style: double;
+  border-width: 6px;
+}
+
+.ex-decisao-btn:nth-child(3) {
+  border-style: dashed;
+}
+
+.ex-decisao-btn:hover,
+.ex-decisao-btn:active {
+  background: #f7f4ee;
+  color: #14201a;
+}
+
+.ex-decisao-btn-rotulo {
+  font-size: 1.2rem;
+  font-weight: 800;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.ex-decisao-btn-estado {
+  font-size: 1rem;
+  font-weight: 700;
+  text-align: center;
+}
+
+.ex-decisao-aviso,
+.ex-conferencia-aviso {
+  margin: 0.85rem 0 0;
+  font-size: 1.125rem;
+  font-weight: 700;
+}
+
+.ex-conferencia ul {
+  list-style: none;
+  margin: 0.85rem 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.ex-conferencia li {
+  margin: 0;
+  padding-top: 0.85rem;
+  border-top: 2px solid #14201a;
+  font-size: 1.125rem;
+}
+
+.ex-conferencia li p {
+  margin: 0;
+}
+
+.ex-conferencia-passo {
+  margin-top: 0.35rem;
+}
+
+.ex-decisao-nav {
+  display: none;
+}
+
+.ex-decisoes .ex-analise-toggle {
+  min-height: 3.5rem;
+  font-size: 1.125rem;
+}
+
+@media (min-width: 900px) {
+  .ex-decisao-miolo {
+    display: grid;
+    grid-template-columns: minmax(0, 1.4fr) minmax(16rem, 0.85fr);
+    column-gap: 1.5rem;
+    align-items: start;
+  }
+
+  .ex-decisao-lado { margin-top: 0; }
+}
+
+.ex-decisao-nav button {
+  flex: 1;
+  min-height: 3.5rem;
+  border: 2px solid #14201a;
+  border-radius: 12px;
+  background: #fff;
+  color: #14201a;
+  font: inherit;
+  font-size: 1.125rem;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.ex-decisao-nav button:disabled {
+  cursor: not-allowed;
+  color: #3e4a44;
+  background: #e7e4dc;
+}
+
+@media (max-width: 720px) {
+  .ex-decisoes .ex-filtros {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 0.2rem;
+  }
+
+  .ex-decisoes .ex-chip {
+    flex: 0 0 auto;
+  }
+
+  .ex-decisao-nav {
+    display: flex;
+    gap: 0.75rem;
+    position: sticky;
+    bottom: 0;
+    z-index: 4;
+    margin-top: 0.85rem;
+    padding: 0.75rem 0 0.15rem;
+    background: #f3f4f2;
+  }
+
+  .ex-decisoes-fila {
+    flex-direction: column;
+    overflow: visible;
+  }
+
+  .ex-decisao { display: none; }
+
+  .ex-decisao.is-atual { display: block; }
 }

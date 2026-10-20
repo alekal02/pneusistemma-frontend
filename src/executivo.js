@@ -40,6 +40,7 @@ let estado = {
   filtro: 'todas',
   filtroQualidade: 'todas',
   analiseDetalhada: false,
+  decisaoIndice: 0,
   relatorio: null,
   modelo: null,
   erro: '',
@@ -314,6 +315,23 @@ function previsoesDa(linha) {
 }
 
 /**
+ * Só existe valor quando a própria linha marca o preço como confiável.
+ * Custo de pneu já cadastrado não vira preço de compra.
+ */
+export function valorTotalConfiavel(linha) {
+  if (linha?.preco_confiavel !== true) return null;
+  const total = numero(linha.valor_total);
+  if (total == null || total <= 0) return null;
+  return Math.round(total * 100) / 100;
+}
+
+function precoDaLinha(linha) {
+  const total = valorTotalConfiavel(linha);
+  if (total == null) return {};
+  return { preco_confiavel: true, valor_total: total };
+}
+
+/**
  * Classifica o bloco compras_por_medida do relatório de saúde e desgaste.
  * Só confirma número inteiro que fecha estoque novo − necessidade na mesma filial e medida.
  * Recapado e recapagem pendente não viram saldo. Projeção de 90 dias fica como estimativa.
@@ -428,6 +446,9 @@ export function classificarDecisoes(compras = [], nomes = new Map(), { pneus = n
           tipo: 'comprar',
           confirmada: true,
           quantidade: destino.restante,
+          estoque_confirmado: destino.estoque,
+          necessidade_confirmada: destino.necessidade,
+          ...precoDaLinha(destino),
           motivo: motivoComprar(destino, destino.restante, recebido.get(chaveRecebido) || 0),
         }));
       }
@@ -1243,122 +1264,338 @@ function tabelaPosicoes(lista) {
     </div>`;
 }
 
-function htmlFatosCompra(card) {
-  const fatos = [];
-  if (card.compra > 0) fatos.push(['Compra confirmada', String(card.compra), '']);
-  if (card.transferencia > 0) {
-    const origem = card.origens.length === 1 ? `de ${card.origens[0]}` : (card.origens.length > 1 ? card.origens.join(', ') : '');
-    fatos.push(['Transferência', String(card.transferencia), origem]);
+function filiaisBloqueadasParaDecisao(modelo = {}) {
+  const ids = new Set();
+  for (const item of modelo.qualidade || []) {
+    const filial = idFilial(item?.filial_id);
+    if (filial == null) continue;
+    const semMedida = inteiro(item.sem_medida);
+    if (item.compra_bloqueada === true || (semMedida != null && semMedida > 0)) ids.add(filial);
   }
-  if (card.necessidade_preliminar > 0) {
-    fatos.push(['Necessidade preliminar', String(card.necessidade_preliminar), 'estimativa']);
+  return ids;
+}
+
+/**
+ * Compra pronta é só a linha já confirmada, com quantidade e medida,
+ * numa filial que não está em análise. Estimativa, transferência e
+ * dado incompleto nunca entram aqui.
+ */
+export function compraProntaParaDecisao(linha, filiaisBloqueadas = new Set()) {
+  if (!linha || linha.tipo !== 'comprar' || linha.confirmada !== true) return false;
+  const quantidade = inteiro(linha.quantidade);
+  if (quantidade == null || quantidade <= 0) return false;
+  if (!chaveMedida(linha.medida)) return false;
+  const filial = idFilial(linha.filial_id);
+  if (filial != null && filiaisBloqueadas.has(filial)) return false;
+  return true;
+}
+
+function textoPneusNovos(quantidade) {
+  if (quantidade === 0) return 'nenhum pneu novo';
+  if (quantidade === 1) return '1 pneu novo';
+  return `${quantidade} pneus novos`;
+}
+
+function textoEstoqueConfirmado(estoque) {
+  if (estoque === 0) return 'Nenhum pneu novo no estoque desta filial.';
+  if (estoque === 1) return '1 pneu novo no estoque desta filial.';
+  return `${estoque} pneus novos no estoque desta filial.`;
+}
+
+function transferenciasDaCompra(decisoes, linha) {
+  const medida = chaveMedida(linha.medida);
+  const filial = idFilial(linha.filial_id);
+  return decisoes.filter((item) => item?.tipo === 'transferir'
+    && item.confirmada === true
+    && idFilial(item.filial_id) === filial
+    && chaveMedida(item.medida) === medida
+    && (inteiro(item.quantidade) || 0) > 0);
+}
+
+export function descreverCompraPronta(linha, transferencias = []) {
+  const quantidade = inteiro(linha.quantidade);
+  const medida = String(linha.medida).trim();
+  const estoque = inteiro(linha.estoque_confirmado);
+  const necessidade = inteiro(linha.necessidade_confirmada);
+  const estoqueOk = estoque != null && estoque >= 0;
+  const necessidadeOk = necessidade != null && necessidade >= 0;
+  const motivo = estoqueOk && necessidadeOk && necessidade > estoque
+    ? 'A filial precisa de mais pneus novos do que tem no próprio estoque.'
+    : 'A necessidade desta medida já foi conferida.';
+  const partesTransferencia = transferencias.map((item) => {
+    const qtd = inteiro(item.quantidade);
+    const origem = item.origem ? ` de ${item.origem}` : '';
+    return `Dá para trazer ${textoPneus(qtd)}${origem}.`;
+  });
+  const transferencia = partesTransferencia.length
+    ? partesTransferencia.join(' ')
+    : 'Nenhuma transferência confirmada de outra filial.';
+  const justificativa = [];
+  if (necessidadeOk && estoqueOk) {
+    justificativa.push(`A filial precisa de ${textoPneus(necessidade)} e tem ${textoPneusNovos(estoque)} no estoque.`);
+  } else {
+    justificativa.push('A quantidade para comprar está confirmada.');
   }
-  fatos.push(['Sem medida', card.sem_medida == null ? '—' : String(card.sem_medida), '']);
+  justificativa.push(transferencia);
+  justificativa.push(`A compra recomendada é de ${textoPneus(quantidade)}.`);
+  return {
+    filial_id: linha.filial_id,
+    filial: linha.filial,
+    medida,
+    quantidade,
+    motivo,
+    estoque_texto: estoqueOk ? textoEstoqueConfirmado(estoque) : 'Estoque ainda não confirmado.',
+    transferencia,
+    valor_total: valorTotalConfiavel(linha),
+    recomendacao: `Comprar ${textoPneus(quantidade)}.`,
+    justificativa: justificativa.join(' '),
+  };
+}
+
+function pendenciasConferencia(card, filtro, bloqueada) {
+  const todas = filtro === 'todas';
+  const lista = [];
+  if (todas || filtro === 'dados_insuficientes') {
+    for (const item of card.inconsistencias || []) {
+      lista.push({
+        texto: item.texto,
+        passo: card.passo_inconsistencia || 'Corrigir este ponto antes de qualquer decisão.',
+      });
+    }
+    if ((card.sem_medida ?? 0) > 0) {
+      const n = card.sem_medida;
+      lista.push({
+        texto: n === 1 ? '1 pneu montado está sem medida.' : `${n} pneus montados estão sem medida.`,
+        passo: `Completar a medida de ${n} ${n === 1 ? 'pneu montado' : 'pneus montados'}.`,
+      });
+    }
+  }
+  if (todas || filtro === 'estimativa') {
+    for (const linha of card.projecoes || []) {
+      const nome = linha.quantidade === 1 ? 'pneu' : 'pneus';
+      lista.push({
+        texto: `${linha.quantidade} ${nome} · ${linha.medida} · Projeção 90 dias · estimativa`,
+        passo: 'Isto é uma previsão. Não é compra e não entra na decisão.',
+      });
+    }
+    for (const linha of card.medidas || []) {
+      if (!linha.estimativa || linha.classe === 'Projeção 90 dias') continue;
+      const nome = linha.quantidade === 1 ? 'pneu' : 'pneus';
+      lista.push({
+        texto: `${linha.quantidade} ${nome} · ${linha.medida} · ${linha.classe} · estimativa`,
+        passo: 'Esta contagem ainda não está confirmada. Não é compra.',
+      });
+    }
+  }
+  if ((todas || filtro === 'comprar') && card.compra > 0 && bloqueada) {
+    lista.push({
+      texto: `Há uma indicação de comprar ${textoPneus(card.compra)}, mas a filial ainda não está pronta.`,
+      passo: card.passo_inconsistencia
+        || ((card.sem_medida ?? 0) > 0
+          ? `Completar a medida de ${card.sem_medida} ${card.sem_medida === 1 ? 'pneu montado' : 'pneus montados'}.`
+          : 'Validar a medida e o cadastro antes de qualquer decisão.'),
+    });
+  }
+  if (filtro === 'transferir' && card.transferencia > 0) {
+    const origem = card.origens?.length ? ` de ${card.origens.join(' e ')}` : '';
+    lista.push({
+      texto: `Transferência recomendada: ${textoPneus(card.transferencia)}${origem}.`,
+      passo: 'Isto não é uma compra para decidir.',
+    });
+  }
+  if (filtro === 'nao_comprar' && card.tem_cobertura) {
+    lista.push({
+      texto: 'O estoque desta filial cobre a necessidade.',
+      passo: 'Não há compra para decidir.',
+    });
+  }
+  return lista;
+}
+
+/**
+ * Separa o que já pode ser lido pelo presidente do que a filial ainda precisa corrigir.
+ * Não recalcula saldo e não cria preço.
+ */
+export function montarFilaDecisao(modelo = {}, filtro = 'todas') {
+  const decisoes = Array.isArray(modelo.decisoes) ? modelo.decisoes : [];
+  const bloqueadas = filiaisBloqueadasParaDecisao(modelo);
+  const resumo = montarResumoCompra(modelo);
+  const aguardando = (filtro === 'todas' || filtro === 'comprar')
+    ? decisoes
+      .filter((linha) => compraProntaParaDecisao(linha, bloqueadas))
+      .map((linha) => descreverCompraPronta(linha, transferenciasDaCompra(decisoes, linha)))
+    : [];
+  const conferencia = [];
+  for (const card of filtrarCartoesCompra(resumo.filiais, filtro)) {
+    const pendencias = pendenciasConferencia(card, filtro, bloqueadas.has(card.filial_id));
+    if (!pendencias.length) continue;
+    conferencia.push({
+      filial_id: card.filial_id,
+      filial: card.filial,
+      pendencias,
+    });
+  }
+  return { aguardando, conferencia };
+}
+
+const ROTULOS_ACAO_COMPRA = ['APROVAR COMPRA', 'REPROVAR COMPRA', 'SOLICITAR REVISÃO'];
+
+function htmlAcoesDecisaoCompra() {
   return `
-    <dl class="ex-fatos">
-      ${fatos.map(([rotulo, valor, nota]) => `
+    <div class="ex-decisao-lado">
+      <div class="ex-decisao-acoes" role="group" aria-label="Ações da compra, ainda sem gravação">
+        ${ROTULOS_ACAO_COMPRA.map((rotulo) => `
+          <button type="button" class="ex-decisao-btn" data-decisao-indisponivel disabled aria-disabled="true">
+            <span class="ex-decisao-btn-rotulo">${rotulo}</span>
+            <span class="ex-decisao-btn-estado">Indisponível nesta etapa</span>
+          </button>`).join('')}
+      </div>
+      <p class="ex-decisao-aviso">Estes botões ainda não gravam a decisão. A gravação fica para a próxima etapa, quando o sistema puder registrar com segurança.</p>
+    </div>`;
+}
+
+function htmlValorDecisao(valor) {
+  if (valor == null) return 'Ainda não informado.';
+  return esc(valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }));
+}
+
+function htmlCartaoDecisao(item, indice, total, atual) {
+  return `
+    <article class="ex-decisao${atual ? ' is-atual' : ''}" aria-label="Decisão ${indice + 1} de ${total}: ${esc(item.filial)}">
+      ${total > 1 ? `<p class="ex-decisao-indice">Decisão ${indice + 1} de ${total}</p>` : ''}
+      <p class="ex-decisao-filial">Filial solicitante</p>
+      <h3>${esc(item.filial)}</h3>
+      <p class="ex-decisao-qtd"><strong>Comprar ${esc(textoPneus(item.quantidade))}</strong> <span>Medida ${esc(item.medida)}</span></p>
+      <div class="ex-decisao-miolo">
+      <dl class="ex-decisao-fatos">
         <div>
-          <dt>${esc(rotulo)}</dt>
-          <dd>${esc(valor)}${nota ? `<span class="${nota === 'estimativa' ? 'ex-fatos-estimativa' : 'ex-fatos-nota'}">${esc(nota)}</span>` : ''}</dd>
-        </div>`).join('')}
-    </dl>`;
-}
-
-function htmlMedidasCompra(lista) {
-  if (!lista.length) return '';
-  return `
-    <ul class="ex-medidas">
-      ${lista.map((linha) => `
-        <li>
-          <span>${esc(linha.medida)}</span>
-          <span>${esc(linha.classe)}${linha.origem ? ` · ${esc(linha.origem)}` : ''}${linha.estimativa ? ' · estimativa' : ''}</span>
-          <strong>${esc(linha.quantidade)}</strong>
-        </li>`).join('')}
-    </ul>`;
-}
-
-function htmlCartaoCompra(card) {
-  const tom = card.situacao === 'Em análise'
-    ? 'ex-selo-estimativa'
-    : (card.situacao === 'Sem pendência' ? 'ex-selo-nao_comprar' : 'ex-selo-dados_insuficientes');
-  return `
-    <article class="ex-filial-compra">
-      <header>
-        <h3>${esc(card.filial)}</h3>
-        ${card.situacao ? `<span class="ex-selo ${tom}">${esc(card.situacao)}</span>` : ''}
-      </header>
-      ${htmlFatosCompra(card)}
-      ${htmlMedidasCompra(card.medidas)}
-      ${card.inconsistencias.length ? `
-        <ul class="ex-alertas">
-          ${card.inconsistencias.map((item) => `<li>${esc(item.texto)}</li>`).join('')}
-        </ul>` : ''}
-      <p class="ex-acao"><span>Próxima ação</span> ${esc(card.proxima_acao)}</p>
+          <dt>Motivo da compra</dt>
+          <dd>${esc(item.motivo)}</dd>
+        </div>
+        <div>
+          <dt>Estoque</dt>
+          <dd>${esc(item.estoque_texto)}</dd>
+        </div>
+        <div>
+          <dt>Transferência</dt>
+          <dd>${esc(item.transferencia)}</dd>
+        </div>
+        <div>
+          <dt>Valor total</dt>
+          <dd>${htmlValorDecisao(item.valor_total)}</dd>
+        </div>
+        <div>
+          <dt>Recomendação do sistema</dt>
+          <dd>${esc(item.recomendacao)} ${esc(item.justificativa)}</dd>
+        </div>
+      </dl>
+      ${htmlAcoesDecisaoCompra()}
+      </div>
     </article>`;
 }
 
-export function htmlPainelDecisoes(modelo = {}, filtro = 'todas', { analiseAberta = false } = {}) {
+function htmlAguardandoDecisao(lista, indice = 0) {
+  if (!lista.length) {
+    return '<p class="ex-vazio">Nenhuma compra confirmada para decidir neste filtro.</p>';
+  }
+  const atual = Math.min(Math.max(indice, 0), lista.length - 1);
+  const nav = lista.length > 1 ? `
+    <div class="ex-decisao-nav">
+      <button type="button" data-decisao-nav="anterior"${atual === 0 ? ' disabled' : ''}>Decisão anterior</button>
+      <button type="button" data-decisao-nav="proxima"${atual === lista.length - 1 ? ' disabled' : ''}>Próxima decisão</button>
+    </div>` : '';
+  return `
+    <div class="ex-decisoes-fila" id="ex-decisoes-fila">
+      ${lista.map((item, posicao) => htmlCartaoDecisao(item, posicao, lista.length, posicao === atual)).join('')}
+    </div>
+    ${nav}`;
+}
+
+function htmlConferencia(grupos) {
+  if (!grupos.length) {
+    return '<p class="ex-vazio">Nada pendente de conferência neste filtro.</p>';
+  }
+  return grupos.map((grupo) => `
+    <article class="ex-conferencia">
+      <h3>${esc(grupo.filial)}</h3>
+      <p class="ex-conferencia-aviso">Sem decisão nesta lista. A filial ainda precisa corrigir o que está abaixo.</p>
+      <ul>
+        ${grupo.pendencias.map((item) => `
+          <li>
+            <p>${esc(item.texto)}</p>
+            <p class="ex-conferencia-passo"><strong>A filial precisa:</strong> ${esc(item.passo)}</p>
+          </li>`).join('')}
+      </ul>
+    </article>`).join('');
+}
+
+export function htmlPainelDecisoes(modelo = {}, filtro = 'todas', { analiseAberta = false, decisaoIndice = 0 } = {}) {
   const decisoes = Array.isArray(modelo.decisoes) ? modelo.decisoes : [];
   const posicoes = Array.isArray(modelo.posicoes) ? modelo.posicoes : [];
   const limitacoes = Array.isArray(modelo.limitacoes) ? modelo.limitacoes : [];
   const contagem = Object.fromEntries(DECISOES.map((item) => [item.id, 0]));
   for (const linha of decisoes) contagem[linha.tipo] = (contagem[linha.tipo] || 0) + 1;
   const lista = filtro === 'todas' ? decisoes : decisoes.filter((linha) => linha.tipo === filtro);
-  const resumo = montarResumoCompra(modelo);
-  const cartoes = filtrarCartoesCompra(resumo.filiais, filtro);
-  const { indicadores } = resumo;
+  const fila = montarFilaDecisao(modelo, filtro);
   return `
-    <div class="ex-kpis ex-kpis-tres">
-      ${kpi('Compra recomendada', indicadores.compra, indicadores.compra ? 'risco' : '', 'pneus')}
-      ${kpi('Transferência recomendada', indicadores.transferencia, '', 'pneus')}
-      ${kpi('Em análise', indicadores.em_analise, indicadores.em_analise ? 'atencao' : '', 'filiais')}
-    </div>
-    <div class="ex-filtros" role="tablist" aria-label="Tipo de decisão">
-      <button type="button" class="ex-chip ${filtro === 'todas' ? 'is-ativa' : ''}" data-filtro="todas">Todas <span>${decisoes.length}</span></button>
-      ${DECISOES.map((item) => `
-        <button type="button" class="ex-chip ${filtro === item.id ? 'is-ativa' : ''}" data-filtro="${item.id}">
-          ${esc(item.label)} <span>${contagem[item.id] || 0}</span>
-        </button>`).join('')}
-    </div>
-    <section class="ex-compra-filiais" aria-labelledby="ex-compra-filiais-titulo">
-      <h3 id="ex-compra-filiais-titulo" class="ex-secao-titulo">Por filial</h3>
-      ${cartoes.length
-        ? `<div class="ex-filiais-compra">${cartoes.map(htmlCartaoCompra).join('')}</div>`
-        : '<p class="ex-vazio">Nenhuma filial neste recorte.</p>'}
-    </section>
-    <section class="ex-analise">
-      <button type="button" class="ex-analise-toggle" data-analise-detalhada aria-expanded="${analiseAberta ? 'true' : 'false'}" aria-controls="ex-analise-detalhada">
-        Ver análise detalhada
-      </button>
-      <div id="ex-analise-detalhada" class="ex-analise-corpo"${analiseAberta ? '' : ' hidden'}>
-        <p class="ex-nota">Compra recomendada, transferência recomendada e estoque suficiente são decisões confirmadas. Elas usam só estoque novo da mesma filial e da mesma medida, depois de reservar a necessidade da origem. Estimativa é a projeção de 90 dias, permanece não confirmada e não entra nessas quantidades. Aguardando validação mostra o motivo e o próximo passo, sem quantidade confirmada. Recapado e pneu em recapagem não são estoque disponível. Dianteira não usa recapado.</p>
-        <section class="ex-card">
-          <header class="ex-card-head">
-            <h3>Decisões</h3>
-            <p>Quantidade só aparece na decisão confirmada. Estimativa e aguardando validação continuam nesta lista.</p>
-          </header>
-          ${tabelaDecisoes(lista)}
-        </section>
-        <section class="ex-card">
-          <header class="ex-card-head">
-            <h3>Necessidades preliminares</h3>
-            <p>Contagem por medida e posição. É estimativa não confirmada e não substitui compra recomendada, transferência recomendada nem estoque suficiente.</p>
-          </header>
-          ${tabelaPosicoes(posicoes)}
-        </section>
-        ${limitacoes.length ? `
-          <section class="ex-card">
-            <header class="ex-card-head"><h3>Limites desta leitura</h3></header>
-            <ul class="ex-limites">
-              ${limitacoes.map((item) => `<li>${esc(item)}</li>`).join('')}
-            </ul>
-          </section>` : ''}
+    <div class="ex-decisoes">
+      <p class="ex-decisoes-intro">Aqui o senhor vê as compras de pneus já conferidas. O que ainda está incompleto fica separado, sem aprovação e sem reprovação. Nesta etapa, nenhum botão grava a decisão.</p>
+      <div class="ex-filtros" role="tablist" aria-label="Tipo de decisão">
+        <button type="button" class="ex-chip ${filtro === 'todas' ? 'is-ativa' : ''}" data-filtro="todas">Todas <span>${decisoes.length}</span></button>
+        ${DECISOES.map((item) => `
+          <button type="button" class="ex-chip ${filtro === item.id ? 'is-ativa' : ''}" data-filtro="${item.id}">
+            ${esc(item.label)} <span>${contagem[item.id] || 0}</span>
+          </button>`).join('')}
       </div>
-    </section>`;
+      <section class="ex-aguardando" id="ex-aguardando-decisao" aria-labelledby="ex-aguardando-titulo">
+        <h2 id="ex-aguardando-titulo">Aguardando a sua decisão</h2>
+        <p>Só entram compras com quantidade e medida já confirmadas.</p>
+        ${htmlAguardandoDecisao(fila.aguardando, decisaoIndice)}
+      </section>
+      <section class="ex-conferencias" id="ex-precisam-conferencia" aria-labelledby="ex-conferencia-titulo">
+        <h2 id="ex-conferencia-titulo">Precisam de conferência</h2>
+        <p>Necessidade preliminar, previsão e cadastro incompleto. A filial precisa corrigir antes de qualquer decisão.</p>
+        ${htmlConferencia(fila.conferencia)}
+      </section>
+      <section class="ex-analise">
+        <button type="button" class="ex-analise-toggle" data-analise-detalhada aria-expanded="${analiseAberta ? 'true' : 'false'}" aria-controls="ex-analise-detalhada">
+          Ver análise detalhada
+        </button>
+        <div id="ex-analise-detalhada" class="ex-analise-corpo"${analiseAberta ? '' : ' hidden'}>
+          <p class="ex-nota">Compra recomendada, transferência recomendada e estoque suficiente são decisões confirmadas. Elas usam só estoque novo da mesma filial e da mesma medida, depois de reservar a necessidade da origem. Estimativa é a projeção de 90 dias, permanece não confirmada e não entra nessas quantidades. Aguardando validação mostra o motivo e o próximo passo, sem quantidade confirmada. Recapado e pneu em recapagem não são estoque disponível. Dianteira não usa recapado.</p>
+          <section class="ex-card">
+            <header class="ex-card-head">
+              <h3>Decisões</h3>
+              <p>Quantidade só aparece na decisão confirmada. Estimativa e aguardando validação continuam nesta lista.</p>
+            </header>
+            ${tabelaDecisoes(lista)}
+          </section>
+          <section class="ex-card">
+            <header class="ex-card-head">
+              <h3>Necessidades preliminares</h3>
+              <p>Contagem por medida e posição. É estimativa não confirmada e não substitui compra recomendada, transferência recomendada nem estoque suficiente.</p>
+            </header>
+            ${tabelaPosicoes(posicoes)}
+          </section>
+          ${limitacoes.length ? `
+            <section class="ex-card">
+              <header class="ex-card-head"><h3>Limites desta leitura</h3></header>
+              <ul class="ex-limites">
+                ${limitacoes.map((item) => `<li>${esc(item)}</li>`).join('')}
+              </ul>
+            </section>` : ''}
+        </div>
+      </section>
+    </div>`;
 }
 
 function htmlDecisoes(modelo) {
-  return htmlPainelDecisoes(modelo, estado.filtro, { analiseAberta: estado.analiseDetalhada });
+  const total = montarFilaDecisao(modelo, estado.filtro).aguardando.length;
+  if (total === 0 || estado.decisaoIndice < 0 || estado.decisaoIndice >= total) estado.decisaoIndice = 0;
+  return htmlPainelDecisoes(modelo, estado.filtro, {
+    analiseAberta: estado.analiseDetalhada,
+    decisaoIndice: estado.decisaoIndice,
+  });
 }
 
 function formatarPercentual(valor) {
@@ -1565,6 +1802,8 @@ function pintar() {
   }
   const conteudo = document.getElementById('exec-conteudo');
   if (conteudo) conteudo.innerHTML = htmlConteudo();
+  sincronizarDecisaoMovel();
+  root.querySelector('.exec-nav .is-ativa')?.scrollIntoView?.({ inline: 'nearest', block: 'nearest' });
   const usuario = document.getElementById('exec-usuario');
   if (usuario && !usuario.textContent) usuario.textContent = 'Presidente';
 }
@@ -1592,6 +1831,14 @@ function onClick(evento) {
   const filtro = evento.target.closest('[data-filtro]');
   if (filtro) {
     estado.filtro = filtro.dataset.filtro;
+    estado.decisaoIndice = 0;
+    pintar();
+    return;
+  }
+  if (evento.target.closest('[data-decisao-indisponivel]')) return;
+  const navegacao = evento.target.closest('[data-decisao-nav]');
+  if (navegacao) {
+    estado.decisaoIndice += navegacao.dataset.decisaoNav === 'proxima' ? 1 : -1;
     pintar();
     return;
   }
@@ -1650,6 +1897,18 @@ export function iniciarExecutivo(novasAcoes = {}) {
   root.dataset.ligado = '1';
   root.addEventListener('click', onClick);
   root.addEventListener('change', onChange);
+  window.matchMedia?.('(max-width: 720px)')?.addEventListener?.('change', sincronizarDecisaoMovel);
+}
+
+function sincronizarDecisaoMovel() {
+  const fila = document.getElementById('ex-decisoes-fila');
+  if (!fila || !window.matchMedia) return;
+  const estreita = window.matchMedia('(max-width: 720px)').matches;
+  fila.querySelectorAll('.ex-decisao').forEach((cartao) => {
+    const atual = cartao.classList.contains('is-atual');
+    if (estreita && !atual) cartao.setAttribute('aria-hidden', 'true');
+    else cartao.removeAttribute('aria-hidden');
+  });
 }
 
 export function exibirExecutivo({ relatorio = null, erro = '', carregando = false, usuario = '' } = {}) {
