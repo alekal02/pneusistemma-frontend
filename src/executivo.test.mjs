@@ -255,9 +255,10 @@ const consultaIncompleta = montarConsulta({
     em_recapagem: 0,
   }],
 });
-assert.equal(consultaIncompleta.filiais[0].necessidade.selo, 'DADOS INSUFICIENTES');
+assert.equal(consultaIncompleta.filiais[0].necessidade.selo, 'NECESSIDADE TÉCNICA');
 assert.equal(consultaIncompleta.filiais[0].necessidade.faltam, null);
-assert.equal(consultaIncompleta.filiais[0].medidas[0].selo, 'DADOS INSUFICIENTES');
+assert.equal(consultaIncompleta.filiais[0].necessidade.numero, 2);
+assert.equal(consultaIncompleta.filiais[0].medidas[0].selo, 'NECESSIDADE TÉCNICA');
 assert.equal(consultaIncompleta.filiais[0].veiculos_cadastrados, 5);
 assert.equal(consultaIncompleta.filiais[0].veiculos, 2);
 const relatorioIncompleto = {
@@ -270,7 +271,10 @@ const relatorioIncompleto = {
       veiculos: 2,
       veiculos_cadastrados: 5,
       situacao_semana: 'atualizada',
-      incompletos: 4,
+      incompletos: 0,
+      sem_dimensao_comercial: 4,
+      leitura_sulco: { sem_historico: 0, invalida: 0, parcial: 0, desatualizada: 0, na_semana: 4 },
+      faixas: { critico: 2 },
       ultima_medicao: '2026-10-19',
     },
     {
@@ -281,7 +285,10 @@ const relatorioIncompleto = {
       veiculos: 1,
       veiculos_cadastrados: 1,
       situacao_semana: 'atrasada',
-      incompletos: 3,
+      incompletos: 0,
+      sem_dimensao_comercial: 3,
+      leitura_sulco: { sem_historico: 0, invalida: 0, parcial: 0, desatualizada: 3, na_semana: 0 },
+      faixas: { critico: 2 },
       ultima_medicao: '2026-10-17',
     },
   ],
@@ -305,11 +312,20 @@ const relatorioIncompleto = {
 const telas = htmlsConsulta(relatorioIncompleto, { filialId: 10, comparar: [10, 13] });
 assert.match(telas.situacao, /veículos cadastrados/);
 assert.match(telas.situacao, /veículos com pneu montado/);
-assert.match(telas.situacao, /cadastro incompleto/);
-assert.match(telas.situacao, /mesmo com a medição desta semana em dia/);
+assert.match(telas.situacao, /Medição dos sulcos feita nesta semana/);
+assert.match(telas.situacao, /Medição dos sulcos desatualizada/);
+assert.match(telas.situacao, /dimensão comercial/);
+assert.match(telas.situacao, /URGÊNCIA/);
 assert.equal(telas.situacao.includes('Faltam 2'), false);
+assert.equal(telas.situacao.includes('Sem histórico de medição dos sulcos'), false);
 assert.equal(telas.filial.includes('Faltam 2'), false);
 assert.match(telas.filial, /Quantidade em aberto/);
-assert.match(telas.comparar, /Necessidade ainda não comprovada/);
+assert.match(telas.filial, /Medição parcial ou inválida/);
+assert.match(telas.filial, /Dimensão comercial não cadastrada/);
+assert.match(telas.filial, /Não é aprovação/);
+assert.match(telas.filial, /Não é estimativa/);
+assert.match(telas.filial, /nesta semana/);
+assert.match(telas.comparar, /quantidade de compra só fecha/i);
+assert.match(telas.comparar, /desatualizada/);
 
 console.log('executivo.test: ok');

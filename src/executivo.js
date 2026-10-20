@@ -1897,18 +1897,18 @@ function htmlQualidade(modelo) {
 }
 
 const TEXTO_SEMANA = {
-  atualizada: 'Medida nesta semana',
-  atrasada: 'Medição atrasada',
-  parcial: 'Semana incompleta',
-  sem_medicao: 'Sem medição',
+  atualizada: 'Medição dos sulcos feita nesta semana',
+  atrasada: 'Medição dos sulcos desatualizada',
+  parcial: 'Medição dos sulcos em parte da frota nesta semana',
+  sem_medicao: 'Sem histórico de medição dos sulcos',
   sem_pneu: 'Sem pneu montado',
 };
 
 const NOTA_SEMANA = {
-  atualizada: 'Todos os pneus montados têm medição nesta semana.',
-  atrasada: 'A última medição é de uma semana anterior.',
-  parcial: 'Só parte dos pneus foi medida nesta semana.',
-  sem_medicao: 'Não há medição. Isso não é situação regular.',
+  atualizada: 'A profundidade dos sulcos foi registrada nesta semana. Isso não é a dimensão comercial do pneu.',
+  atrasada: 'Há sulco registrado, mas a última medição é de uma semana anterior. Não é ausência de medição.',
+  parcial: 'Só parte dos pneus montados tem sulco medido nesta semana.',
+  sem_medicao: 'Não há histórico de profundidade dos sulcos. Isso não é medição antiga nem falta de dimensão comercial.',
   sem_pneu: 'Não há pneu montado para acompanhar.',
 };
 
@@ -1949,24 +1949,28 @@ function montadoIncompletoConsulta(pneu) {
   return false;
 }
 
-function leituraMedida(linha, montados, filialFechada) {
+function leituraMedida(linha, montados) {
   const chave = chaveMedida(linha.medida);
   const doGrupo = montados.filter((pneu) => chaveMedida(pneu.medida) === chave);
   const novos = doGrupo.filter((pneu) => precisaPneuNovo(pneu));
-  const definitiva = filialFechada && linha.recomendacao_definitiva === true && linha.medida_informada === true;
+  const definitiva = linha.recomendacao_definitiva === true && linha.medida_informada === true;
   const necessidade = inteiro(linha.necessidade_pneu_novo) || 0;
   const faltam = inteiro(linha.comprar_novo) || 0;
   const estoque = inteiro(linha.estoque_novo) || 0;
   const recapado = inteiro(linha.estoque_recapado) || 0;
   const emRecapagem = inteiro(linha.em_recapagem) || 0;
-  let selo = 'DADOS INSUFICIENTES';
-  let texto = filialFechada
-    ? motivoInsuficiente(linha)
-    : 'A filial ainda não fecha a conta. O estoque abaixo é contagem. A quantidade que falta não está comprovada.';
+  let selo = 'NECESSIDADE TÉCNICA';
+  const textoAberto = linha.medida_informada === true
+    ? 'A necessidade técnica permanece. A quantidade desta medida só fecha com o estoque compatível conferido e com a dimensão comercial de todos os pneus da filial.'
+    : 'A necessidade técnica permanece. A quantidade de compra não é definitiva sem a dimensão comercial e o estoque dessa dimensão.';
+  let texto = definitiva ? '' : textoAberto;
   let faltamExibir = null;
   if (!definitiva) {
-    selo = 'DADOS INSUFICIENTES';
+    selo = necessidade > 0 ? 'NECESSIDADE TÉCNICA' : 'DADOS INSUFICIENTES';
     faltamExibir = null;
+    if (necessidade > 0) {
+      texto = `${fraseContagem(necessidade, 'pneu tem necessidade técnica de pneu novo.', 'pneus têm necessidade técnica de pneu novo.')} ${texto}`;
+    }
   } else if (definitiva && faltam > 0) {
     selo = 'COMPROVADO';
     faltamExibir = faltam;
@@ -1991,7 +1995,7 @@ function leituraMedida(linha, montados, filialFechada) {
     justificativas.push(`${fraseContagem(emRecapagem, 'pneu em recapagem não é estoque disponível.', 'pneus em recapagem não são estoque disponível.')}`);
   }
   return {
-    medida: linha.medida_informada ? String(linha.medida).trim() : 'Sem medida',
+    medida: linha.medida_informada ? String(linha.medida).trim() : 'Dimensão comercial não cadastrada',
     selo,
     faltam: faltamExibir,
     texto,
@@ -2043,6 +2047,42 @@ function leituraNecessidade(definitiva, necessidade, faltam, estoqueNovo) {
   };
 }
 
+function leituraOperacional({ necessidade, criticos, semDimensao, semHistorico, situacao }) {
+  let selo = 'ACOMPANHAMENTO';
+  let numero = null;
+  let texto = 'A régua de sulco não aponta pneu novo agora.';
+  if (criticos > 0) {
+    selo = 'URGÊNCIA';
+    numero = criticos;
+    texto = `${fraseContagem(criticos, 'pneu crítico pela última medição dos sulcos.', 'pneus críticos pela última medição dos sulcos.')} A urgência usa esse sulco registrado. Não é estimativa.`;
+  } else if (necessidade > 0) {
+    selo = 'NECESSIDADE TÉCNICA';
+    numero = necessidade;
+    texto = `${fraseContagem(necessidade, 'pneu entra na necessidade técnica de pneu novo.', 'pneus entram na necessidade técnica de pneu novo.')} A estimativa de 90 dias não entra neste número.`;
+  } else if (semHistorico > 0) {
+    selo = 'DADOS INSUFICIENTES';
+    numero = semHistorico;
+    texto = 'Há pneu montado sem histórico de sulco. Isso não é medição antiga nem falta de dimensão comercial.';
+  }
+  if (necessidade > 0 && criticos > 0) {
+    texto += ` ${fraseContagem(necessidade, 'pneu tem necessidade técnica de pneu novo pela posição.', 'pneus têm necessidade técnica de pneu novo pela posição.')}`;
+  }
+  if (semDimensao > 0) {
+    texto += ` ${fraseContagem(semDimensao, 'pneu está sem dimensão comercial, então a compra não tem quantidade definitiva e o estoque compatível não foi conferido.', 'pneus estão sem dimensão comercial, então a compra não tem quantidade definitiva e o estoque compatível não foi conferido.')}`;
+  }
+  if (situacao === 'atrasada') {
+    texto += ' A medição dos sulcos está desatualizada. O sulco já registrado não foi apagado.';
+  }
+  return {
+    selo,
+    faltam: null,
+    numero,
+    necessidade,
+    texto,
+    detalhe: texto,
+  };
+}
+
 export function montarConsulta(relatorio) {
   const unidades = (relatorio?.por_unidade || []).filter((unidade) => !unidadeForaDoPainel(unidade));
   const ids = new Set(unidades.map((unidade) => idFilial(unidade.filial_id)).filter((id) => id != null));
@@ -2057,23 +2097,37 @@ export function montarConsulta(relatorio) {
     const linhas = medidas.filter((linha) => idFilial(linha.filial_id) === filialId);
     const resumo = comprasFilial.find((linha) => idFilial(linha.filial_id) === filialId);
     const descarte = descartes.find((item) => idFilial(item.filial_id) === filialId) || { quantidade: 0, itens: [] };
-    const semMedida = inteiro(resumo?.montados_sem_medida)
+    const semMedida = inteiro(unidade.sem_dimensao_comercial)
+      ?? inteiro(resumo?.montados_sem_medida)
       ?? montados.filter((pneu) => !chaveMedida(pneu.medida)).length;
     const definitiva = resumo
       ? resumo.recomendacao_definitiva === true
       : semMedida === 0 && linhas.every((linha) => linha.recomendacao_definitiva === true);
     const necessidade = linhas.reduce((soma, linha) => soma + (inteiro(linha.necessidade_pneu_novo) || 0), 0);
-    const faltam = linhas.reduce((soma, linha) => soma + (inteiro(linha.comprar_novo) || 0), 0);
+    const faltam = linhas.filter((linha) => linha.recomendacao_definitiva === true && linha.medida_informada === true)
+      .reduce((soma, linha) => soma + (inteiro(linha.comprar_novo) || 0), 0);
     const estoqueNovo = linhas.reduce((soma, linha) => soma + (inteiro(linha.estoque_novo) || 0), 0);
     const candidatos = inteiro(unidade.candidatos_recap)
       ?? montados.filter((pneu) => pneu.elegibilidade?.candidato_programacao === true).length;
-    const incompletos = inteiro(unidade.incompletos) ?? montados.filter(montadoIncompletoConsulta).length;
+    const leituraSulcoFilial = unidade.leitura_sulco || {};
+    const incompletos = inteiro(leituraSulcoFilial.sem_historico) != null && unidade.leitura_sulco
+      ? (inteiro(leituraSulcoFilial.sem_historico) || 0) + (inteiro(leituraSulcoFilial.invalida) || 0) + (inteiro(leituraSulcoFilial.parcial) || 0)
+      : (inteiro(unidade.incompletos) ?? montados.filter(montadoIncompletoConsulta).length);
     const situacao = unidade.situacao_semana || 'sem_medicao';
     const semanaBloqueia = situacao === 'sem_medicao' || situacao === 'sem_pneu';
     const fechada = definitiva && incompletos === 0 && semMedida === 0 && !semanaBloqueia;
-    const leitura = leituraNecessidade(fechada, necessidade, faltam, estoqueNovo);
+    const criticos = somarFaixa([unidade], 'critico', 'critico_equipamento');
+    const leitura = fechada
+      ? leituraNecessidade(true, necessidade, faltam, estoqueNovo)
+      : leituraOperacional({
+        necessidade,
+        criticos,
+        semDimensao: semMedida,
+        semHistorico: inteiro(leituraSulcoFilial.sem_historico) || incompletos,
+        situacao,
+      });
     if (fechada && (situacao === 'atrasada' || situacao === 'parcial')) {
-      leitura.detalhe = `${leitura.detalhe} A filial não está em dia com a medição desta semana.`;
+      leitura.detalhe = `${leitura.detalhe} A medição dos sulcos não está toda nesta semana.`;
     }
     return {
       filial_id: filialId,
@@ -2085,11 +2139,14 @@ export function montarConsulta(relatorio) {
       ultima_medicao: unidade.ultima_medicao || null,
       situacao_semana: unidade.situacao_semana || 'sem_medicao',
       medidos_na_semana: inteiro(unidade.medidos_na_semana) || 0,
-      criticos: somarFaixa([unidade], 'critico', 'critico_equipamento'),
+      criticos,
+      preventivo: somarFaixa([unidade], 'monitoramento_preventivo', 'monitoramento_equipamento'),
       candidatos_recap: candidatos,
       faixa_programar: inteiro(unidade.programar_recapagem) || somarFaixa([unidade], 'programar_recapagem'),
       incompletos,
       sem_medida: semMedida,
+      sem_dimensao_comercial: semMedida,
+      leitura_sulco: unidade.leitura_sulco || null,
       necessidade: leitura,
       estimativa_novo_90d: linhas.reduce((soma, linha) => soma + (inteiro(linha.previsao_novo_90d) || 0), 0),
       estimativa_recap_90d: linhas.reduce((soma, linha) => soma + (inteiro(linha.previsao_recap_90d) || 0), 0),
@@ -2099,7 +2156,7 @@ export function montarConsulta(relatorio) {
       medidas: linhas
         .slice()
         .sort((a, b) => String(a.medida || '').localeCompare(String(b.medida || ''), 'pt-BR'))
-        .map((linha) => leituraMedida(linha, montados, fechada)),
+        .map((linha) => leituraMedida(linha, montados)),
       criticos_lista: montados
         .filter((pneu) => pneu.faixa === 'critico' || pneu.faixa === 'critico_equipamento')
         .map(resumoPneu),
@@ -2108,7 +2165,9 @@ export function montarConsulta(relatorio) {
         .map(resumoPneu),
       pendencias: {
         sem_medida: montados.filter((pneu) => !chaveMedida(pneu.medida)).map(resumoPneu),
-        sem_medicao: montados.filter((pneu) => pneu.faixa === 'sem_medicao' || pneu.faixa === 'sem_regua').map(resumoPneu),
+        sem_medicao: montados.filter((pneu) => pneu.leitura_sulco === 'sem_historico' || (pneu.leitura_sulco == null && pneu.faixa === 'sem_medicao')).map(resumoPneu),
+        parcial: montados.filter((pneu) => pneu.leitura_sulco === 'parcial' || pneu.leitura_sulco === 'invalida').map(resumoPneu),
+        desatualizada: montados.filter((pneu) => pneu.leitura_sulco === 'desatualizada').map(resumoPneu),
         ciclo: montados.filter((pneu) => pneu.ciclo_confiavel === false).map(resumoPneu),
         fora_da_semana: semana
           ? montados.filter((pneu) => foraDaSemana(pneu.data_medicao, semana) === true).map(resumoPneu)
@@ -2129,7 +2188,12 @@ export function montarConsulta(relatorio) {
 }
 
 function htmlSelo(nome) {
-  const tom = nome === 'COMPROVADO' ? 'comprovado' : nome === 'ESTIMATIVA' ? 'estimativa' : 'insuficiente';
+  const tom = nome === 'COMPROVADO' ? 'comprovado'
+    : nome === 'ESTIMATIVA' ? 'estimativa'
+      : nome === 'URGÊNCIA' ? 'urgencia'
+        : nome === 'NECESSIDADE TÉCNICA' ? 'tecnica'
+          : nome === 'DIMENSÃO PENDENTE' ? 'dimensao'
+            : 'insuficiente';
   return `<span class="ex-selo ex-selo-${tom}">${esc(nome)}</span>`;
 }
 
@@ -2141,14 +2205,19 @@ function htmlVeiculos(filial) {
 
 function htmlSemana(filial) {
   const situacao = TEXTO_SEMANA[filial.situacao_semana] ? filial.situacao_semana : 'sem_medicao';
-  const cadastro = filial.incompletos > 0
-    ? `<p class="ex-cadastro-alerta">${esc(fraseContagem(filial.incompletos, 'pneu montado com cadastro incompleto.', 'pneus montados com cadastro incompleto.'))} A compra não está fechada${situacao === 'atualizada' ? ', mesmo com a medição desta semana em dia' : ''}.</p>`
+  const dimensao = filial.sem_dimensao_comercial > 0
+    ? `<p class="ex-cadastro-alerta">${esc(fraseContagem(filial.sem_dimensao_comercial, 'pneu montado está sem dimensão comercial.', 'pneus montados estão sem dimensão comercial.'))} O sulco já medido continua visível. Sem essa especificação, a compra não tem quantidade definitiva.</p>`
+    : '';
+  const leitura = filial.leitura_sulco;
+  const contagem = leitura
+    ? `<p class="ex-semana-nota">Sulco: ${leitura.sem_historico || 0} sem histórico · ${leitura.desatualizada || 0} desatualizado · ${leitura.na_semana || 0} nesta semana · ${(leitura.parcial || 0) + (leitura.invalida || 0)} parcial ou inválido.</p>`
     : '';
   return `
     <p class="ex-semana ex-semana-${situacao}">${esc(TEXTO_SEMANA[situacao])}</p>
-    <p class="ex-ultima">Última medição: ${esc(formatarDia(filial.ultima_medicao))}</p>
+    <p class="ex-ultima">Última medição dos sulcos: ${esc(formatarDia(filial.ultima_medicao))}</p>
     <p class="ex-semana-nota">${esc(NOTA_SEMANA[situacao])}</p>
-    ${cadastro}`;
+    ${contagem}
+    ${dimensao}`;
 }
 
 function htmlNumero(valor) {
@@ -2181,7 +2250,7 @@ function htmlCartaoFilial(filial, { botao = true } = {}) {
       <div class="ex-numeros">
         <div>
           ${htmlSelo(leitura.selo)}
-          <strong>${htmlNumero(leitura.selo === 'COMPROVADO' ? leitura.faltam : null)}</strong>
+          <strong>${htmlNumero(leitura.selo === 'COMPROVADO' ? leitura.faltam : leitura.numero)}</strong>
           <p>${esc(leitura.texto)}</p>
         </div>
         <div>
@@ -2190,12 +2259,12 @@ function htmlCartaoFilial(filial, { botao = true } = {}) {
           <p>Possível recapagem. Não é aprovação.</p>
         </div>
         <div>
-          ${htmlSelo(filial.incompletos > 0 ? 'DADOS INSUFICIENTES' : 'COMPROVADO')}
-          <strong>${filial.incompletos}</strong>
-          <p>${filial.incompletos ? 'Dados incompletos' : 'Cadastro sem pendência desta lista'}</p>
+          ${htmlSelo(filial.sem_dimensao_comercial > 0 ? 'DIMENSÃO PENDENTE' : 'COMPROVADO')}
+          <strong>${filial.sem_dimensao_comercial || 0}</strong>
+          <p>${filial.sem_dimensao_comercial ? 'Dimensão comercial não cadastrada' : 'Dimensão comercial cadastrada'}</p>
         </div>
       </div>
-      <p class="ex-recap-nota">${esc(recapNota)}</p>
+      <p class="ex-recap-nota">${filial.preventivo ? `${esc(fraseContagem(filial.preventivo, 'pneu em monitoramento preventivo, sujeito a confirmação. Isso não é compra.', 'pneus em monitoramento preventivo, sujeitos a confirmação. Isso não é compra.'))} ` : ''}${esc(recapNota)}</p>
       ${botao ? `<button type="button" class="ex-btn ex-btn-largo" data-abrir-filial="${filial.filial_id}">Ver ${esc(filial.filial)}</button>` : ''}
     </article>`;
 }
@@ -2206,7 +2275,7 @@ function htmlConsultaSituacao(consulta) {
   }
   return `
     <div class="ex-consulta">
-      <p class="ex-consulta-intro">Cada cartão é uma filial. Medição atrasada e falta de medição aparecem em destaque. Falta de medição não é situação regular.</p>
+      <p class="ex-consulta-intro">Cada cartão separa sulco sem histórico, sulco desatualizado, sulco desta semana e dimensão comercial. A falta da dimensão não apaga uma necessidade técnica já medida.</p>
       <div class="ex-filial-lista">
         ${consulta.filiais.map(htmlCartaoFilial).join('')}
       </div>
@@ -2277,16 +2346,16 @@ function htmlConsultaFilial(consulta) {
       </section>
       <section class="ex-bloco">
         <h3>Pendências de cadastro e medição</h3>
-        <h4>Sem medida</h4>
-        ${htmlListaPneus(pendencias.sem_medida, 'Nenhum pneu montado sem medida.')}
-        <h4>Sem sulco de banda</h4>
-        ${htmlListaPneus(pendencias.sem_medicao, 'Nenhum pneu montado sem sulco de banda.')}
+        <h4>Dimensão comercial não cadastrada</h4>
+        ${htmlListaPneus(pendencias.sem_medida, 'Nenhum pneu montado sem dimensão comercial.')}
+        <h4>Sem histórico de medição dos sulcos</h4>
+        ${htmlListaPneus(pendencias.sem_medicao, 'Nenhum pneu montado sem histórico de sulco.')}
+        <h4>Medição parcial ou inválida</h4>
+        ${htmlListaPneus(pendencias.parcial, 'Nenhuma medição parcial ou inválida.')}
+        <h4>Medição dos sulcos desatualizada</h4>
+        ${htmlListaPneus(pendencias.desatualizada, 'Nenhum pneu com sulco de semana anterior.')}
         <h4>Ciclo de recapagem não separado</h4>
         ${htmlListaPneus(pendencias.ciclo, 'Nenhum ciclo pendente de separação.')}
-        <h4>Fora da semana de medição</h4>
-        ${pendencias.fora_da_semana == null
-          ? '<p class="ex-vazio">O relatório não informou a semana. A situação da atualização fica em dados insuficientes.</p>'
-          : htmlListaPneus(pendencias.fora_da_semana, 'Todos os pneus montados têm medição nesta semana.')}
       </section>
     </div>`;
 }
@@ -2298,8 +2367,8 @@ function htmlColunaComparar(filial) {
       <header class="ex-filial-head"><h3>${esc(filial.filial)}</h3>${htmlSemana(filial)}</header>
       <div class="ex-compara-item">
         ${htmlSelo(leitura.selo)}
-        <strong>${htmlNumero(leitura.selo === 'COMPROVADO' ? leitura.faltam : null)}</strong>
-        <p>${leitura.selo === 'COMPROVADO' ? 'Necessidade comprovada de pneus novos.' : 'Necessidade ainda não comprovada.'} ${esc(leitura.texto)}</p>
+        <strong>${htmlNumero(leitura.selo === 'COMPROVADO' ? leitura.faltam : leitura.numero)}</strong>
+        <p>${leitura.selo === 'COMPROVADO' ? 'Compra definitiva, com dimensão e estoque conferidos.' : 'Necessidade técnica ou urgência. A quantidade de compra só fecha com dimensão comercial e estoque compatível.'} ${esc(leitura.texto)}</p>
       </div>
       <div class="ex-compara-item">
         ${htmlSelo('ESTIMATIVA')}
@@ -2318,9 +2387,9 @@ function htmlColunaComparar(filial) {
         <p>Em recapagem <strong>${filial.em_recapagem}</strong></p>
       </div>
       <div class="ex-compara-item">
-        ${htmlSelo(filial.incompletos > 0 ? 'DADOS INSUFICIENTES' : 'COMPROVADO')}
-        <strong>${filial.incompletos}</strong>
-        <p>${filial.incompletos > 0 ? 'Cadastro incompleto. A compra desta filial não é definitiva.' : 'Cadastro sem essa pendência.'} ${esc(TEXTO_SEMANA[filial.situacao_semana] || 'Sem medição')}</p>
+        ${htmlSelo(filial.sem_dimensao_comercial > 0 ? 'DIMENSÃO PENDENTE' : 'COMPROVADO')}
+        <strong>${filial.sem_dimensao_comercial || 0}</strong>
+        <p>${filial.sem_dimensao_comercial > 0 ? 'Dimensão comercial não cadastrada. Isso não esconde o sulco.' : 'Dimensão comercial cadastrada.'} ${esc(TEXTO_SEMANA[filial.situacao_semana] || 'Sem histórico de medição dos sulcos')}</p>
       </div>
     </article>`;
 }

@@ -71,7 +71,7 @@ function fecharComoRelatorio(pneus, compras) {
     return {
       ...linha,
       montados_sem_medida: faltam,
-      recomendacao_definitiva: faltam === 0 && linha.medida_informada,
+      recomendacao_definitiva: linha.medida_informada === true,
     };
   });
 }
@@ -179,7 +179,13 @@ const incompleta = decidir([
   pneu({ id: 2 }),
   pneu({ id: 3, status_pneu: 'estoque', condicao: 'novo', papel: null, faixa: null }),
 ]);
-assert.equal(incompleta.compras.every((item) => item.recomendacao_definitiva === false), true);
+const semDimensao = incompleta.compras.find((item) => item.medida_informada !== true);
+const comDimensao = incompleta.compras.find((item) => item.medida_informada === true);
+assert.equal(semDimensao.recomendacao_definitiva, false);
+assert.equal(semDimensao.comprar_novo, 0);
+assert.ok(semDimensao.necessidade_pneu_novo >= 1);
+assert.equal(comDimensao.recomendacao_definitiva, true);
+assert.ok(comDimensao.montados_sem_medida > 0);
 assert.equal(incompleta.decisoes.every((item) => item.tipo === 'dados_insuficientes' && item.quantidade == null && item.confirmada === false), true);
 assert.equal(incompleta.decisoes.some((item) => item.tipo === 'comprar' || item.tipo === 'transferir' || item.tipo === 'nao_comprar'), false);
 
