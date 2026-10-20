@@ -3,6 +3,7 @@ import {
   classificarDecisoes,
   htmlsConsulta,
   montarConsulta,
+  montarParecerExecutivo,
   necessidadesPorPosicao,
   prepararPainel,
   proximoPassoApresentacao,
@@ -232,7 +233,7 @@ const consultaIncompleta = montarConsulta({
     pneus_montados: 4,
     veiculos: 2,
     veiculos_cadastrados: 5,
-    situacao_semana: 'atualizada',
+    situacao_mes: 'no_ciclo',
     incompletos: 4,
     ultima_medicao: '2026-10-19',
   }],
@@ -270,10 +271,10 @@ const relatorioIncompleto = {
       pneus_montados: 4,
       veiculos: 2,
       veiculos_cadastrados: 5,
-      situacao_semana: 'atualizada',
+      situacao_mes: 'no_ciclo',
       incompletos: 0,
       sem_dimensao_comercial: 4,
-      leitura_sulco: { sem_historico: 0, invalida: 0, parcial: 0, desatualizada: 0, na_semana: 4 },
+      leitura_sulco: { sem_historico: 0, invalida: 0, parcial: 0, vencida: 0, ciclo_anterior: 0, no_ciclo: 4, nao_exigivel: 0 },
       faixas: { critico: 2 },
       ultima_medicao: '2026-10-19',
     },
@@ -284,12 +285,12 @@ const relatorioIncompleto = {
       pneus_montados: 3,
       veiculos: 1,
       veiculos_cadastrados: 1,
-      situacao_semana: 'atrasada',
+      situacao_mes: 'vencida',
       incompletos: 0,
       sem_dimensao_comercial: 3,
-      leitura_sulco: { sem_historico: 0, invalida: 0, parcial: 0, desatualizada: 3, na_semana: 0 },
+      leitura_sulco: { sem_historico: 0, invalida: 0, parcial: 0, vencida: 3, ciclo_anterior: 0, no_ciclo: 0, nao_exigivel: 0 },
       faixas: { critico: 2 },
-      ultima_medicao: '2026-10-17',
+      ultima_medicao: '2026-08-17',
     },
   ],
   compras_por_filial: [
@@ -312,20 +313,48 @@ const relatorioIncompleto = {
 const telas = htmlsConsulta(relatorioIncompleto, { filialId: 10, comparar: [10, 13] });
 assert.match(telas.situacao, /veículos cadastrados/);
 assert.match(telas.situacao, /veículos com pneu montado/);
-assert.match(telas.situacao, /Medição dos sulcos feita nesta semana/);
-assert.match(telas.situacao, /Medição dos sulcos desatualizada/);
-assert.match(telas.situacao, /dimensão comercial/);
-assert.match(telas.situacao, /URGÊNCIA/);
+assert.match(telas.situacao, /Medição dos sulcos feita neste mês/);
+assert.match(telas.situacao, /Medição mensal vencida/);
+assert.match(telas.situacao, /AVALIAÇÃO PRIORITÁRIA/);
+assert.match(telas.situacao, /Bom estado/);
+assert.match(telas.situacao, /Estoque novo/);
+assert.equal(telas.situacao.includes('dimensão comercial'), false);
+assert.equal(telas.situacao.includes('nesta semana'), false);
 assert.equal(telas.situacao.includes('Faltam 2'), false);
 assert.equal(telas.situacao.includes('Sem histórico de medição dos sulcos'), false);
 assert.equal(telas.filial.includes('Faltam 2'), false);
 assert.match(telas.filial, /Quantidade em aberto/);
+assert.match(telas.filial, /Diagnóstico técnico secundário/);
 assert.match(telas.filial, /Medição parcial ou inválida/);
 assert.match(telas.filial, /Dimensão comercial não cadastrada/);
 assert.match(telas.filial, /Não é aprovação/);
 assert.match(telas.filial, /Não é estimativa/);
-assert.match(telas.filial, /nesta semana/);
-assert.match(telas.comparar, /quantidade de compra só fecha/i);
-assert.match(telas.comparar, /desatualizada/);
+assert.match(telas.filial, /não está fechada/);
+assert.equal(telas.filial.includes('nesta semana'), false);
+assert.match(telas.comparar, /Como está a frota/);
+assert.match(telas.comparar, /Medição mensal vencida/);
+assert.match(telas.comparar, /AVALIAÇÃO PRIORITÁRIA/);
+assert.equal(telas.comparar.includes('Dimensão comercial não cadastrada'), false);
+assert.equal(telas.comparar.includes('nesta semana'), false);
+
+const compra = montarParecerExecutivo({
+  bom: 1, atencao: 1, criticos: 0, necessidade: 2, estoqueNovo: 0, comprarNovo: 2, estoqueConferido: true, candidatos: 2,
+});
+assert.equal(compra.quantidade_compra, 2);
+assert.equal(compra.recomendacoes.includes('COMPRA RECOMENDADA'), true);
+assert.equal(compra.recomendacoes.includes('AVALIAR RECAPAGEM'), true);
+assert.match(compra.recapagem, /inspeção técnica da carcaça/);
+const estoqueCobre = montarParecerExecutivo({
+  bom: 6, necessidade: 1, estoqueNovo: 4, comprarNovo: 0, estoqueConferido: true,
+});
+assert.equal(estoqueCobre.quantidade_compra, null);
+assert.deepEqual(estoqueCobre.recomendacoes, ['COMPRA NÃO NECESSÁRIA NO MOMENTO']);
+const semNumero = montarParecerExecutivo({
+  criticos: 1, necessidade: 1, comprarNovo: 1, estoqueConferido: false, vencidas: 1,
+});
+assert.equal(semNumero.quantidade_compra, null);
+assert.equal(semNumero.recomendacoes.includes('COMPRA RECOMENDADA'), false);
+assert.equal(semNumero.recomendacoes.includes('AVALIAÇÃO PRIORITÁRIA'), true);
+assert.match(semNumero.substituicao, /não apaga essa necessidade/);
 
 console.log('executivo.test: ok');

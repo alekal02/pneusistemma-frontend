@@ -1206,11 +1206,50 @@
   font-weight: 700;
 }
 
+.ex-semana-no_ciclo,
 .ex-semana-atualizada { background: #e7ece8; color: #1c2420; }
+.ex-semana-ciclo_anterior { background: #a16207; color: #fffbeb; }
+.ex-semana-vencida,
 .ex-semana-atrasada { background: #9a3412; color: #fff7ed; }
 .ex-semana-parcial { background: #a16207; color: #fffbeb; }
+.ex-semana-nao_exigivel,
 .ex-semana-sem_medicao,
 .ex-semana-sem_pneu { background: #1e3a5f; color: #f8fafc; }
+
+.ex-filial-card.is-vencida { border-color: #9a3412; background: #fff7ed; }
+.ex-filial-card.is-ciclo_anterior,
+.ex-filial-card.is-parcial { border-color: #a16207; background: #fffbeb; }
+.ex-filial-card.is-no_ciclo { border-color: #1f7a3a; }
+
+.ex-recomendacoes {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.ex-parecer {
+  display: grid;
+  gap: 0.65rem;
+  margin: 0;
+}
+
+.ex-parecer div {
+  margin: 0;
+}
+
+.ex-parecer dt {
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #3d4a43;
+}
+
+.ex-parecer dd {
+  margin: 0.15rem 0 0;
+  font-size: 1.12rem;
+  line-height: 1.4;
+}
 
 .ex-ultima { margin: 0.45rem 0 0; font-size: 1.2rem; }
 
