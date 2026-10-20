@@ -21,6 +21,8 @@
 #app-shell.modo-executivo #exec-app:not(.hidden) {
   display: grid;
   grid-template-columns: 220px minmax(0, 1fr);
+  width: 100%;
+  min-width: 0;
   min-height: 100vh;
 }
 
@@ -31,6 +33,8 @@
   flex-direction: column;
   padding: 1.25rem 0.9rem 1rem;
   gap: 1.5rem;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .exec-marca {
@@ -386,6 +390,83 @@
   font-size: 0.78rem;
 }
 
+.ex-prioridades {
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  min-width: 0;
+  max-width: 100%;
+}
+
+.ex-prioridades-head h3 {
+  margin: 0;
+  font-size: 0.98rem;
+  font-weight: 600;
+}
+
+.ex-prioridades-head p {
+  margin: 0.25rem 0 0;
+  color: #4d5852;
+  font-size: 0.86rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.ex-prioridades-grade {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.ex-prioridade {
+  background: #fff;
+  border: 1px solid #e3e6e2;
+  border-radius: 12px;
+  padding: 0.85rem 1rem 0.95rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.ex-prioridade.is-ativa {
+  border-color: #1c2420;
+}
+
+.ex-prioridade-rotulo {
+  margin: 0;
+  color: #66716b;
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ex-prioridade .ex-link {
+  display: inline-block;
+  margin-top: 0.35rem;
+  font-size: 1.05rem;
+}
+
+.ex-prioridade strong {
+  display: block;
+  margin-top: 0.4rem;
+  font-family: Barlow, "IBM Plex Sans", sans-serif;
+  font-size: 1.05rem;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+.ex-prioridade-meta {
+  margin: 0.15rem 0 0;
+  color: #66716b;
+  font-size: 0.8rem;
+}
+
+.ex-prioridade .ex-nota {
+  margin-top: 0.35rem;
+  font-size: 0.82rem;
+}
+
 .ex-filtros {
   display: flex;
   flex-wrap: wrap;
@@ -496,4 +577,5 @@
   .exec-top { align-items: flex-start; flex-direction: column; }
   .ex-card-head { flex-direction: column; gap: 0.2rem; }
   .ex-kpi strong { font-size: 1.45rem; }
+  .ex-prioridades-grade { grid-template-columns: 1fr; }
 }

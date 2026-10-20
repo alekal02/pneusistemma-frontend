@@ -4,6 +4,7 @@ import {
   pendenciasMedida,
   percentual,
   prepararPainel,
+  prioridadesRegularizacao,
   qualidadePorFilial,
 } from './executivo.js';
 
@@ -107,5 +108,139 @@ assert.equal(painel.qualidade[0].sem_medida, 1);
 assert.equal(painel.qualidade[0].completude, 75);
 assert.equal(painel.qualidade[0].incompletos, 25);
 assert.equal(painel.qualidade[0].compra_bloqueada, true);
+
+function semPromessaDeCompra(item) {
+  assert.equal(/compra|liber|desbloq/i.test(item.justificativa), false);
+  assert.equal(item.justificativa.includes('cadastro'), true);
+  assert.equal(item.justificativa.includes('%'), true);
+}
+
+const ordemAntes = qualidade.map((item) => item.filial);
+const prioridades = prioridadesRegularizacao(qualidade);
+assert.deepEqual(qualidade.map((item) => item.filial), ordemAntes);
+assert.equal(prioridades.maior_problema.filial, 'Cega');
+assert.equal(prioridades.maior_problema.filial_id, 4);
+assert.equal(prioridades.maior_problema.cadastros_pendentes, 8);
+assert.equal(prioridades.maior_problema.incompletos, 100);
+assert.equal(prioridades.maior_problema.montados, 8);
+assert.equal(
+  prioridades.maior_problema.justificativa,
+  '8 cadastros pendentes e 100% dos pneus montados sem medida. Reúne o maior percentual incompleto e a maior quantidade de pneus sem medida.',
+);
+assert.equal(prioridades.menor_esforco.filial, 'Quase');
+assert.equal(prioridades.menor_esforco.cadastros_pendentes, 1);
+assert.equal(prioridades.menor_esforco.incompletos, 25);
+assert.equal(
+  prioridades.menor_esforco.justificativa,
+  '1 cadastro pendente e 25% dos pneus montados sem medida. É a menor quantidade de pneus sem medida. O percentual incompleto separa quantidades iguais.',
+);
+semPromessaDeCompra(prioridades.maior_problema);
+semPromessaDeCompra(prioridades.menor_esforco);
+assert.equal([prioridades.maior_problema.filial, prioridades.menor_esforco.filial].includes('Vazia'), false);
+assert.equal([prioridades.maior_problema.filial, prioridades.menor_esforco.filial].includes('Travada'), false);
+assert.equal([prioridades.maior_problema.filial, prioridades.menor_esforco.filial].includes('Completa'), false);
+
+const cruzadas = qualidadePorFilial([
+  { filial_id: 1, filial: 'CegaPequena', codigo: 'CP', pneus_montados: 2, sem_medida: 2 },
+  { filial_id: 2, filial: 'Volume', codigo: 'VO', pneus_montados: 20, sem_medida: 10 },
+  { filial_id: 3, filial: 'Muitos', codigo: 'MU', pneus_montados: 150, sem_medida: 15 },
+  { filial_id: 4, filial: 'QuasePronta', codigo: 'QP', pneus_montados: 10, sem_medida: 1 },
+  { filial_id: 5, filial: 'UmSoCega', codigo: 'UC', pneus_montados: 1, sem_medida: 1 },
+  { filial_id: 6, filial: 'Vazia', codigo: 'VZ', pneus_montados: 0, sem_medida: 0 },
+  { filial_id: 7, filial: 'Estourada', codigo: 'ES', pneus_montados: 2, sem_medida: 5 },
+  { filial_id: 8, filial: 'Completa', codigo: 'CO', pneus_montados: 8, sem_medida: 0 },
+]);
+const leituraCruzada = prioridadesRegularizacao(cruzadas);
+assert.equal(leituraCruzada.maior_problema.filial, 'Volume');
+assert.equal(leituraCruzada.maior_problema.codigo, 'VO');
+assert.equal(leituraCruzada.maior_problema.cadastros_pendentes, 10);
+assert.equal(leituraCruzada.maior_problema.incompletos, 50);
+assert.equal(
+  leituraCruzada.maior_problema.justificativa,
+  '10 cadastros pendentes e 50% dos pneus montados sem medida. Nem o percentual nem a quantidade são os maiores sozinhos; os dois juntos formam o maior problema cadastral.',
+);
+assert.equal(leituraCruzada.menor_esforco.filial, 'QuasePronta');
+assert.equal(leituraCruzada.menor_esforco.cadastros_pendentes, 1);
+assert.equal(leituraCruzada.menor_esforco.incompletos, 10);
+assert.equal(
+  leituraCruzada.menor_esforco.justificativa,
+  '1 cadastro pendente e 10% dos pneus montados sem medida. A quantidade de pneus sem medida empata; o menor percentual incompleto define o menor esforço para completar as medidas.',
+);
+assert.equal(leituraCruzada.maior_problema.filial === 'Vazia' || leituraCruzada.menor_esforco.filial === 'Vazia', false);
+assert.equal(leituraCruzada.maior_problema.filial === 'Estourada' || leituraCruzada.menor_esforco.filial === 'Estourada', false);
+
+const percentualPesaMais = prioridadesRegularizacao(qualidadePorFilial([
+  { filial_id: 1, filial: 'Cega', pneus_montados: 8, sem_medida: 8 },
+  { filial_id: 2, filial: 'Muitos', pneus_montados: 150, sem_medida: 15 },
+]));
+assert.equal(percentualPesaMais.maior_problema.filial, 'Cega');
+assert.equal(percentualPesaMais.maior_problema.cadastros_pendentes, 8);
+assert.equal(
+  percentualPesaMais.maior_problema.justificativa,
+  '8 cadastros pendentes e 100% dos pneus montados sem medida. Outra filial tem mais pneus sem medida; o percentual incompleto torna este o maior problema cadastral.',
+);
+assert.equal(percentualPesaMais.menor_esforco.filial, 'Cega');
+assert.equal(percentualPesaMais.menor_esforco.cadastros_pendentes, 8);
+
+const quantidadePesaMais = prioridadesRegularizacao(qualidadePorFilial([
+  { filial_id: 1, filial: 'Larga', pneus_montados: 102, sem_medida: 40 },
+  { filial_id: 2, filial: 'CegaMedia', pneus_montados: 10, sem_medida: 10 },
+  { filial_id: 3, filial: 'Pequena', pneus_montados: 8, sem_medida: 1 },
+]));
+assert.equal(quantidadePesaMais.maior_problema.filial, 'Larga');
+assert.equal(quantidadePesaMais.maior_problema.cadastros_pendentes, 40);
+assert.equal(quantidadePesaMais.maior_problema.incompletos, 39.2);
+assert.equal(
+  quantidadePesaMais.maior_problema.justificativa,
+  '40 cadastros pendentes e 39,2% dos pneus montados sem medida. Outra filial tem percentual incompleto maior; a quantidade absoluta de pneus sem medida torna este o maior problema cadastral.',
+);
+assert.equal(quantidadePesaMais.menor_esforco.filial, 'Pequena');
+assert.equal(quantidadePesaMais.menor_esforco.cadastros_pendentes, 1);
+assert.equal(quantidadePesaMais.menor_esforco.incompletos, 12.5);
+assert.equal(
+  quantidadePesaMais.menor_esforco.justificativa,
+  '1 cadastro pendente e 12,5% dos pneus montados sem medida. É a menor quantidade de pneus sem medida. O percentual incompleto separa quantidades iguais.',
+);
+
+const empateProduto = prioridadesRegularizacao(qualidadePorFilial([
+  { filial_id: 1, filial: 'Meia', pneus_montados: 10, sem_medida: 5 },
+  { filial_id: 2, filial: 'Quarto', pneus_montados: 40, sem_medida: 10 },
+]));
+assert.equal(empateProduto.maior_problema.filial, 'Quarto');
+assert.equal(empateProduto.maior_problema.cadastros_pendentes, 10);
+assert.equal(empateProduto.menor_esforco.filial, 'Meia');
+assert.equal(empateProduto.menor_esforco.cadastros_pendentes, 5);
+
+const sozinha = prioridadesRegularizacao(qualidadePorFilial([
+  { filial_id: 1, filial: 'Vazia', pneus_montados: 0, sem_medida: 0 },
+  { filial_id: 2, filial: 'Sozinha', pneus_montados: 4, sem_medida: 1 },
+]));
+assert.equal(sozinha.maior_problema.filial, 'Sozinha');
+assert.equal(sozinha.menor_esforco.filial, 'Sozinha');
+assert.equal(sozinha.maior_problema.cadastros_pendentes, 1);
+assert.equal(
+  sozinha.maior_problema.justificativa,
+  '1 cadastro pendente e 25% dos pneus montados sem medida. É a única filial com cadastro de medida pendente.',
+);
+assert.equal(sozinha.menor_esforco.justificativa, sozinha.maior_problema.justificativa);
+
+const nenhuma = prioridadesRegularizacao(qualidadePorFilial([
+  { filial_id: 1, filial: 'Vazia', pneus_montados: 0, sem_medida: 0 },
+  { filial_id: 2, filial: 'Fantasma', pneus_montados: 0, sem_medida: 4 },
+  { filial_id: 3, filial: 'Estourada', pneus_montados: 2, sem_medida: 5 },
+  { filial_id: 4, filial: 'Completa', pneus_montados: 6, sem_medida: 0 },
+]));
+assert.equal(nenhuma.maior_problema, null);
+assert.equal(nenhuma.menor_esforco, null);
+assert.equal(prioridadesRegularizacao([
+  { filial_id: 9, filial: 'Forjada', montados: 0, sem_medida: 4, incompletos: 100 },
+]).maior_problema, null);
+assert.equal(prioridadesRegularizacao(null).menor_esforco, null);
+
+const doPainel = prioridadesRegularizacao(painel.qualidade);
+assert.equal(doPainel.maior_problema.filial, 'Aparecida');
+assert.equal(doPainel.menor_esforco.filial, 'Aparecida');
+assert.equal(doPainel.maior_problema.cadastros_pendentes, 1);
+assert.equal(doPainel.maior_problema.incompletos, 25);
 
 console.log('executivo-qualidade: ok');

@@ -514,6 +514,97 @@ export function filtrarQualidade(lista = [], filtro = 'todas') {
   return lista;
 }
 
+function elegivelRegularizacao(item) {
+  return Number.isInteger(item?.montados)
+    && item.montados > 0
+    && Number.isInteger(item?.sem_medida)
+    && item.sem_medida > 0
+    && item.sem_medida <= item.montados
+    && typeof item.incompletos === 'number'
+    && Number.isFinite(item.incompletos);
+}
+
+function pontosProblema(item) {
+  return Math.round(item.incompletos * 10) * item.sem_medida;
+}
+
+function compararProblema(a, b) {
+  return pontosProblema(b) - pontosProblema(a)
+    || b.sem_medida - a.sem_medida
+    || b.incompletos - a.incompletos
+    || String(a.filial).localeCompare(String(b.filial), 'pt-BR')
+    || (a.filial_id ?? 0) - (b.filial_id ?? 0);
+}
+
+function compararEsforco(a, b) {
+  return a.sem_medida - b.sem_medida
+    || a.incompletos - b.incompletos
+    || String(a.filial).localeCompare(String(b.filial), 'pt-BR')
+    || (a.filial_id ?? 0) - (b.filial_id ?? 0);
+}
+
+function textoCadastrosPendentes(qtd) {
+  return qtd === 1 ? '1 cadastro pendente' : `${qtd} cadastros pendentes`;
+}
+
+function justificarMaiorProblema(escolhida, elegiveis) {
+  const outras = elegiveis.filter((item) => item.filial_id !== escolhida.filial_id);
+  if (!outras.length) return 'É a única filial com cadastro de medida pendente.';
+  const maiorPercentual = outras.some((item) => item.incompletos > escolhida.incompletos);
+  const maiorQuantidade = outras.some((item) => item.sem_medida > escolhida.sem_medida);
+  if (!maiorPercentual && !maiorQuantidade) {
+    return 'Reúne o maior percentual incompleto e a maior quantidade de pneus sem medida.';
+  }
+  if (maiorPercentual && !maiorQuantidade) {
+    return 'Outra filial tem percentual incompleto maior; a quantidade absoluta de pneus sem medida torna este o maior problema cadastral.';
+  }
+  if (!maiorPercentual && maiorQuantidade) {
+    return 'Outra filial tem mais pneus sem medida; o percentual incompleto torna este o maior problema cadastral.';
+  }
+  return 'Nem o percentual nem a quantidade são os maiores sozinhos; os dois juntos formam o maior problema cadastral.';
+}
+
+function justificarMenorEsforco(escolhida, elegiveis) {
+  const outras = elegiveis.filter((item) => item.filial_id !== escolhida.filial_id);
+  if (!outras.length) return 'É a única filial com cadastro de medida pendente.';
+  const empate = outras.some((item) => item.sem_medida === escolhida.sem_medida);
+  if (empate) {
+    return 'A quantidade de pneus sem medida empata; o menor percentual incompleto define o menor esforço para completar as medidas.';
+  }
+  return 'É a menor quantidade de pneus sem medida. O percentual incompleto separa quantidades iguais.';
+}
+
+function montarPrioridade(item, motivo) {
+  const resumo = `${textoCadastrosPendentes(item.sem_medida)} e ${formatarPercentual(item.incompletos)} dos pneus montados sem medida.`;
+  return {
+    filial_id: item.filial_id,
+    filial: item.filial,
+    codigo: item.codigo ?? null,
+    montados: item.montados,
+    cadastros_pendentes: item.sem_medida,
+    incompletos: item.incompletos,
+    motivo,
+    justificativa: `${resumo} ${motivo}`,
+  };
+}
+
+/**
+ * Duas leituras sobre os indicadores de qualidade já calculados.
+ * Só entra filial com pneu montado e medida faltando.
+ * Maior problema: percentual incompleto × pneus sem medida.
+ * Menor esforço: menos pneus sem medida; o percentual separa empates.
+ */
+export function prioridadesRegularizacao(lista = []) {
+  const elegiveis = (Array.isArray(lista) ? lista : []).filter(elegivelRegularizacao);
+  if (!elegiveis.length) return { maior_problema: null, menor_esforco: null };
+  const problema = [...elegiveis].sort(compararProblema)[0];
+  const esforco = [...elegiveis].sort(compararEsforco)[0];
+  return {
+    maior_problema: montarPrioridade(problema, justificarMaiorProblema(problema, elegiveis)),
+    menor_esforco: montarPrioridade(esforco, justificarMenorEsforco(esforco, elegiveis)),
+  };
+}
+
 export function pendenciasMedida(pneus, filialId) {
   if (!Array.isArray(pneus)) return null;
   const id = idFilial(filialId);
@@ -966,6 +1057,46 @@ function htmlDetalheQualidade(modelo) {
     </section>`;
 }
 
+function htmlPrioridadesRegularizacao(lista) {
+  const prioridades = prioridadesRegularizacao(lista);
+  const cards = [
+    ['maior_problema', 'Maior problema cadastral'],
+    ['menor_esforco', 'Menor esforço estimado'],
+  ];
+  const grade = cards.map(([chave, rotulo]) => {
+    const item = prioridades[chave];
+    if (!item) {
+      return `
+        <article class="ex-prioridade">
+          <p class="ex-prioridade-rotulo">${rotulo}</p>
+          <p class="ex-nota">Nenhuma filial com pneu montado sem medida.</p>
+        </article>`;
+    }
+    const ativa = estado.filialId === item.filial_id ? ' is-ativa' : '';
+    const nome = item.filial_id == null
+      ? esc(item.filial)
+      : `<button type="button" class="ex-link" data-abrir-filial="${item.filial_id}" aria-label="Abrir detalhe de ${esc(item.filial)}">${esc(item.filial)}</button>`;
+    return `
+      <article class="ex-prioridade${ativa}">
+        <p class="ex-prioridade-rotulo">${rotulo}</p>
+        ${nome}
+        <strong>${esc(textoCadastrosPendentes(item.cadastros_pendentes))}</strong>
+        <p class="ex-prioridade-meta">${formatarPercentual(item.incompletos)} dos montados sem medida</p>
+        <p class="ex-nota">${esc(item.motivo)}</p>
+      </article>`;
+  }).join('');
+  return `
+    <section class="ex-prioridades" aria-labelledby="ex-prioridades-titulo">
+      <header class="ex-prioridades-head">
+        <h3 id="ex-prioridades-titulo">Prioridades de regularização</h3>
+        <p>Entram filiais com pneu montado e medida faltando. O problema cadastral cruza o percentual incompleto com a quantidade de pneus sem medida. O esforço estimado segue a quantidade de cadastros pendentes; o percentual incompleto separa quantidades iguais. A tabela abaixo segue o filtro.</p>
+      </header>
+      <div class="ex-prioridades-grade">
+        ${grade}
+      </div>
+    </section>`;
+}
+
 function htmlQualidade(modelo) {
   const base = modelo.qualidade || [];
   const lista = filtrarQualidade(base, estado.filtroQualidade);
@@ -989,6 +1120,7 @@ function htmlQualidade(modelo) {
         </button>`).join('')}
     </div>
     <p class="ex-nota">A completude é a parcela dos pneus montados com medida informada. A ordem começa por quem tem mais dados incompletos. A compra fica bloqueada quando a filial tem montado sem medida ou alguma decisão sem quantidade confirmada.</p>
+    ${htmlPrioridadesRegularizacao(base)}
     <section class="ex-card">
       <header class="ex-card-head">
         <h3>Qualidade dos dados por filial</h3>
