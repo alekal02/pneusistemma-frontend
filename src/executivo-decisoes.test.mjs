@@ -253,7 +253,8 @@ assert.doesNotMatch(aguardando, /<strong>Comprar (?:9|7|5) pneus<\/strong>/);
 assert.equal(conferencia.includes('APROVAR COMPRA'), false);
 assert.equal(conferencia.includes('REPROVAR COMPRA'), false);
 assert.equal(conferencia.includes('SOLICITAR REVISÃO'), false);
-assert.match(conferencia, /Dianteira · Pneu novo · estimativa/);
+assert.equal(conferencia.includes('Dianteira · Pneu novo · estimativa'), false);
+assert.equal(aguardando.includes('Esta contagem ainda não está confirmada'), false);
 assert.match(conferencia, /Projeção 90 dias · estimativa/);
 assert.match(conferencia, /295\/80R22\.5 · Tração · leitura não confirmada/);
 assert.match(conferencia, /A filial precisa:/);
@@ -293,8 +294,8 @@ assert.equal(htmlBloqueado.includes('APROVAR COMPRA'), false);
 assert.equal(htmlBloqueado.includes('REPROVAR COMPRA'), false);
 assert.equal(htmlBloqueado.includes('SOLICITAR REVISÃO'), false);
 assert.equal(htmlBloqueado.includes('Compra confirmada'), false);
-assert.match(htmlBloqueado, /4 pneus montados estão sem medida/);
-assert.match(htmlBloqueado, /Completar a medida de 4 pneus montados/);
+assert.match(htmlBloqueado, /Esta filial precisa completar o cadastro de 4 pneus antes de concluir a análise de compra/);
+assert.match(htmlBloqueado, /Completar o cadastro desses pneus/);
 
 const htmlSemCadastro = htmlPainelDecisoes({ decisoes: semCadastro, qualidade: [], posicoes: [] });
 assert.match(htmlSemCadastro, /<strong>Comprar 1 pneu<\/strong>/);
@@ -332,7 +333,7 @@ const htmlCompraEMedida = htmlPainelDecisoes({
 assert.equal(htmlCompraEMedida.includes('APROVAR COMPRA'), false);
 assert.equal(htmlCompraEMedida.includes('REPROVAR COMPRA'), false);
 assert.equal(htmlCompraEMedida.includes('SOLICITAR REVISÃO'), false);
-assert.match(htmlCompraEMedida, /Completar a medida de 1 pneu montado/);
+assert.match(htmlCompraEMedida, /Esta filial precisa completar o cadastro de 1 pneu antes de concluir a análise de compra/);
 assert.match(htmlCompraEMedida, /ainda não está pronta/);
 
 assert.equal(compraProntaParaDecisao({ tipo: 'dados_insuficientes', confirmada: false, quantidade: 4, medida: '275/80R22.5', filial_id: 1 }), false);
@@ -355,5 +356,193 @@ assert.match(filaMista.aguardando[0].transferencia, /3 pneus de Contagem/);
 assert.equal(filaMista.aguardando[0].valor_total, null);
 assert.equal(filaMista.conferencia.some((item) => item.filial === 'Contagem'), false);
 assert.equal(montarFilaDecisao(modeloBloqueado, 'todas').aguardando.length, 0);
+
+const sabara = {
+  decisoes: [],
+  qualidade: [{
+    filial_id: 4,
+    filial: 'Sabará',
+    montados: 1,
+    sem_medida: 0,
+    compra_bloqueada: false,
+  }],
+  posicoes: [{
+    filial_id: 4,
+    filial: 'Sabará',
+    medida: null,
+    posicao: 'Dianteira',
+    leitura: 'dados_insuficientes',
+    pneus: 1,
+    posicoes: ['1E'],
+    motivo: 'Sem medida ou sem medição de banda. A quantidade desta posição ainda não está confirmada.',
+  }],
+  pneus: [{
+    filial_id: 4,
+    filial: 'Sabará',
+    status_pneu: 'montado',
+    medida: null,
+    posicao: '1E',
+  }],
+};
+const filaSabara = montarFilaDecisao(sabara, 'todas');
+const htmlSabara = htmlPainelDecisoes(sabara, 'todas');
+assert.equal(filaSabara.aguardando.length, 0);
+assert.equal(filaSabara.conferencia.length, 1);
+assert.equal(filaSabara.conferencia[0].filial, 'Sabará');
+assert.match(filaSabara.conferencia[0].pendencias[0].texto, /completar o cadastro de 1 pneu antes de concluir a análise de compra/);
+assert.match(htmlSabara, /id="ex-precisam-conferencia"[\s\S]*Sabará/);
+assert.match(htmlSabara, /ex-conferencia-cadastro/);
+assert.equal(htmlSabara.includes('APROVAR COMPRA'), false);
+assert.equal(trecho(htmlSabara, 'id="ex-precisam-conferencia"', 'id="ex-analise-detalhada"').includes('data-decisao-acao'), false);
+
+const compraDuplicada = classificarDecisoes([
+  linha({
+    filial_id: 1,
+    medida: '275/80R22.5',
+    estoque_novo: 0,
+    necessidade_pneu_novo: 2,
+    comprar_novo: 2,
+    saldo_novo: -2,
+    previsao_novo_90d: 1,
+  }),
+], nomes);
+const modeloDuplicado = {
+  decisoes: compraDuplicada,
+  qualidade: [cadastro(1, 'Aparecida', 4, 0, compraDuplicada)],
+  posicoes: [
+    {
+      filial_id: 1,
+      filial: 'Aparecida',
+      medida: '275/80R22.5',
+      posicao: 'Dianteira',
+      leitura: 'pneu_novo',
+      pneus: 2,
+      posicoes: ['1E'],
+      motivo: 'Dianteira em faixa crítica.',
+    },
+    {
+      filial_id: 1,
+      filial: 'Aparecida',
+      medida: '275/80R22.5',
+      posicao: 'Dianteira',
+      leitura: 'pneu_novo',
+      pneus: 2,
+      posicoes: ['1E'],
+      motivo: 'Dianteira em faixa crítica.',
+    },
+  ],
+};
+const htmlDuplicada = htmlPainelDecisoes(modeloDuplicado, 'todas');
+const aguardandoDuplicada = trecho(htmlDuplicada, 'id="ex-aguardando-decisao"', 'id="ex-precisam-conferencia"');
+const conferenciaDuplicada = trecho(htmlDuplicada, 'id="ex-precisam-conferencia"', 'id="ex-analise-detalhada"');
+assert.match(aguardandoDuplicada, /<strong>Comprar 2 pneus<\/strong>/);
+assert.equal(aguardandoDuplicada.includes('Esta contagem ainda não está confirmada'), false);
+assert.equal(conferenciaDuplicada.includes('Dianteira · Pneu novo · estimativa'), false);
+assert.match(conferenciaDuplicada, /Projeção 90 dias · estimativa/);
+assert.equal(conferenciaDuplicada.includes('APROVAR COMPRA'), false);
+
+const distintas = classificarDecisoes([
+  linha({
+    filial_id: 1,
+    medida: '275/80R22.5',
+    estoque_novo: 0,
+    necessidade_pneu_novo: 2,
+    comprar_novo: 2,
+    saldo_novo: -2,
+  }),
+], nomes);
+const modeloDistinto = {
+  decisoes: distintas,
+  qualidade: [
+    cadastro(1, 'Aparecida', 6, 0, distintas),
+    cadastro(2, 'Contagem', 4, 0, []),
+  ],
+  posicoes: [
+    {
+      filial_id: 1,
+      filial: 'Aparecida',
+      medida: '275/80R22.5',
+      posicao: 'Dianteira',
+      leitura: 'pneu_novo',
+      pneus: 2,
+      posicoes: ['1E'],
+      motivo: 'Mesma compra já confirmada.',
+    },
+    {
+      filial_id: 1,
+      filial: 'Aparecida',
+      medida: '275/80R22.5',
+      posicao: 'Tração',
+      leitura: 'recapagem',
+      pneus: 1,
+      posicoes: ['2D'],
+      origem: 'Betim',
+      motivo: 'Recapagem de outra origem.',
+    },
+    {
+      filial_id: 1,
+      filial: 'Aparecida',
+      medida: '295/80R22.5',
+      posicao: 'Dianteira',
+      leitura: 'pneu_novo',
+      pneus: 1,
+      posicoes: ['1D'],
+      motivo: 'Outra medida.',
+    },
+    {
+      filial_id: 1,
+      filial: 'Aparecida',
+      medida: '295/80R22.5',
+      posicao: 'Dianteira',
+      leitura: 'pneu_novo',
+      pneus: 1,
+      posicoes: ['1D'],
+      motivo: 'Outra medida repetida.',
+    },
+    {
+      filial_id: 2,
+      filial: 'Contagem',
+      medida: '275/80R22.5',
+      posicao: 'Dianteira',
+      leitura: 'pneu_novo',
+      pneus: 1,
+      posicoes: ['1E'],
+      motivo: 'Outra filial.',
+    },
+  ],
+};
+const filaDistinta = montarFilaDecisao(modeloDistinto, 'todas');
+const conferenciaAparecida = filaDistinta.conferencia.find((item) => item.filial === 'Aparecida');
+const conferenciaContagem = filaDistinta.conferencia.find((item) => item.filial === 'Contagem');
+assert.equal(filaDistinta.aguardando[0].medida, '275/80R22.5');
+assert.equal(conferenciaAparecida.pendencias.some((item) => item.identidade === 'pneu_novo' && item.medida === '275/80R22.5' && !item.origem), false);
+assert.equal(conferenciaAparecida.pendencias.some((item) => item.identidade === 'recapagem' && item.origem === 'Betim'), true);
+assert.equal(conferenciaAparecida.pendencias.some((item) => item.identidade === 'pneu_novo' && item.medida === '295/80R22.5'), true);
+assert.equal(conferenciaContagem.pendencias.some((item) => item.identidade === 'pneu_novo' && item.medida === '275/80R22.5'), true);
+assert.equal(conferenciaAparecida.pendencias.filter((item) => item.identidade === 'pneu_novo' && item.medida === '295/80R22.5').length, 1);
+assert.equal(conferenciaAparecida.pendencias.filter((item) => item.identidade === 'recapagem').length, 1);
+
+const vazia = {
+  decisoes: [],
+  qualidade: [{
+    filial_id: 9,
+    filial: 'Vazia',
+    montados: 0,
+    sem_medida: 0,
+    compra_bloqueada: false,
+  }],
+  posicoes: [],
+  pneus: [{ filial_id: 9, filial: 'Vazia', status_pneu: 'estoque', medida: null }],
+};
+const htmlVazia = htmlPainelDecisoes(vazia, 'todas');
+assert.equal(montarFilaDecisao(vazia, 'todas').conferencia.some((item) => item.filial === 'Vazia'), false);
+assert.equal(trecho(htmlVazia, 'id="ex-precisam-conferencia"', 'id="ex-analise-detalhada"').includes('Vazia'), false);
+assert.match(htmlVazia, /id="ex-aguardando-decisao"/);
+assert.match(htmlVazia, /id="ex-precisam-conferencia"/);
+assert.equal(htmlVazia.includes('id="ex-historico-decisoes"'), false);
+assert.match(htmlDuplicada, /disabled aria-disabled="true"/);
+assert.match(htmlDuplicada, /data-filtro="comprar"/);
+assert.match(htmlDuplicada, /data-filtro="estimativa"/);
+assert.equal(trecho(htmlDuplicada, 'id="ex-precisam-conferencia"', 'id="ex-analise-detalhada"').includes('data-decisao-acao'), false);
 
 console.log('executivo-decisoes: ok');

@@ -1,6 +1,25 @@
 import assert from 'node:assert/strict';
-import { montarPrevisaoFilial, normalizarMedida } from '../../backend/src/services/saude-desgaste.js';
+import { normalizarMedida } from './medida.js';
 import { classificarDecisoes, necessidadesPorPosicao } from './executivo.js';
+
+assert.equal(normalizarMedida('275/80/22.5'), '275/80r22.5');
+assert.equal(normalizarMedida('275/80R22.5'), '275/80r22.5');
+assert.equal(normalizarMedida('275/80/22.5'), normalizarMedida('275/80R22.5'));
+assert.equal(normalizarMedida('  275/80 r22,5 '), '275/80r22.5');
+assert.equal(normalizarMedida('12-16-5'), '12-16.5');
+assert.equal(normalizarMedida('12-16-5'), normalizarMedida('12-16.5'));
+assert.notEqual(normalizarMedida('275/80'), normalizarMedida('275/80R22.5'));
+assert.notEqual(normalizarMedida('275/80R22'), normalizarMedida('275/80R22.5'));
+assert.notEqual(normalizarMedida('275/80R22.6'), normalizarMedida('275/80R22.5'));
+
+let montarPrevisaoFilial;
+try {
+  ({ montarPrevisaoFilial } = await import('../../backend/src/services/saude-desgaste.js'));
+} catch (err) {
+  if (err?.code !== 'ERR_MODULE_NOT_FOUND') throw err;
+  console.log('executivo-auditoria: equivalência de medida ok; a previsão fica no repositório da API');
+  process.exit(0);
+}
 
 const CAMPOS_API = [
   'filial_id', 'medida', 'medida_informada',

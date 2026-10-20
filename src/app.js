@@ -264,7 +264,7 @@ function isPresidente() {
 }
 
 function isAdmin() {
-  return currentUser?.papel === 'admin' || isPresidente();
+  return currentUser?.papel === 'admin';
 }
 
 function isGerente() {

@@ -905,6 +905,71 @@
   color: #14201a;
 }
 
+.ex-decisao-btn.is-ativa {
+  cursor: pointer;
+  background: #fff;
+}
+
+.ex-decisao-btn.is-ativa:focus-visible,
+.ex-confirma button:focus-visible,
+.ex-parecer:focus-visible {
+  outline: 3px solid #14201a;
+  outline-offset: 3px;
+}
+
+.ex-decisao-btn:disabled {
+  cursor: not-allowed;
+}
+
+.ex-confirma,
+.ex-historico {
+  background: #fff;
+  color: #14201a;
+  border: 2px solid #14201a;
+  border-radius: 16px;
+  padding: 1.2rem 1.15rem 1.3rem;
+}
+
+.ex-confirma h2,
+.ex-historico h2 {
+  margin: 0 0 0.45rem;
+  font-size: 1.85rem;
+  line-height: 1.15;
+}
+
+.ex-confirma p,
+.ex-historico p,
+.ex-parecer-rotulo {
+  margin: 0.35rem 0;
+  font-size: 1.25rem;
+  line-height: 1.4;
+}
+
+.ex-parecer {
+  display: block;
+  width: 100%;
+  min-height: 7rem;
+  margin: 0.4rem 0 0.8rem;
+  padding: 0.75rem;
+  border: 3px solid #14201a;
+  border-radius: 12px;
+  font: inherit;
+  font-size: 1.25rem;
+  box-sizing: border-box;
+}
+
+.ex-confirma-acoes {
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.ex-historico-item + .ex-historico-item {
+  margin-top: 1rem;
+  padding-top: 1rem;
+  border-top: 2px solid #14201a;
+}
+
 .ex-decisao-btn-rotulo {
   font-size: 1.2rem;
   font-weight: 800;
@@ -943,6 +1008,15 @@
 
 .ex-conferencia li p {
   margin: 0;
+}
+
+.ex-conferencia li.ex-conferencia-cadastro {
+  font-size: 1.45rem;
+  line-height: 1.4;
+}
+
+.ex-conferencia li.ex-conferencia-cadastro p:first-child {
+  font-weight: 700;
 }
 
 .ex-conferencia-passo {
@@ -1018,4 +1092,246 @@
   .ex-decisao { display: none; }
 
   .ex-decisao.is-atual { display: block; }
+
+  .ex-confirma,
+  .ex-historico {
+    padding: 1rem;
+  }
+
+  .ex-confirma h2,
+  .ex-historico h2,
+  .ex-decisao h3,
+  .ex-conferencia h3 {
+    font-size: 1.7rem;
+  }
+
+  .ex-conferencia li.ex-conferencia-cadastro {
+    font-size: 1.4rem;
+  }
+
+  .ex-confirma-acoes .ex-decisao-btn,
+  .ex-decisao-btn {
+    min-height: 4.75rem;
+    font-size: 1.15rem;
+  }
+}
+
+.exec-consultivo {
+  font-size: 1.2rem;
+}
+
+.exec-consultivo .exec-nav button,
+.exec-consultivo .exec-top button,
+.exec-consultivo .ex-btn {
+  min-height: 3.25rem;
+  font-size: 1.15rem;
+  padding: 0.75rem 1rem;
+}
+
+.exec-consultivo .exec-top h2 {
+  font-size: 1.85rem;
+  line-height: 1.2;
+}
+
+.exec-consultivo #exec-quando,
+.exec-consultivo .exec-kicker {
+  font-size: 1.05rem;
+}
+
+.ex-consulta {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.ex-cadastro-alerta {
+  margin: 0.45rem 0 0;
+  color: #7a3e00;
+  font-weight: 600;
+}
+
+.ex-consulta-intro,
+.ex-semana-nota,
+.ex-recap-nota,
+.ex-acompanhados {
+  margin: 0;
+  font-size: 1.15rem;
+  line-height: 1.4;
+}
+
+.ex-filial-lista,
+.ex-comparar-grade {
+  display: grid;
+  gap: 1rem;
+}
+
+.ex-filial-card {
+  background: #fff;
+  border: 3px solid #d5ddd8;
+  border-radius: 18px;
+  padding: 1.15rem 1.15rem 1.25rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.85rem;
+}
+
+.ex-filial-card.is-atrasada {
+  border-color: #9a3412;
+  background: #fff7ed;
+}
+
+.ex-filial-card.is-sem_medicao,
+.ex-filial-card.is-sem_pneu {
+  border-color: #1e3a5f;
+  background: #f8fafc;
+}
+
+.ex-filial-card.is-parcial {
+  border-color: #a16207;
+  background: #fffbeb;
+}
+
+.ex-filial-head h3 {
+  margin: 0 0 0.35rem;
+  font-size: 2rem;
+  line-height: 1.15;
+}
+
+.ex-semana {
+  display: inline-block;
+  margin: 0;
+  padding: 0.35rem 0.7rem;
+  border-radius: 999px;
+  font-size: 1.15rem;
+  font-weight: 700;
+}
+
+.ex-semana-atualizada { background: #e7ece8; color: #1c2420; }
+.ex-semana-atrasada { background: #9a3412; color: #fff7ed; }
+.ex-semana-parcial { background: #a16207; color: #fffbeb; }
+.ex-semana-sem_medicao,
+.ex-semana-sem_pneu { background: #1e3a5f; color: #f8fafc; }
+
+.ex-ultima { margin: 0.45rem 0 0; font-size: 1.2rem; }
+
+.ex-numeros,
+.ex-compara-item {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.ex-numeros > div,
+.ex-compara-item {
+  background: rgba(255, 255, 255, 0.72);
+  border-radius: 14px;
+  padding: 0.85rem 0.9rem;
+}
+
+.ex-numeros strong,
+.ex-compara-item strong {
+  display: block;
+  margin: 0.2rem 0;
+  font-size: 3rem;
+  line-height: 1;
+  font-family: Barlow, "IBM Plex Sans", sans-serif;
+}
+
+.ex-numeros p,
+.ex-compara-item p,
+.ex-medida p,
+.ex-bloco p,
+.ex-lista li {
+  margin: 0.2rem 0 0;
+  font-size: 1.15rem;
+  line-height: 1.4;
+}
+
+.ex-selo-comprovado { background: #e7f6ea; color: #145223; }
+.ex-selo-estimativa { background: #fff3d6; color: #7a4e00; }
+.ex-selo-insuficiente { background: #e8eef8; color: #1e3a5f; }
+.ex-selo-candidato { background: #efe8f8; color: #4c1d95; }
+
+.exec-consultivo .ex-selo {
+  font-size: 1rem;
+  letter-spacing: 0.03em;
+  padding: 0.35rem 0.7rem;
+  white-space: normal;
+  line-height: 1.25;
+}
+
+.ex-btn-largo {
+  width: 100%;
+  border: 2px solid #1c2420 !important;
+  background: #1c2420 !important;
+  color: #f3f4f2 !important;
+  border-radius: 14px;
+  font-weight: 700;
+}
+
+.ex-btn-largo.is-ativa {
+  background: #145223 !important;
+  border-color: #145223 !important;
+}
+
+.ex-btn-voltar {
+  width: 100%;
+  background: #fff !important;
+  color: #1c2420 !important;
+  border: 2px solid #1c2420 !important;
+  border-radius: 14px;
+  font-weight: 700;
+}
+
+.ex-escolha {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+}
+
+.ex-bloco,
+.ex-medida {
+  background: #fff;
+  border-radius: 16px;
+  padding: 1rem 1.05rem;
+}
+
+.ex-bloco h3,
+.ex-medida h4,
+.ex-bloco h4 {
+  margin: 0.8rem 0 0.35rem;
+  font-size: 1.45rem;
+}
+
+.ex-bloco h3:first-child,
+.ex-medida h4:first-child { margin-top: 0; }
+
+.ex-lista,
+.ex-estoque {
+  margin: 0.4rem 0 0;
+  padding-left: 1.2rem;
+}
+
+.ex-lista li span {
+  display: block;
+  color: #3d4a43;
+}
+
+@media (min-width: 900px) {
+  .ex-numeros { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .ex-comparar-grade { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: start; }
+}
+
+@media (min-width: 1200px) {
+  .ex-comparar-grade { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
+
+@media (max-width: 799px) {
+  .exec-consultivo .exec-nav button {
+    font-size: 1.2rem;
+    min-height: 3.4rem;
+  }
+
+  .ex-filial-head h3 { font-size: 1.85rem; }
+  .ex-numeros strong,
+  .ex-compara-item strong { font-size: 2.7rem; }
 }

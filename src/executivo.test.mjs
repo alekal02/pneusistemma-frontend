@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import {
   classificarDecisoes,
+  htmlsConsulta,
+  montarConsulta,
   necessidadesPorPosicao,
   prepararPainel,
   proximoPassoApresentacao,
@@ -221,5 +223,93 @@ assert.equal(semMedicao[0].motivo.includes('Não há quantidade de compra'), fal
 assert.equal(proximoPassoApresentacao(semMedicao[0]), 'Informar a medida e a medição de banda para concluir a leitura desta posição.');
 assert.equal(painel.decisoes.some((item) => item.filial_id === 8), false);
 assert.equal(JSON.stringify(painel).includes('R$'), false);
+
+const consultaIncompleta = montarConsulta({
+  por_unidade: [{
+    filial_id: 10,
+    filial: 'Ariquemes',
+    codigo: '0110',
+    pneus_montados: 4,
+    veiculos: 2,
+    veiculos_cadastrados: 5,
+    situacao_semana: 'atualizada',
+    incompletos: 4,
+    ultima_medicao: '2026-10-19',
+  }],
+  compras_por_filial: [{
+    filial_id: 10,
+    montados_sem_medida: 4,
+    recomendacao_definitiva: false,
+    comprar_novo: 2,
+  }],
+  compras_por_medida: [{
+    filial_id: 10,
+    medida: '275/80/22.5',
+    medida_informada: true,
+    recomendacao_definitiva: false,
+    montados_sem_medida: 4,
+    necessidade_pneu_novo: 2,
+    comprar_novo: 2,
+    estoque_novo: 0,
+    estoque_recapado: 0,
+    em_recapagem: 0,
+  }],
+});
+assert.equal(consultaIncompleta.filiais[0].necessidade.selo, 'DADOS INSUFICIENTES');
+assert.equal(consultaIncompleta.filiais[0].necessidade.faltam, null);
+assert.equal(consultaIncompleta.filiais[0].medidas[0].selo, 'DADOS INSUFICIENTES');
+assert.equal(consultaIncompleta.filiais[0].veiculos_cadastrados, 5);
+assert.equal(consultaIncompleta.filiais[0].veiculos, 2);
+const relatorioIncompleto = {
+  por_unidade: [
+    {
+      filial_id: 10,
+      filial: 'Ariquemes',
+      codigo: '0110',
+      pneus_montados: 4,
+      veiculos: 2,
+      veiculos_cadastrados: 5,
+      situacao_semana: 'atualizada',
+      incompletos: 4,
+      ultima_medicao: '2026-10-19',
+    },
+    {
+      filial_id: 13,
+      filial: 'Porto Velho',
+      codigo: '0102',
+      pneus_montados: 3,
+      veiculos: 1,
+      veiculos_cadastrados: 1,
+      situacao_semana: 'atrasada',
+      incompletos: 3,
+      ultima_medicao: '2026-10-17',
+    },
+  ],
+  compras_por_filial: [
+    { filial_id: 10, montados_sem_medida: 4, recomendacao_definitiva: false, comprar_novo: 2 },
+    { filial_id: 13, montados_sem_medida: 3, recomendacao_definitiva: false, comprar_novo: 10 },
+  ],
+  compras_por_medida: [{
+    filial_id: 10,
+    medida: '275/80/22.5',
+    medida_informada: true,
+    recomendacao_definitiva: false,
+    montados_sem_medida: 4,
+    necessidade_pneu_novo: 2,
+    comprar_novo: 2,
+    estoque_novo: 0,
+    estoque_recapado: 0,
+    em_recapagem: 0,
+  }],
+};
+const telas = htmlsConsulta(relatorioIncompleto, { filialId: 10, comparar: [10, 13] });
+assert.match(telas.situacao, /veículos cadastrados/);
+assert.match(telas.situacao, /veículos com pneu montado/);
+assert.match(telas.situacao, /cadastro incompleto/);
+assert.match(telas.situacao, /mesmo com a medição desta semana em dia/);
+assert.equal(telas.situacao.includes('Faltam 2'), false);
+assert.equal(telas.filial.includes('Faltam 2'), false);
+assert.match(telas.filial, /Quantidade em aberto/);
+assert.match(telas.comparar, /Necessidade ainda não comprovada/);
 
 console.log('executivo.test: ok');

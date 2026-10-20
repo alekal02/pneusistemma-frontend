@@ -1,14 +1,18 @@
 /**
  * Painel executivo do presidente.
  * Só organiza o que GET /api/relatorios/saude-desgaste já devolve.
- * Não calcula preço, não cria estoque e não substitui o relatório.
+ * Não calcula preço, não cria estoque e não grava decisão.
  */
+import { normalizarMedida } from './medida.js';
+
+function estadoInicialAprovacao() {
+  return { suporte: false };
+}
 
 const ABAS = [
-  { id: 'visao', label: 'Visão Geral' },
-  { id: 'filiais', label: 'Filiais' },
-  { id: 'qualidade', label: 'Qualidade' },
-  { id: 'decisoes', label: 'Decisões de Compra' },
+  { id: 'situacao', label: 'Situação' },
+  { id: 'filial', label: 'Uma filial' },
+  { id: 'comparar', label: 'Comparar' },
 ];
 
 const DECISOES = [
@@ -34,7 +38,7 @@ let acoes = {
 };
 
 let estado = {
-  aba: 'visao',
+  aba: 'situacao',
   filialId: null,
   comparar: new Set(),
   filtro: 'todas',
@@ -45,6 +49,7 @@ let estado = {
   modelo: null,
   erro: '',
   carregando: false,
+  aprovacao: estadoInicialAprovacao(),
 };
 
 function esc(valor) {
@@ -78,8 +83,7 @@ function textoMedida(medida) {
 }
 
 function chaveMedida(medida) {
-  const t = String(medida || '').trim().replace(/\s+/g, '').replace(/,/g, '.').toLowerCase();
-  return t || null;
+  return normalizarMedida(medida);
 }
 
 export function unidadeForaDoPainel(item) {
@@ -1091,6 +1095,7 @@ export function montarResumoCompra(modelo = {}) {
           quantidade,
           classe: 'Projeção 90 dias',
           origem: null,
+          identidade: 'projecao-90-dias',
           estimativa: true,
         });
         continue;
@@ -1134,7 +1139,8 @@ export function montarResumoCompra(modelo = {}) {
         medida: String(linha.medida).trim(),
         quantidade,
         classe: `${linha.posicao || 'Posição'} · ${rotuloLeitura(linha.leitura)}`,
-        origem: null,
+        origem: linha.origem || null,
+        identidade: linha.leitura || 'preliminar',
         estimativa: true,
       });
     }
@@ -1352,9 +1358,106 @@ export function descreverCompraPronta(linha, transferencias = []) {
   };
 }
 
-function pendenciasConferencia(card, filtro, bloqueada) {
+function textoCadastroIncompleto(quantidade) {
+  const nome = quantidade === 1 ? '1 pneu' : `${quantidade} pneus`;
+  return `Esta filial precisa completar o cadastro de ${nome} antes de concluir a análise de compra.`;
+}
+
+function pendenciaCadastro(quantidade) {
+  return {
+    cadastro: true,
+    identidade: 'cadastro-incompleto',
+    texto: textoCadastroIncompleto(quantidade),
+    passo: quantidade === 1 ? 'Completar o cadastro desse pneu.' : 'Completar o cadastro desses pneus.',
+  };
+}
+
+function origemNecessidade(origem) {
+  return String(origem || '').trim().toLowerCase();
+}
+
+function identidadeNecessidade(linha) {
+  if (linha?.identidade) return String(linha.identidade);
+  if (linha?.classe === 'Projeção 90 dias') return 'projecao-90-dias';
+  const classe = String(linha?.classe || '');
+  if (/pneu novo/i.test(classe)) return 'pneu_novo';
+  if (/recapagem/i.test(classe)) return 'recapagem';
+  if (/avaliação urgente/i.test(classe)) return 'avaliacao_urgente';
+  return classe ? `preliminar:${classe}` : 'preliminar';
+}
+
+/**
+ * A compra confirmada e a estimativa são a mesma necessidade só quando
+ * filial, medida, origem e identidade coincidem.
+ */
+function chaveNecessidade(filialId, linha, identidade) {
+  return [
+    idFilial(filialId) ?? '',
+    chaveMedida(linha?.medida) || '',
+    origemNecessidade(linha?.origem),
+    identidade,
+  ].join('|');
+}
+
+function chavesCompraConfirmada(aguardando = []) {
+  const chaves = new Set();
+  for (const item of aguardando) {
+    chaves.add(chaveNecessidade(item?.filial_id, { medida: item?.medida, origem: null }, 'pneu_novo'));
+  }
+  return chaves;
+}
+
+function contarMontadosSemLinha(modelo, filialId) {
+  if (Array.isArray(modelo?.pneus)) {
+    let montados = 0;
+    let semMedida = 0;
+    for (const pneu of modelo.pneus) {
+      if (idFilial(pneu?.filial_id) !== filialId || pneu?.status_pneu !== 'montado') continue;
+      montados += 1;
+      if (!chaveMedida(pneu.medida)) semMedida += 1;
+    }
+    if (montados > 0) return semMedida;
+  }
+  let pelasPosicoes = 0;
+  for (const linha of modelo?.posicoes || []) {
+    if (idFilial(linha?.filial_id) !== filialId || chaveMedida(linha?.medida)) continue;
+    const quantidade = inteiro(linha?.pneus);
+    if (quantidade != null && quantidade > 0) pelasPosicoes += quantidade;
+  }
+  return pelasPosicoes;
+}
+
+/**
+ * Pneus montados sem medida entram na conferência mesmo sem linha de compra.
+ * Onde já existe decisão e o cadastro informa zero, a conta do relatório prevalece.
+ */
+function faltamMedidaNaConferencia(modelo, filialId) {
+  const cadastro = (modelo?.qualidade || []).find((item) => idFilial(item?.filial_id) === filialId) || null;
+  const informado = cadastro ? semMedidaInformada(cadastro) : null;
+  const montados = inteiro(cadastro?.montados) ?? inteiro(cadastro?.pneus_montados);
+  if (montados === 0) return 0;
+  if (informado != null && informado > 0) return informado;
+  const temLinha = (modelo?.decisoes || []).some((linha) => idFilial(linha?.filial_id) === filialId);
+  if (temLinha && informado === 0) return 0;
+  return contarMontadosSemLinha(modelo, filialId);
+}
+
+function nomeFilialConferencia(modelo, filialId, preferido) {
+  if (preferido) return preferido;
+  const fontes = [
+    ...(modelo?.qualidade || []),
+    ...(modelo?.posicoes || []),
+    ...(modelo?.pneus || []),
+    ...(modelo?.decisoes || []),
+  ];
+  const achada = fontes.find((item) => idFilial(item?.filial_id) === filialId && item?.filial);
+  return achada?.filial || `Unidade ${filialId}`;
+}
+
+function pendenciasConferencia(card, filtro, bloqueada, { faltamMedida = 0, confirmadas = new Set() } = {}) {
   const todas = filtro === 'todas';
   const lista = [];
+  const vistas = new Set();
   if (todas || filtro === 'dados_insuficientes') {
     for (const item of card.inconsistencias || []) {
       lista.push({
@@ -1362,28 +1465,29 @@ function pendenciasConferencia(card, filtro, bloqueada) {
         passo: card.passo_inconsistencia || 'Corrigir este ponto antes de qualquer decisão.',
       });
     }
-    if ((card.sem_medida ?? 0) > 0) {
-      const n = card.sem_medida;
-      lista.push({
-        texto: n === 1 ? '1 pneu montado está sem medida.' : `${n} pneus montados estão sem medida.`,
-        passo: `Completar a medida de ${n} ${n === 1 ? 'pneu montado' : 'pneus montados'}.`,
-      });
-    }
+    const faltam = inteiro(faltamMedida) || 0;
+    if (faltam > 0) lista.push(pendenciaCadastro(faltam));
   }
   if (todas || filtro === 'estimativa') {
-    for (const linha of card.projecoes || []) {
+    const estimativas = [...(card.projecoes || []), ...(card.medidas || [])];
+    for (const linha of estimativas) {
+      if (!linha?.estimativa || linha.confirmada === true) continue;
+      const identidade = identidadeNecessidade(linha);
+      const chave = chaveNecessidade(card.filial_id, linha, identidade);
+      const apresentacao = `${chave}|${linha.classe || ''}|${linha.quantidade}`;
+      if (vistas.has(apresentacao)) continue;
+      vistas.add(apresentacao);
+      if (identidade === 'pneu_novo' && confirmadas.has(chave)) continue;
       const nome = linha.quantidade === 1 ? 'pneu' : 'pneus';
+      const detalhe = linha.classe === 'Projeção 90 dias' ? 'Projeção 90 dias' : linha.classe;
       lista.push({
-        texto: `${linha.quantidade} ${nome} · ${linha.medida} · Projeção 90 dias · estimativa`,
-        passo: 'Isto é uma previsão. Não é compra e não entra na decisão.',
-      });
-    }
-    for (const linha of card.medidas || []) {
-      if (!linha.estimativa || linha.classe === 'Projeção 90 dias') continue;
-      const nome = linha.quantidade === 1 ? 'pneu' : 'pneus';
-      lista.push({
-        texto: `${linha.quantidade} ${nome} · ${linha.medida} · ${linha.classe} · estimativa`,
-        passo: 'Esta contagem ainda não está confirmada. Não é compra.',
+        identidade,
+        medida: linha.medida,
+        origem: linha.origem || null,
+        texto: `${linha.quantidade} ${nome} · ${linha.medida} · ${detalhe} · estimativa`,
+        passo: identidade === 'projecao-90-dias'
+          ? 'Isto é uma previsão. Não é compra e não entra na decisão.'
+          : 'Esta contagem ainda não está confirmada. Não é compra.',
       });
     }
   }
@@ -1391,8 +1495,8 @@ function pendenciasConferencia(card, filtro, bloqueada) {
     lista.push({
       texto: `Há uma indicação de comprar ${textoPneus(card.compra)}, mas a filial ainda não está pronta.`,
       passo: card.passo_inconsistencia
-        || ((card.sem_medida ?? 0) > 0
-          ? `Completar a medida de ${card.sem_medida} ${card.sem_medida === 1 ? 'pneu montado' : 'pneus montados'}.`
+        || ((inteiro(faltamMedida) || 0) > 0
+          ? pendenciaCadastro(faltamMedida).passo
           : 'Validar a medida e o cadastro antes de qualquer decisão.'),
     });
   }
@@ -1425,15 +1529,40 @@ export function montarFilaDecisao(modelo = {}, filtro = 'todas') {
       .filter((linha) => compraProntaParaDecisao(linha, bloqueadas))
       .map((linha) => descreverCompraPronta(linha, transferenciasDaCompra(decisoes, linha)))
     : [];
+  const confirmadas = chavesCompraConfirmada(aguardando);
   const conferencia = [];
+  const vistas = new Set();
+  const mostraCadastro = filtro === 'todas' || filtro === 'dados_insuficientes';
   for (const card of filtrarCartoesCompra(resumo.filiais, filtro)) {
-    const pendencias = pendenciasConferencia(card, filtro, bloqueadas.has(card.filial_id));
+    const filialId = idFilial(card.filial_id);
+    vistas.add(filialId);
+    const pendencias = pendenciasConferencia(card, filtro, bloqueadas.has(filialId), {
+      faltamMedida: faltamMedidaNaConferencia(modelo, filialId),
+      confirmadas,
+    });
     if (!pendencias.length) continue;
     conferencia.push({
       filial_id: card.filial_id,
       filial: card.filial,
       pendencias,
     });
+  }
+  if (mostraCadastro) {
+    const candidatas = new Map();
+    for (const item of [...(modelo.qualidade || []), ...(modelo.posicoes || []), ...(modelo.pneus || [])]) {
+      const filialId = idFilial(item?.filial_id);
+      if (filialId == null || vistas.has(filialId) || candidatas.has(filialId)) continue;
+      candidatas.set(filialId, item.filial || '');
+    }
+    for (const [filialId, nome] of candidatas) {
+      const faltam = faltamMedidaNaConferencia(modelo, filialId);
+      if (faltam <= 0) continue;
+      conferencia.push({
+        filial_id: filialId,
+        filial: nomeFilialConferencia(modelo, filialId, nome),
+        pendencias: [pendenciaCadastro(faltam)],
+      });
+    }
   }
   return { aguardando, conferencia };
 }
@@ -1459,13 +1588,14 @@ function htmlValorDecisao(valor) {
   return esc(valor.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' }));
 }
 
-function htmlCartaoDecisao(item, indice, total, atual) {
+function htmlCartaoDecisao(item, indice, total, atual, aprovacao) {
+  const acoesHtml = htmlAcoesDecisaoCompra();
   return `
     <article class="ex-decisao${atual ? ' is-atual' : ''}" aria-label="Decisão ${indice + 1} de ${total}: ${esc(item.filial)}">
       ${total > 1 ? `<p class="ex-decisao-indice">Decisão ${indice + 1} de ${total}</p>` : ''}
       <p class="ex-decisao-filial">Filial solicitante</p>
       <h3>${esc(item.filial)}</h3>
-      <p class="ex-decisao-qtd"><strong>Comprar ${esc(textoPneus(item.quantidade))}</strong> <span>Medida ${esc(item.medida)}</span></p>
+      <p class="ex-decisao-qtd"><strong>${esc(item.coberta_por_autorizacao ? 'Necessidade já autorizada' : (item.bloqueada_por_recusa ? 'Sem nova compra' : `Comprar ${textoPneus(item.quantidade)}`))}</strong> <span>Medida ${esc(item.medida)}</span></p>
       <div class="ex-decisao-miolo">
       <dl class="ex-decisao-fatos">
         <div>
@@ -1489,12 +1619,12 @@ function htmlCartaoDecisao(item, indice, total, atual) {
           <dd>${esc(item.recomendacao)} ${esc(item.justificativa)}</dd>
         </div>
       </dl>
-      ${htmlAcoesDecisaoCompra()}
+      ${acoesHtml}
       </div>
     </article>`;
 }
 
-function htmlAguardandoDecisao(lista, indice = 0) {
+function htmlAguardandoDecisao(lista, indice = 0, aprovacao = null) {
   if (!lista.length) {
     return '<p class="ex-vazio">Nenhuma compra confirmada para decidir neste filtro.</p>';
   }
@@ -1506,7 +1636,7 @@ function htmlAguardandoDecisao(lista, indice = 0) {
     </div>` : '';
   return `
     <div class="ex-decisoes-fila" id="ex-decisoes-fila">
-      ${lista.map((item, posicao) => htmlCartaoDecisao(item, posicao, lista.length, posicao === atual)).join('')}
+      ${lista.map((item, posicao) => htmlCartaoDecisao(item, posicao, lista.length, posicao === atual, aprovacao)).join('')}
     </div>
     ${nav}`;
 }
@@ -1521,7 +1651,7 @@ function htmlConferencia(grupos) {
       <p class="ex-conferencia-aviso">Sem decisão nesta lista. A filial ainda precisa corrigir o que está abaixo.</p>
       <ul>
         ${grupo.pendencias.map((item) => `
-          <li>
+          <li class="${item.cadastro ? 'ex-conferencia-cadastro' : ''}">
             <p>${esc(item.texto)}</p>
             <p class="ex-conferencia-passo"><strong>A filial precisa:</strong> ${esc(item.passo)}</p>
           </li>`).join('')}
@@ -1529,7 +1659,7 @@ function htmlConferencia(grupos) {
     </article>`).join('');
 }
 
-export function htmlPainelDecisoes(modelo = {}, filtro = 'todas', { analiseAberta = false, decisaoIndice = 0 } = {}) {
+export function htmlPainelDecisoes(modelo = {}, filtro = 'todas', { analiseAberta = false, decisaoIndice = 0, aprovacao = null } = {}) {
   const decisoes = Array.isArray(modelo.decisoes) ? modelo.decisoes : [];
   const posicoes = Array.isArray(modelo.posicoes) ? modelo.posicoes : [];
   const limitacoes = Array.isArray(modelo.limitacoes) ? modelo.limitacoes : [];
@@ -1537,9 +1667,11 @@ export function htmlPainelDecisoes(modelo = {}, filtro = 'todas', { analiseAbert
   for (const linha of decisoes) contagem[linha.tipo] = (contagem[linha.tipo] || 0) + 1;
   const lista = filtro === 'todas' ? decisoes : decisoes.filter((linha) => linha.tipo === filtro);
   const fila = montarFilaDecisao(modelo, filtro);
+  const compras = fila.aguardando;
+  const intro = 'Aqui o senhor vê as compras de pneus já conferidas. O que ainda está incompleto fica separado, sem aprovação e sem reprovação. Nesta etapa, nenhum botão grava a decisão.';
   return `
     <div class="ex-decisoes">
-      <p class="ex-decisoes-intro">Aqui o senhor vê as compras de pneus já conferidas. O que ainda está incompleto fica separado, sem aprovação e sem reprovação. Nesta etapa, nenhum botão grava a decisão.</p>
+      <p class="ex-decisoes-intro">${intro}</p>
       <div class="ex-filtros" role="tablist" aria-label="Tipo de decisão">
         <button type="button" class="ex-chip ${filtro === 'todas' ? 'is-ativa' : ''}" data-filtro="todas">Todas <span>${decisoes.length}</span></button>
         ${DECISOES.map((item) => `
@@ -1550,11 +1682,11 @@ export function htmlPainelDecisoes(modelo = {}, filtro = 'todas', { analiseAbert
       <section class="ex-aguardando" id="ex-aguardando-decisao" aria-labelledby="ex-aguardando-titulo">
         <h2 id="ex-aguardando-titulo">Aguardando a sua decisão</h2>
         <p>Só entram compras com quantidade e medida já confirmadas.</p>
-        ${htmlAguardandoDecisao(fila.aguardando, decisaoIndice)}
+        ${htmlAguardandoDecisao(compras, decisaoIndice, null)}
       </section>
       <section class="ex-conferencias" id="ex-precisam-conferencia" aria-labelledby="ex-conferencia-titulo">
         <h2 id="ex-conferencia-titulo">Precisam de conferência</h2>
-        <p>Necessidade preliminar, previsão e cadastro incompleto. A filial precisa corrigir antes de qualquer decisão.</p>
+        <p>Cadastro incompleto e previsão ainda não confirmada. Nada desta lista é uma compra para decidir.</p>
         ${htmlConferencia(fila.conferencia)}
       </section>
       <section class="ex-analise">
@@ -1595,6 +1727,7 @@ function htmlDecisoes(modelo) {
   return htmlPainelDecisoes(modelo, estado.filtro, {
     analiseAberta: estado.analiseDetalhada,
     decisaoIndice: estado.decisaoIndice,
+    aprovacao: estado.aprovacao,
   });
 }
 
@@ -1763,25 +1896,492 @@ function htmlQualidade(modelo) {
     ${htmlDetalheQualidade(modelo)}`;
 }
 
+const TEXTO_SEMANA = {
+  atualizada: 'Medida nesta semana',
+  atrasada: 'Medição atrasada',
+  parcial: 'Semana incompleta',
+  sem_medicao: 'Sem medição',
+  sem_pneu: 'Sem pneu montado',
+};
+
+const NOTA_SEMANA = {
+  atualizada: 'Todos os pneus montados têm medição nesta semana.',
+  atrasada: 'A última medição é de uma semana anterior.',
+  parcial: 'Só parte dos pneus foi medida nesta semana.',
+  sem_medicao: 'Não há medição. Isso não é situação regular.',
+  sem_pneu: 'Não há pneu montado para acompanhar.',
+};
+
+function formatarDia(iso) {
+  const dia = String(iso || '').slice(0, 10);
+  const partes = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dia);
+  if (!partes) return 'não há';
+  return `${partes[3]}/${partes[2]}/${partes[1]}`;
+}
+
+function identPneu(pneu) {
+  const fogo = pneu.numero_fogo ? `Fogo ${pneu.numero_fogo}` : 'Pneu sem número de fogo';
+  return [fogo, pneu.placa || pneu.apelido || '', pneu.posicao || ''].filter(Boolean).join(' · ');
+}
+
+function resumoPneu(pneu) {
+  const partes = [
+    pneu.faixa_label || pneu.faixa || '',
+    pneu.menor_sulco == null ? '' : `${pneu.menor_sulco} mm`,
+    pneu.elegibilidade?.motivo || pneu.ciclo_motivo || '',
+    pneu.data_medicao ? `medição ${formatarDia(pneu.data_medicao)}` : 'sem data de medição',
+  ].filter(Boolean);
+  return { texto: identPneu(pneu), detalhe: partes.join(' · ') };
+}
+
+function foraDaSemana(data, semana) {
+  if (!semana?.inicio || !semana?.fim) return null;
+  if (!data) return true;
+  const dia = String(data).slice(0, 10);
+  return dia < semana.inicio || dia > semana.fim;
+}
+
+function montadoIncompletoConsulta(pneu) {
+  if (pneu?.status_pneu !== 'montado') return false;
+  if (!chaveMedida(pneu.medida)) return true;
+  if (pneu.faixa === 'sem_medicao' || pneu.faixa === 'sem_regua') return true;
+  if (pneu.ciclo_confiavel === false) return true;
+  return false;
+}
+
+function leituraMedida(linha, montados, filialFechada) {
+  const chave = chaveMedida(linha.medida);
+  const doGrupo = montados.filter((pneu) => chaveMedida(pneu.medida) === chave);
+  const novos = doGrupo.filter((pneu) => precisaPneuNovo(pneu));
+  const definitiva = filialFechada && linha.recomendacao_definitiva === true && linha.medida_informada === true;
+  const necessidade = inteiro(linha.necessidade_pneu_novo) || 0;
+  const faltam = inteiro(linha.comprar_novo) || 0;
+  const estoque = inteiro(linha.estoque_novo) || 0;
+  const recapado = inteiro(linha.estoque_recapado) || 0;
+  const emRecapagem = inteiro(linha.em_recapagem) || 0;
+  let selo = 'DADOS INSUFICIENTES';
+  let texto = filialFechada
+    ? motivoInsuficiente(linha)
+    : 'A filial ainda não fecha a conta. O estoque abaixo é contagem. A quantidade que falta não está comprovada.';
+  let faltamExibir = null;
+  if (!definitiva) {
+    selo = 'DADOS INSUFICIENTES';
+    faltamExibir = null;
+  } else if (definitiva && faltam > 0) {
+    selo = 'COMPROVADO';
+    faltamExibir = faltam;
+    texto = `${faltam === 1 ? 'Falta 1 pneu novo' : `Faltam ${faltam} pneus novos`}. Necessidade ${necessidade}. Estoque novo ${estoque}.`;
+  } else if (definitiva && necessidade > 0) {
+    selo = 'COMPROVADO';
+    faltamExibir = 0;
+    texto = `O estoque novo (${estoque}) cobre a necessidade (${necessidade}).`;
+  } else if (definitiva) {
+    selo = 'COMPROVADO';
+    faltamExibir = 0;
+    texto = 'Nenhum pneu novo exigido nesta medida agora.';
+  }
+  const justificativas = novos.map((pneu) => {
+    const sulco = pneu.menor_sulco == null ? 'sem sulco de banda' : `menor sulco ${pneu.menor_sulco} mm`;
+    return `${identPneu(pneu)}: ${rotuloPapel(pneu.papel)}, ${pneu.faixa_label || pneu.faixa}, ${sulco}.`;
+  });
+  if (recapado > 0) {
+    justificativas.push(`${fraseContagem(recapado, 'recapado em estoque não cobre dianteira e não entra na conta de pneu novo.', 'recapados em estoque não cobrem dianteira e não entram na conta de pneu novo.')}`);
+  }
+  if (emRecapagem > 0) {
+    justificativas.push(`${fraseContagem(emRecapagem, 'pneu em recapagem não é estoque disponível.', 'pneus em recapagem não são estoque disponível.')}`);
+  }
+  return {
+    medida: linha.medida_informada ? String(linha.medida).trim() : 'Sem medida',
+    selo,
+    faltam: faltamExibir,
+    texto,
+    estoque_novo: estoque,
+    estoque_recapado: recapado,
+    em_recapagem: emRecapagem,
+    estimativa_novo_90d: inteiro(linha.previsao_novo_90d) || 0,
+    estimativa_recap_90d: inteiro(linha.previsao_recap_90d) || 0,
+    justificativas,
+  };
+}
+
+function leituraNecessidade(definitiva, necessidade, faltam, estoqueNovo) {
+  if (!definitiva) {
+    return {
+      selo: 'DADOS INSUFICIENTES',
+      faltam: null,
+      necessidade,
+      texto: 'Ainda não dá para afirmar quantos pneus novos faltam.',
+      detalhe: necessidade > 0
+        ? `${fraseContagem(necessidade, 'pneu entra na conta de pneu novo, mas o cadastro desta filial ainda não fecha.', 'pneus entram na conta de pneu novo, mas o cadastro desta filial ainda não fecha.')}`
+        : 'Há pendência de cadastro ou de medição. Zero aqui não significa situação regular.',
+    };
+  }
+  if (faltam > 0) {
+    return {
+      selo: 'COMPROVADO',
+      faltam,
+      necessidade,
+      texto: 'Pneus novos que faltam agora.',
+      detalhe: `Necessidade ${necessidade}. Estoque novo ${estoqueNovo}. Faltam ${faltam}. A estimativa de 90 dias não entra neste número.`,
+    };
+  }
+  if (necessidade > 0) {
+    return {
+      selo: 'COMPROVADO',
+      faltam: 0,
+      necessidade,
+      texto: 'O estoque novo cobre a necessidade.',
+      detalhe: `Necessidade ${necessidade}. Estoque novo ${estoqueNovo}. Não falta pneu novo agora.`,
+    };
+  }
+  return {
+    selo: 'COMPROVADO',
+    faltam: 0,
+    necessidade: 0,
+    texto: 'Nenhum pneu novo exigido agora.',
+    detalhe: 'A conta fecha e não há pneu na regra de pneu novo.',
+  };
+}
+
+export function montarConsulta(relatorio) {
+  const unidades = (relatorio?.por_unidade || []).filter((unidade) => !unidadeForaDoPainel(unidade));
+  const ids = new Set(unidades.map((unidade) => idFilial(unidade.filial_id)).filter((id) => id != null));
+  const pneus = (relatorio?.pneus || []).filter((pneu) => ids.has(idFilial(pneu.filial_id)) && !unidadeForaDoPainel(pneu));
+  const medidas = (relatorio?.compras_por_medida || []).filter((linha) => ids.has(idFilial(linha.filial_id)));
+  const comprasFilial = relatorio?.compras_por_filial || [];
+  const descartes = relatorio?.descartes || [];
+  const semana = relatorio?.semana || null;
+  const filiais = unidades.map((unidade) => {
+    const filialId = idFilial(unidade.filial_id);
+    const montados = pneus.filter((pneu) => idFilial(pneu.filial_id) === filialId && pneu.status_pneu === 'montado');
+    const linhas = medidas.filter((linha) => idFilial(linha.filial_id) === filialId);
+    const resumo = comprasFilial.find((linha) => idFilial(linha.filial_id) === filialId);
+    const descarte = descartes.find((item) => idFilial(item.filial_id) === filialId) || { quantidade: 0, itens: [] };
+    const semMedida = inteiro(resumo?.montados_sem_medida)
+      ?? montados.filter((pneu) => !chaveMedida(pneu.medida)).length;
+    const definitiva = resumo
+      ? resumo.recomendacao_definitiva === true
+      : semMedida === 0 && linhas.every((linha) => linha.recomendacao_definitiva === true);
+    const necessidade = linhas.reduce((soma, linha) => soma + (inteiro(linha.necessidade_pneu_novo) || 0), 0);
+    const faltam = linhas.reduce((soma, linha) => soma + (inteiro(linha.comprar_novo) || 0), 0);
+    const estoqueNovo = linhas.reduce((soma, linha) => soma + (inteiro(linha.estoque_novo) || 0), 0);
+    const candidatos = inteiro(unidade.candidatos_recap)
+      ?? montados.filter((pneu) => pneu.elegibilidade?.candidato_programacao === true).length;
+    const incompletos = inteiro(unidade.incompletos) ?? montados.filter(montadoIncompletoConsulta).length;
+    const situacao = unidade.situacao_semana || 'sem_medicao';
+    const semanaBloqueia = situacao === 'sem_medicao' || situacao === 'sem_pneu';
+    const fechada = definitiva && incompletos === 0 && semMedida === 0 && !semanaBloqueia;
+    const leitura = leituraNecessidade(fechada, necessidade, faltam, estoqueNovo);
+    if (fechada && (situacao === 'atrasada' || situacao === 'parcial')) {
+      leitura.detalhe = `${leitura.detalhe} A filial não está em dia com a medição desta semana.`;
+    }
+    return {
+      filial_id: filialId,
+      filial: unidade.filial || `Unidade ${filialId}`,
+      codigo: unidade.codigo || '',
+      pneus_montados: inteiro(unidade.pneus_montados) ?? montados.length,
+      veiculos_cadastrados: unidade.veiculos_cadastrados == null ? null : (inteiro(unidade.veiculos_cadastrados) || 0),
+      veiculos: inteiro(unidade.veiculos) || 0,
+      ultima_medicao: unidade.ultima_medicao || null,
+      situacao_semana: unidade.situacao_semana || 'sem_medicao',
+      medidos_na_semana: inteiro(unidade.medidos_na_semana) || 0,
+      criticos: somarFaixa([unidade], 'critico', 'critico_equipamento'),
+      candidatos_recap: candidatos,
+      faixa_programar: inteiro(unidade.programar_recapagem) || somarFaixa([unidade], 'programar_recapagem'),
+      incompletos,
+      sem_medida: semMedida,
+      necessidade: leitura,
+      estimativa_novo_90d: linhas.reduce((soma, linha) => soma + (inteiro(linha.previsao_novo_90d) || 0), 0),
+      estimativa_recap_90d: linhas.reduce((soma, linha) => soma + (inteiro(linha.previsao_recap_90d) || 0), 0),
+      estoque_novo: estoqueNovo,
+      estoque_recapado: linhas.reduce((soma, linha) => soma + (inteiro(linha.estoque_recapado) || 0), 0),
+      em_recapagem: linhas.reduce((soma, linha) => soma + (inteiro(linha.em_recapagem) || 0), 0),
+      medidas: linhas
+        .slice()
+        .sort((a, b) => String(a.medida || '').localeCompare(String(b.medida || ''), 'pt-BR'))
+        .map((linha) => leituraMedida(linha, montados, fechada)),
+      criticos_lista: montados
+        .filter((pneu) => pneu.faixa === 'critico' || pneu.faixa === 'critico_equipamento')
+        .map(resumoPneu),
+      candidatos_lista: montados
+        .filter((pneu) => pneu.elegibilidade?.candidato_programacao === true)
+        .map(resumoPneu),
+      pendencias: {
+        sem_medida: montados.filter((pneu) => !chaveMedida(pneu.medida)).map(resumoPneu),
+        sem_medicao: montados.filter((pneu) => pneu.faixa === 'sem_medicao' || pneu.faixa === 'sem_regua').map(resumoPneu),
+        ciclo: montados.filter((pneu) => pneu.ciclo_confiavel === false).map(resumoPneu),
+        fora_da_semana: semana
+          ? montados.filter((pneu) => foraDaSemana(pneu.data_medicao, semana) === true).map(resumoPneu)
+          : null,
+      },
+      descartes: {
+        quantidade: inteiro(descarte.quantidade) || (Array.isArray(descarte.itens) ? descarte.itens.length : 0),
+        itens: Array.isArray(descarte.itens) ? descarte.itens : [],
+      },
+    };
+  });
+  const ordem = { sem_medicao: 0, atrasada: 1, parcial: 2, sem_pneu: 3, atualizada: 4 };
+  filiais.sort((a, b) => (ordem[a.situacao_semana] ?? 9) - (ordem[b.situacao_semana] ?? 9)
+    || (b.necessidade.faltam || 0) - (a.necessidade.faltam || 0)
+    || b.criticos - a.criticos
+    || String(a.filial).localeCompare(String(b.filial), 'pt-BR'));
+  return { gerado_em: relatorio?.gerado_em || null, semana, filiais };
+}
+
+function htmlSelo(nome) {
+  const tom = nome === 'COMPROVADO' ? 'comprovado' : nome === 'ESTIMATIVA' ? 'estimativa' : 'insuficiente';
+  return `<span class="ex-selo ex-selo-${tom}">${esc(nome)}</span>`;
+}
+
+function htmlVeiculos(filial) {
+  const comPneu = fraseContagem(filial.veiculos, 'veículo com pneu montado', 'veículos com pneu montado');
+  if (filial.veiculos_cadastrados == null) return comPneu;
+  return `${fraseContagem(filial.veiculos_cadastrados, 'veículo cadastrado', 'veículos cadastrados')} · ${comPneu}`;
+}
+
+function htmlSemana(filial) {
+  const situacao = TEXTO_SEMANA[filial.situacao_semana] ? filial.situacao_semana : 'sem_medicao';
+  const cadastro = filial.incompletos > 0
+    ? `<p class="ex-cadastro-alerta">${esc(fraseContagem(filial.incompletos, 'pneu montado com cadastro incompleto.', 'pneus montados com cadastro incompleto.'))} A compra não está fechada${situacao === 'atualizada' ? ', mesmo com a medição desta semana em dia' : ''}.</p>`
+    : '';
+  return `
+    <p class="ex-semana ex-semana-${situacao}">${esc(TEXTO_SEMANA[situacao])}</p>
+    <p class="ex-ultima">Última medição: ${esc(formatarDia(filial.ultima_medicao))}</p>
+    <p class="ex-semana-nota">${esc(NOTA_SEMANA[situacao])}</p>
+    ${cadastro}`;
+}
+
+function htmlNumero(valor) {
+  return valor == null ? '—' : esc(valor);
+}
+
+function fraseContagem(quantidade, um, varios) {
+  const n = Number(quantidade) || 0;
+  return n === 1 ? `1 ${um}` : `${n} ${varios}`;
+}
+
+function htmlListaPneus(lista, vazio) {
+  if (!lista?.length) return `<p class="ex-vazio">${esc(vazio)}</p>`;
+  return `<ul class="ex-lista">${lista.map((item) => `
+    <li><strong>${esc(item.texto)}</strong><span>${esc(item.detalhe || '')}</span></li>`).join('')}</ul>`;
+}
+
+function htmlCartaoFilial(filial, { botao = true } = {}) {
+  const leitura = filial.necessidade;
+  const recapNota = filial.faixa_programar > filial.candidatos_recap
+    ? 'Há pneus na faixa de sulco que não são candidatos. Sulco sozinho não aprova recapagem.'
+    : 'Candidato à avaliação. O envio não está aprovado.';
+  return `
+    <article class="ex-filial-card is-${esc(filial.situacao_semana || 'sem_medicao')}">
+      <header class="ex-filial-head">
+        <h3>${esc(filial.filial)}</h3>
+        ${htmlSemana(filial)}
+      </header>
+      <p class="ex-acompanhados">${esc(htmlVeiculos(filial))} · ${filial.pneus_montados} pneus acompanhados${filial.criticos ? ` · ${filial.criticos} críticos` : ''}</p>
+      <div class="ex-numeros">
+        <div>
+          ${htmlSelo(leitura.selo)}
+          <strong>${htmlNumero(leitura.selo === 'COMPROVADO' ? leitura.faltam : null)}</strong>
+          <p>${esc(leitura.texto)}</p>
+        </div>
+        <div>
+          <span class="ex-selo ex-selo-candidato">Candidato à avaliação</span>
+          <strong>${filial.candidatos_recap}</strong>
+          <p>Possível recapagem. Não é aprovação.</p>
+        </div>
+        <div>
+          ${htmlSelo(filial.incompletos > 0 ? 'DADOS INSUFICIENTES' : 'COMPROVADO')}
+          <strong>${filial.incompletos}</strong>
+          <p>${filial.incompletos ? 'Dados incompletos' : 'Cadastro sem pendência desta lista'}</p>
+        </div>
+      </div>
+      <p class="ex-recap-nota">${esc(recapNota)}</p>
+      ${botao ? `<button type="button" class="ex-btn ex-btn-largo" data-abrir-filial="${filial.filial_id}">Ver ${esc(filial.filial)}</button>` : ''}
+    </article>`;
+}
+
+function htmlConsultaSituacao(consulta) {
+  if (!consulta.filiais.length) {
+    return '<p class="ex-estado">Nenhuma filial operacional neste relatório.</p>';
+  }
+  return `
+    <div class="ex-consulta">
+      <p class="ex-consulta-intro">Cada cartão é uma filial. Medição atrasada e falta de medição aparecem em destaque. Falta de medição não é situação regular.</p>
+      <div class="ex-filial-lista">
+        ${consulta.filiais.map(htmlCartaoFilial).join('')}
+      </div>
+    </div>`;
+}
+
+function htmlMedidas(filial) {
+  if (!filial.medidas.length) {
+    return '<p class="ex-vazio">Nenhuma medida com estoque ou necessidade neste relatório.</p>';
+  }
+  return filial.medidas.map((linha) => `
+    <article class="ex-medida">
+      <h4>${esc(linha.medida)}</h4>
+      <p>${htmlSelo(linha.selo)} <strong>${linha.selo === 'COMPROVADO'
+        ? (linha.faltam === 1 ? 'Falta 1 pneu novo' : linha.faltam === 0 ? 'Não falta pneu novo' : `Faltam ${linha.faltam} pneus novos`)
+        : 'Quantidade em aberto'}</strong></p>
+      <p>${esc(linha.texto)}</p>
+      <ul class="ex-estoque">
+        <li>Estoque novo: <strong>${linha.estoque_novo}</strong></li>
+        <li>Estoque recapado: <strong>${linha.estoque_recapado}</strong></li>
+        <li>Em recapagem: <strong>${linha.em_recapagem}</strong></li>
+      </ul>
+      ${linha.justificativas.length ? `<ul class="ex-lista">${linha.justificativas.map((item) => `<li>${esc(item)}</li>`).join('')}</ul>` : ''}
+      ${linha.estimativa_novo_90d || linha.estimativa_recap_90d ? `
+        <p>${htmlSelo('ESTIMATIVA')} ${esc(fraseContagem(linha.estimativa_novo_90d, 'pneu novo', 'pneus novos'))} e ${esc(fraseContagem(linha.estimativa_recap_90d, 'recapagem', 'recapagens'))} em até 90 dias. Este número não soma com a necessidade comprovada.</p>` : ''}
+    </article>`).join('');
+}
+
+function htmlConsultaFilial(consulta) {
+  const filial = consulta.filiais.find((item) => item.filial_id === estado.filialId);
+  if (!filial) {
+    return `
+      <div class="ex-consulta">
+        <p class="ex-consulta-intro">Escolha a filial para ver medida, estoque e pendências.</p>
+        <div class="ex-escolha">
+          ${consulta.filiais.map((item) => `
+            <button type="button" class="ex-btn ex-btn-largo" data-abrir-filial="${item.filial_id}">${esc(item.filial)}</button>`).join('')}
+        </div>
+      </div>`;
+  }
+  const pendencias = filial.pendencias;
+  return `
+    <div class="ex-consulta ex-filial-detalhe">
+      <button type="button" class="ex-btn ex-btn-voltar" data-voltar-situacao>Voltar às filiais</button>
+      ${htmlCartaoFilial(filial, { botao: false })}
+      <section class="ex-bloco">
+        <h3>Necessidade por medida</h3>
+        <p>Estoque novo, recapado e em recapagem ficam separados. Recapado não cobre dianteira.</p>
+        ${htmlMedidas(filial)}
+      </section>
+      <section class="ex-bloco">
+        <h3>Pneus críticos</h3>
+        <p>Crítico pede retirada e avaliação. Não é aprovação de recapagem.</p>
+        ${htmlListaPneus(filial.criticos_lista, 'Nenhum pneu crítico nesta filial.')}
+      </section>
+      <section class="ex-bloco">
+        <h3>Possível recapagem</h3>
+        <p>Candidatos à avaliação humana. O sistema não aprova o envio.</p>
+        ${htmlListaPneus(filial.candidatos_lista, 'Nenhum candidato à avaliação de recapagem.')}
+      </section>
+      <section class="ex-bloco">
+        <h3>Descartes registrados</h3>
+        <p>${esc(fraseContagem(filial.descartes.quantidade, 'pneu em descarte. Ele fica fora da régua de sulco.', 'pneus em descarte. Eles ficam fora da régua de sulco.'))}</p>
+        ${filial.descartes.itens.length ? `<ul class="ex-lista">${filial.descartes.itens.map((item) => `
+          <li><strong>${esc(item.numero_fogo ? `Fogo ${item.numero_fogo}` : 'Pneu sem número de fogo')}</strong>
+          <span>${esc([item.medida, item.data ? formatarDia(item.data) : '', item.motivo || ''].filter(Boolean).join(' · '))}</span></li>`).join('')}</ul>` : '<p class="ex-vazio">Nenhum descarte registrado nesta filial.</p>'}
+        ${filial.descartes.quantidade > filial.descartes.itens.length ? `<p class="ex-semana-nota">A lista mostra ${filial.descartes.itens.length} de ${filial.descartes.quantidade}.</p>` : ''}
+      </section>
+      <section class="ex-bloco">
+        <h3>Pendências de cadastro e medição</h3>
+        <h4>Sem medida</h4>
+        ${htmlListaPneus(pendencias.sem_medida, 'Nenhum pneu montado sem medida.')}
+        <h4>Sem sulco de banda</h4>
+        ${htmlListaPneus(pendencias.sem_medicao, 'Nenhum pneu montado sem sulco de banda.')}
+        <h4>Ciclo de recapagem não separado</h4>
+        ${htmlListaPneus(pendencias.ciclo, 'Nenhum ciclo pendente de separação.')}
+        <h4>Fora da semana de medição</h4>
+        ${pendencias.fora_da_semana == null
+          ? '<p class="ex-vazio">O relatório não informou a semana. A situação da atualização fica em dados insuficientes.</p>'
+          : htmlListaPneus(pendencias.fora_da_semana, 'Todos os pneus montados têm medição nesta semana.')}
+      </section>
+    </div>`;
+}
+
+function htmlColunaComparar(filial) {
+  const leitura = filial.necessidade;
+  return `
+    <article class="ex-filial-card is-${esc(filial.situacao_semana || 'sem_medicao')}">
+      <header class="ex-filial-head"><h3>${esc(filial.filial)}</h3>${htmlSemana(filial)}</header>
+      <div class="ex-compara-item">
+        ${htmlSelo(leitura.selo)}
+        <strong>${htmlNumero(leitura.selo === 'COMPROVADO' ? leitura.faltam : null)}</strong>
+        <p>${leitura.selo === 'COMPROVADO' ? 'Necessidade comprovada de pneus novos.' : 'Necessidade ainda não comprovada.'} ${esc(leitura.texto)}</p>
+      </div>
+      <div class="ex-compara-item">
+        ${htmlSelo('ESTIMATIVA')}
+        <strong>${filial.estimativa_novo_90d}</strong>
+        <p>Pneus novos em até 90 dias. Não soma com o número comprovado.</p>
+        <p>${esc(fraseContagem(filial.estimativa_recap_90d, 'recapagem estimada', 'recapagens estimadas'))} em até 90 dias, também separada.</p>
+      </div>
+      <div class="ex-compara-item">
+        <span class="ex-selo ex-selo-candidato">Candidato à avaliação</span>
+        <strong>${filial.candidatos_recap}</strong>
+        <p>Possível recapagem. Não é aprovação.</p>
+      </div>
+      <div class="ex-compara-item">
+        <p>Estoque novo <strong>${filial.estoque_novo}</strong></p>
+        <p>Estoque recapado <strong>${filial.estoque_recapado}</strong></p>
+        <p>Em recapagem <strong>${filial.em_recapagem}</strong></p>
+      </div>
+      <div class="ex-compara-item">
+        ${htmlSelo(filial.incompletos > 0 ? 'DADOS INSUFICIENTES' : 'COMPROVADO')}
+        <strong>${filial.incompletos}</strong>
+        <p>${filial.incompletos > 0 ? 'Cadastro incompleto. A compra desta filial não é definitiva.' : 'Cadastro sem essa pendência.'} ${esc(TEXTO_SEMANA[filial.situacao_semana] || 'Sem medição')}</p>
+      </div>
+    </article>`;
+}
+
+function htmlConsultaComparar(consulta) {
+  const escolhidas = consulta.filiais.filter((filial) => estado.comparar.has(filial.filial_id));
+  return `
+    <div class="ex-consulta">
+      <p class="ex-consulta-intro">Escolha duas ou três filiais. A estimativa de 90 dias fica separada da necessidade comprovada.</p>
+      ${estado.avisoComparar ? '<p class="ex-semana ex-semana-parcial">Dá para comparar até 3 filiais. Solte uma para incluir outra.</p>' : ''}
+      <div class="ex-escolha">
+        ${consulta.filiais.map((filial) => {
+          const ativa = estado.comparar.has(filial.filial_id);
+          return `<button type="button" class="ex-btn ex-btn-largo ${ativa ? 'is-ativa' : ''}" data-comparar-filial="${filial.filial_id}" aria-pressed="${ativa ? 'true' : 'false'}">${ativa ? 'Tirar' : 'Incluir'} ${esc(filial.filial)}</button>`;
+        }).join('')}
+      </div>
+      ${escolhidas.length < 2
+        ? '<p class="ex-semana-nota">Marque pelo menos duas filiais para ver a comparação.</p>'
+        : `<div class="ex-comparar-grade">${escolhidas.map(htmlColunaComparar).join('')}</div>`}
+    </div>`;
+}
+
+export function htmlsConsulta(relatorio, { filialId = null, comparar = [] } = {}) {
+  const consulta = montarConsulta(relatorio);
+  const salvo = {
+    filialId: estado.filialId,
+    comparar: estado.comparar,
+    avisoComparar: estado.avisoComparar,
+  };
+  estado.filialId = filialId;
+  estado.comparar = new Set(comparar);
+  estado.avisoComparar = false;
+  const saida = {
+    consulta,
+    situacao: htmlConsultaSituacao(consulta),
+    filial: htmlConsultaFilial(consulta),
+    comparar: htmlConsultaComparar(consulta),
+  };
+  estado.filialId = salvo.filialId;
+  estado.comparar = salvo.comparar;
+  estado.avisoComparar = salvo.avisoComparar;
+  return saida;
+}
+
 function htmlConteudo() {
-  if (estado.carregando && !estado.modelo) {
+  if (estado.carregando && !estado.consulta) {
     return '<p class="ex-estado">Carregando as filiais operacionais…</p>';
   }
-  if (estado.erro && !estado.modelo) {
+  if (estado.erro && !estado.consulta) {
     return `<p class="ex-estado ex-estado-erro">${esc(estado.erro)}</p>`;
   }
-  if (!estado.modelo) return '<p class="ex-estado">Nenhum relatório carregado.</p>';
-  if (estado.aba === 'filiais') return htmlFiliais(estado.modelo);
-  if (estado.aba === 'qualidade') return htmlQualidade(estado.modelo);
-  if (estado.aba === 'decisoes') return htmlDecisoes(estado.modelo);
-  return htmlVisao(estado.modelo);
+  if (!estado.consulta) return '<p class="ex-estado">Nenhum relatório carregado.</p>';
+  if (estado.aba === 'filial') return htmlConsultaFilial(estado.consulta);
+  if (estado.aba === 'comparar') return htmlConsultaComparar(estado.consulta);
+  return htmlConsultaSituacao(estado.consulta);
 }
 
 function tituloAba() {
-  if (estado.aba === 'filiais') return 'Filiais';
-  if (estado.aba === 'qualidade') return 'Qualidade dos dados';
-  if (estado.aba === 'decisoes') return 'Decisões de compra';
-  return 'Visão geral';
+  if (estado.aba === 'filial') return 'Uma filial';
+  if (estado.aba === 'comparar') return 'Comparar filiais';
+  return 'Situação das filiais';
 }
 
 function pintar() {
@@ -1797,22 +2397,49 @@ function pintar() {
   const quando = document.getElementById('exec-quando');
   if (titulo) titulo.textContent = tituloAba();
   if (quando) {
-    const hora = formatarQuando(estado.modelo?.gerado_em);
+    const hora = formatarQuando(estado.consulta?.gerado_em || estado.modelo?.gerado_em);
     quando.textContent = hora ? `Atualizado em ${hora}` : '';
   }
   const conteudo = document.getElementById('exec-conteudo');
   if (conteudo) conteudo.innerHTML = htmlConteudo();
-  sincronizarDecisaoMovel();
   root.querySelector('.exec-nav .is-ativa')?.scrollIntoView?.({ inline: 'nearest', block: 'nearest' });
   const usuario = document.getElementById('exec-usuario');
   if (usuario && !usuario.textContent) usuario.textContent = 'Presidente';
 }
 
 function abrirFilial(id) {
-  if (estado.aba !== 'qualidade') estado.aba = 'filiais';
+  estado.aba = 'filial';
   estado.filialId = id;
   pintar();
-  document.getElementById('exec-conteudo')?.querySelector('.ex-detalhe')?.scrollIntoView({ block: 'nearest' });
+  document.getElementById('exec-conteudo')?.querySelector('.ex-filial-detalhe')?.scrollIntoView({ block: 'start' });
+}
+
+function comandoDecisao(evento) {
+  const cancelar = evento.target.closest('[data-decisao-cancelar]');
+  if (cancelar) return { tipo: 'cancelar' };
+  const efetivar = evento.target.closest('[data-confirma-efetivar]');
+  if (efetivar) return { tipo: 'efetivar' };
+  const parecer = evento.target.closest('[data-parecer-seguir]');
+  if (parecer) {
+    return { tipo: 'parecer', parecer: document.getElementById('ex-parecer')?.value || '' };
+  }
+  const acao = evento.target.closest('[data-decisao-acao]');
+  if (acao && !acao.disabled) {
+    return { tipo: 'iniciar', acao: acao.dataset.decisaoAcao, solicitacaoId: acao.dataset.solicitacaoId };
+  }
+  const atualizar = evento.target.closest('[data-atualizar-solicitacao]');
+  if (atualizar && !atualizar.disabled) {
+    return { tipo: 'atualizar', solicitacaoId: atualizar.dataset.solicitacaoId };
+  }
+  const registrar = evento.target.closest('[data-registrar-compra]');
+  if (registrar && !registrar.disabled) {
+    return { tipo: 'registrar', filialId: registrar.dataset.filialId, medida: registrar.dataset.medida };
+  }
+  return null;
+}
+
+function dispararDecisao() {
+  return false;
 }
 
 function onClick(evento) {
@@ -1832,10 +2459,41 @@ function onClick(evento) {
   if (filtro) {
     estado.filtro = filtro.dataset.filtro;
     estado.decisaoIndice = 0;
+    if (estado.aprovacao?.etapa) {
+      estado.aprovacao = {
+        ...estado.aprovacao,
+        etapa: null,
+        confirmacaoId: null,
+        resumo: null,
+        acao: null,
+        solicitacaoId: null,
+      };
+    }
     pintar();
     return;
   }
   if (evento.target.closest('[data-decisao-indisponivel]')) return;
+  const compararFilial = evento.target.closest('[data-comparar-filial]');
+  if (compararFilial) {
+    const id = Number(compararFilial.dataset.compararFilial);
+    if (estado.comparar.has(id)) {
+      estado.comparar.delete(id);
+      estado.avisoComparar = false;
+    } else if (estado.comparar.size >= 3) {
+      estado.avisoComparar = true;
+    } else {
+      estado.comparar.add(id);
+      estado.avisoComparar = false;
+    }
+    estado.aba = 'comparar';
+    pintar();
+    return;
+  }
+  if (evento.target.closest('[data-voltar-situacao]')) {
+    estado.aba = 'situacao';
+    pintar();
+    return;
+  }
   const navegacao = evento.target.closest('[data-decisao-nav]');
   if (navegacao) {
     estado.decisaoIndice += navegacao.dataset.decisaoNav === 'proxima' ? 1 : -1;
@@ -1911,20 +2569,22 @@ function sincronizarDecisaoMovel() {
   });
 }
 
-export function exibirExecutivo({ relatorio = null, erro = '', carregando = false, usuario = '' } = {}) {
+export function exibirExecutivo({ relatorio = null, erro = '', carregando = false, usuario = '', aprovacao = null } = {}) {
   estado.carregando = carregando;
   if (carregando) estado.erro = '';
   if (relatorio) {
     estado.relatorio = relatorio;
     estado.modelo = prepararPainel(relatorio);
+    estado.consulta = montarConsulta(relatorio);
     estado.erro = '';
-    if (estado.filialId != null && !estado.modelo.ranking.some((item) => item.filial_id === estado.filialId)) {
+    if (estado.filialId != null && !estado.consulta.filiais.some((item) => item.filial_id === estado.filialId)) {
       estado.filialId = null;
     }
     for (const id of [...estado.comparar]) {
-      if (!estado.modelo.ranking.some((item) => item.filial_id === id)) estado.comparar.delete(id);
+      if (!estado.consulta.filiais.some((item) => item.filial_id === id)) estado.comparar.delete(id);
     }
   }
+  if (aprovacao) estado.aprovacao = estadoInicialAprovacao();
   if (erro) estado.erro = erro;
   if (!carregando && erro && !relatorio) estado.carregando = false;
   const nome = document.getElementById('exec-usuario');
