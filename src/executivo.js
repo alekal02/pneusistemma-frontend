@@ -1936,6 +1936,7 @@ export function montarParecerExecutivo({
   vencidas = 0,
   semHistorico = 0,
   parciais = 0,
+  veiculosSemCobertura = 0,
 } = {}) {
   const condicao = {
     bom: inteiroPositivo(bom),
@@ -1950,10 +1951,14 @@ export function montarParecerExecutivo({
   const semLeitura = inteiroPositivo(semHistorico);
   const leituraParcial = inteiroPositivo(parciais);
   const conferido = estoqueConferido === true;
+  const descobertos = inteiroPositivo(veiculosSemCobertura);
+  const coberturaInsuficiente = descobertos > 0;
   const compraRecomendada = conferido && necessidadeTecnica > 0 && aComprar > 0;
   const dadosSuficientes = conferido && semLeitura === 0 && leituraParcial === 0;
-  const compraDesnecessaria = dadosSuficientes && aComprar === 0 && !compraRecomendada;
+  const fechariaComoDesnecessaria = dadosSuficientes && aComprar === 0 && !compraRecomendada;
+  const compraDesnecessaria = fechariaComoDesnecessaria && !coberturaInsuficiente;
   const recomendacoes = [];
+  if (coberturaInsuficiente) recomendacoes.push('DADOS INSUFICIENTES PARA DECISÃO');
   if (compraRecomendada) recomendacoes.push('COMPRA RECOMENDADA');
   if (compraDesnecessaria) recomendacoes.push('COMPRA NÃO NECESSÁRIA NO MOMENTO');
   if (recap > 0) recomendacoes.push('AVALIAR RECAPAGEM');
@@ -1961,7 +1966,7 @@ export function montarParecerExecutivo({
 
   let prioridade = 'Acompanhamento';
   if (condicao.criticos > 0 || medicaoVencida > 0) prioridade = 'Alta';
-  else if (compraRecomendada || recap > 0 || (necessidadeTecnica > 0 && !dadosSuficientes)) prioridade = 'Média';
+  else if (compraRecomendada || recap > 0 || coberturaInsuficiente || (necessidadeTecnica > 0 && !dadosSuficientes)) prioridade = 'Média';
 
   const frota = `Como está a frota: ${condicao.bom} em bom estado, ${condicao.atencao} em atenção e ${condicao.criticos} críticos.`;
   const atencaoTexto = `Precisam de atenção: ${condicao.atencao + condicao.criticos} pneus.`;
@@ -1975,15 +1980,23 @@ export function montarParecerExecutivo({
     substituicao += ' A medição mensal vencida pede reavaliação da última leitura.';
   }
 
+  const textoCobertura = descobertos === 1
+    ? '1 veículo ativo não tem pneu montado no cadastro atual.'
+    : `${descobertos} veículos ativos não têm pneu montado no cadastro atual.`;
   let compra;
   if (compraRecomendada) {
     compra = `Precisa comprar pneus novos. O estoque compatível (${estoque}) não cobre a necessidade. Quantidade conferida: ${aComprar}.`;
   } else if (compraDesnecessaria) {
     compra = 'Não precisa comprar pneus novos no momento.';
+  } else if (coberturaInsuficiente && fechariaComoDesnecessaria) {
+    compra = `DADOS INSUFICIENTES PARA DECISÃO. ${textoCobertura} Não dá para afirmar que a unidade não precisa comprar pneus.`;
   } else if (necessidadeTecnica > 0) {
     compra = 'Há necessidade técnica, mas a quantidade de compra não está fechada: o estoque compatível ainda não foi conferido.';
   } else {
     compra = 'Ainda não dá para fechar a compra: faltam dados para conferir o estoque compatível.';
+  }
+  if (coberturaInsuficiente && !fechariaComoDesnecessaria && !compraRecomendada) {
+    compra += ` DADOS INSUFICIENTES PARA DECISÃO. ${textoCobertura} Não se afirma que a unidade não precisa comprar pneus.`;
   }
 
   const recapagem = recap > 0
@@ -2003,6 +2016,8 @@ export function montarParecerExecutivo({
     motivoPrioridade = 'Há carcaças para inspeção de recapagem, sem aprovação automática.';
   } else if (necessidadeTecnica > 0) {
     motivoPrioridade = 'A necessidade técnica existe e a quantidade de compra ainda depende do estoque.';
+  } else if (coberturaInsuficiente) {
+    motivoPrioridade = 'A frota ativa cadastrada não está coberta por pneus montados. A decisão de compra permanece aberta.';
   }
 
   return {
@@ -2248,6 +2263,9 @@ export function montarConsulta(relatorio) {
     if (fechada && (situacao === 'vencida' || situacao === 'parcial' || situacao === 'ciclo_anterior')) {
       leitura.detalhe = `${leitura.detalhe} A medição mensal não está toda no ciclo vigente. O sulco já registrado permanece.`;
     }
+    const cadastrados = inteiro(unidade.veiculos_cadastrados);
+    const comPneu = inteiro(unidade.veiculos) || 0;
+    const veiculosSemCobertura = cadastrados == null ? 0 : Math.max(0, cadastrados - comPneu);
     const parecerCalculado = montarParecerExecutivo({
       bom,
       atencao,
@@ -2258,6 +2276,7 @@ export function montarConsulta(relatorio) {
       comprarNovo: definitiva ? faltam : 0,
       estoqueConferido: definitiva,
       candidatos,
+      veiculosSemCobertura,
       vencidas: vencidas || 0,
       semHistorico,
       parciais,

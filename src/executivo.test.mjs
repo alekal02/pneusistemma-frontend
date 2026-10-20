@@ -380,6 +380,18 @@ const estoqueCobre = montarParecerExecutivo({
 });
 assert.equal(estoqueCobre.quantidade_compra, null);
 assert.deepEqual(estoqueCobre.recomendacoes, ['COMPRA NÃO NECESSÁRIA NO MOMENTO']);
+const semFrota = montarParecerExecutivo({
+  bom: 0, montados: 0, estoqueConferido: true, veiculosSemCobertura: 1,
+});
+assert.equal(semFrota.recomendacoes.includes('DADOS INSUFICIENTES PARA DECISÃO'), true);
+assert.equal(semFrota.recomendacoes.includes('COMPRA NÃO NECESSÁRIA NO MOMENTO'), false);
+assert.equal(/Não precisa comprar pneus novos/.test(semFrota.compra), false);
+const frotaParcial = montarParecerExecutivo({
+  bom: 1, montados: 2, estoqueConferido: false, veiculosSemCobertura: 9,
+});
+assert.equal(frotaParcial.prioridade, 'Média');
+assert.match(frotaParcial.frota, /1 em bom estado/);
+assert.equal(frotaParcial.prioridade_texto.includes('sem urgência de compra'), false);
 const semNumero = montarParecerExecutivo({
   criticos: 1, necessidade: 1, comprarNovo: 1, estoqueConferido: false, vencidas: 1,
 });
