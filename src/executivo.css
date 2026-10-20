@@ -385,6 +385,14 @@
   line-height: 1.4;
 }
 
+.ex-passo {
+  display: block;
+  margin-top: 0.28rem;
+  color: #66716b;
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
 .ex-codes {
   color: #66716b;
   font-size: 0.78rem;

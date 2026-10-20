@@ -12,10 +12,10 @@ const ABAS = [
 ];
 
 const DECISOES = [
-  { id: 'comprar', label: 'Comprar' },
-  { id: 'transferir', label: 'Transferir' },
-  { id: 'nao_comprar', label: 'Não comprar' },
-  { id: 'dados_insuficientes', label: 'Dados insuficientes' },
+  { id: 'comprar', label: 'Compra recomendada' },
+  { id: 'transferir', label: 'Transferência recomendada' },
+  { id: 'nao_comprar', label: 'Estoque suficiente' },
+  { id: 'dados_insuficientes', label: 'Aguardando validação' },
   { id: 'estimativa', label: 'Estimativa' },
 ];
 
@@ -154,7 +154,7 @@ function motivoPosicao(leitura, papel, motivoPronto) {
   if (leitura === 'avaliacao_urgente') {
     return 'Crítico fora da dianteira: retirada e avaliação urgente. O relatório não converte isso em quantidade de compra nem em recapagem.';
   }
-  return 'Sem medida ou sem medição de banda. Não há quantidade de compra para este grupo.';
+  return 'Sem medida ou sem medição de banda. A quantidade desta posição ainda não está confirmada.';
 }
 
 export function necessidadesPorPosicao(pneus = []) {
@@ -480,7 +480,7 @@ function textoOuNulo(valor) {
 
 /**
  * Completude da medida sobre os pneus montados que o relatório já contou.
- * Sem montados, o percentual fica em branco. A compra fica bloqueada se falta medida
+ * Sem montados, o percentual fica em branco. A compra fica em análise se falta medida
  * ou se alguma decisão da filial não tem quantidade confirmada.
  */
 export function qualidadePorFilial(unidades = [], { decisoes = [] } = {}) {
@@ -881,8 +881,68 @@ function htmlFiliais(modelo) {
     ${htmlDetalheFilial(modelo)}`;
 }
 
-function rotuloDecisao(tipo) {
-  return DECISOES.find((item) => item.id === tipo)?.label || tipo;
+export function rotuloApresentacao(linha) {
+  if (linha?.confirmada === true && linha.tipo === 'comprar') return 'Compra recomendada';
+  if (linha?.confirmada === true && linha.tipo === 'transferir') return 'Transferência recomendada';
+  if (linha?.confirmada === true && linha.tipo === 'nao_comprar') return 'Estoque suficiente';
+  if (linha?.tipo === 'estimativa') return 'Estimativa';
+  return 'Aguardando validação';
+}
+
+export function proximoPassoApresentacao(linha) {
+  if (linha?.tipo === 'dados_insuficientes' && linha.confirmada !== true) {
+    return proximoPassoAnalise(linha);
+  }
+  if (linha?.leitura === 'dados_insuficientes') return proximoPassoPosicao(linha.motivo);
+  return null;
+}
+
+function proximoPassoAnalise(linha) {
+  const texto = String(linha?.motivo || '');
+  if (/mais de uma vez/i.test(texto)) {
+    return 'Deixar uma única linha desta medida na filial para a leitura poder ser concluída.';
+  }
+  if (/não confirma/i.test(texto)) {
+    return 'Conferir a lista de pneus desta medida com o estoque novo e a necessidade informados.';
+  }
+  if (/não confere/i.test(texto)) {
+    return 'Rever o saldo de estoque novo e necessidade desta medida.';
+  }
+  if (!linha?.medida || /Medida ausente/i.test(texto)) return 'Informar a medida dos pneus desta linha.';
+  if (/sem medida/i.test(texto)) return 'Completar a medida dos pneus montados desta filial.';
+  return 'Validar o cadastro desta medida para concluir a leitura.';
+}
+
+function proximoPassoPosicao(motivo = '') {
+  const texto = String(motivo);
+  if (/Posição não identificada|não é dianteira/i.test(texto)) {
+    return 'Confirmar a posição do pneu. A recapagem só entra se a tração estiver marcada como candidata.';
+  }
+  if (/não recomendada|candidato/i.test(texto)) {
+    return 'Validar a elegibilidade no relatório antes de tratar esta posição como recapagem.';
+  }
+  return 'Informar a medida e a medição de banda para concluir a leitura desta posição.';
+}
+
+export function rotuloSituacaoCompra(item) {
+  if ((item?.montados ?? 0) === 0 && (item?.sem_medida ?? 0) === 0) return 'Sem montados';
+  if (item?.compra_bloqueada) return 'Em análise';
+  return 'Sem pendência';
+}
+
+export function textoSituacaoCompra(item) {
+  if ((item?.montados ?? 0) === 0 && (item?.sem_medida ?? 0) === 0) {
+    return 'Sem pneus montados para leitura de compra.';
+  }
+  if (item?.compra_bloqueada && (item?.sem_medida ?? 0) > 0) {
+    const n = item.sem_medida;
+    const pendentes = n === 1 ? '1 pneu montado está sem medida' : `${n} pneus montados estão sem medida`;
+    return `Compra em análise. Motivo: ${pendentes}. Próximo passo: completar essas medidas.`;
+  }
+  if (item?.compra_bloqueada) {
+    return 'Compra em análise. Motivo: há leitura desta filial sem quantidade confirmada. Próximo passo: validar a medida e o saldo antes de concluir.';
+  }
+  return 'Sem pendência de análise de cadastro nesta filial.';
 }
 
 function tabelaDecisoes(lista) {
@@ -905,11 +965,11 @@ function tabelaDecisoes(lista) {
           ${lista.map((linha) => `
             <tr>
               <td>${esc(linha.filial)}</td>
-              <td><span class="ex-selo ex-selo-${esc(linha.tipo)}">${esc(rotuloDecisao(linha.tipo))}</span></td>
+              <td><span class="ex-selo ex-selo-${esc(linha.tipo)}">${esc(rotuloApresentacao(linha))}</span></td>
               <td>${esc(textoMedida(linha.medida))}</td>
               <td>${linha.quantidade == null ? '—' : esc(linha.quantidade)}</td>
               <td>${esc(linha.origem || '—')}</td>
-              <td class="ex-motivo">${esc(linha.motivo)}</td>
+              <td class="ex-motivo">${htmlMotivoDecisao(linha)}</td>
             </tr>`).join('')}
         </tbody>
       </table>
@@ -920,7 +980,12 @@ function rotuloLeitura(leitura) {
   if (leitura === 'pneu_novo') return 'Pneu novo';
   if (leitura === 'recapagem') return 'Recapagem';
   if (leitura === 'avaliacao_urgente') return 'Avaliação urgente';
-  return 'Dados insuficientes';
+  return 'Aguardando validação';
+}
+
+function htmlMotivoDecisao(linha) {
+  const passo = proximoPassoApresentacao(linha);
+  return `${esc(linha.motivo)}${passo ? `<span class="ex-passo">Próximo passo: ${esc(passo)}</span>` : ''}`;
 }
 
 function tabelaPosicoes(lista) {
@@ -946,7 +1011,7 @@ function tabelaPosicoes(lista) {
               <td>${esc(textoMedida(linha.medida))}</td>
               <td>${esc(linha.posicao)}${linha.posicoes.length ? ` <span class="ex-codes">${esc(linha.posicoes.join(', '))}</span>` : ''}</td>
               <td>${linha.pneus}</td>
-              <td>${esc(rotuloLeitura(linha.leitura))}</td>
+              <td>${esc(rotuloLeitura(linha.leitura))}<span class="ex-passo">Estimativa não confirmada.</span>${proximoPassoApresentacao(linha) ? `<span class="ex-passo">Próximo passo: ${esc(proximoPassoApresentacao(linha))}</span>` : ''}</td>
               <td class="ex-motivo">${esc(linha.motivo)}</td>
             </tr>`).join('')}
         </tbody>
@@ -968,18 +1033,18 @@ function htmlDecisoes(modelo) {
           ${esc(item.label)} <span>${contagem[item.id] || 0}</span>
         </button>`).join('')}
     </div>
-    <p class="ex-nota">Comprar, transferir e não comprar são decisões confirmadas: usam só estoque novo da mesma filial e da mesma medida, depois de reservar a necessidade da origem. Estimativa é a projeção de 90 dias e não entra nessas quantidades. Recapado e pneu em recapagem não são estoque disponível. Dianteira não usa recapado.</p>
+    <p class="ex-nota">Compra recomendada, transferência recomendada e estoque suficiente são decisões confirmadas. Elas usam só estoque novo da mesma filial e da mesma medida, depois de reservar a necessidade da origem. Estimativa é a projeção de 90 dias, permanece não confirmada e não entra nessas quantidades. Aguardando validação mostra o motivo e o próximo passo, sem quantidade confirmada. Recapado e pneu em recapagem não são estoque disponível. Dianteira não usa recapado.</p>
     <section class="ex-card">
       <header class="ex-card-head">
-        <h3>Recomendações</h3>
-        <p>Quantidade só aparece quando o número já existe no relatório.</p>
+        <h3>Decisões</h3>
+        <p>Quantidade só aparece na decisão confirmada. Estimativa e aguardando validação continuam nesta lista.</p>
       </header>
       ${tabelaDecisoes(lista)}
     </section>
     <section class="ex-card">
       <header class="ex-card-head">
-        <h3>Por medida e posição</h3>
-        <p>Contagem dos pneus já classificados. Não é uma segunda ordem de compra.</p>
+        <h3>Necessidades preliminares</h3>
+        <p>Contagem por medida e posição. É estimativa não confirmada e não substitui compra recomendada, transferência recomendada nem estoque suficiente.</p>
       </header>
       ${tabelaPosicoes(modelo.posicoes)}
     </section>
@@ -999,11 +1064,11 @@ function formatarPercentual(valor) {
 }
 
 function seloCompra(item) {
-  if (item.montados === 0 && item.sem_medida === 0) {
-    return '<span class="ex-selo ex-selo-dados_insuficientes">Sem montados</span>';
-  }
-  if (item.compra_bloqueada) return '<span class="ex-selo ex-selo-comprar">Bloqueada</span>';
-  return '<span class="ex-selo ex-selo-nao_comprar">Não bloqueada</span>';
+  const rotulo = rotuloSituacaoCompra(item);
+  const tom = item.compra_bloqueada && !(item.montados === 0 && item.sem_medida === 0)
+    ? 'ex-selo-estimativa'
+    : 'ex-selo-dados_insuficientes';
+  return `<span class="ex-selo ${tom}">${esc(rotulo)}</span>`;
 }
 
 function htmlDetalheQualidade(modelo) {
@@ -1027,7 +1092,7 @@ function htmlDetalheQualidade(modelo) {
       <header class="ex-card-head">
         <div>
           <h3>${esc(unidade.filial)}</h3>
-          <p>${unidade.montados} montados · ${unidade.sem_medida} sem medida · completude ${formatarPercentual(unidade.completude)} · ${unidade.compra_bloqueada ? 'compra bloqueada' : 'compra não bloqueada'}</p>
+          <p>${unidade.montados} montados · ${unidade.sem_medida} sem medida · completude ${formatarPercentual(unidade.completude)} · ${esc(textoSituacaoCompra(unidade))}</p>
         </div>
         <button type="button" class="ex-btn ex-btn-quiet" data-fechar-filial>Fechar</button>
       </header>
@@ -1108,7 +1173,7 @@ function htmlQualidade(modelo) {
   };
   const filtros = [
     ['todas', 'Todas'],
-    ['bloqueadas', 'Compra bloqueada'],
+    ['bloqueadas', 'Compra em análise'],
     ['sem_medida', 'Sem medida'],
     ['completas', 'Medidas completas'],
   ];
@@ -1119,7 +1184,7 @@ function htmlQualidade(modelo) {
           ${rotulo} <span>${contagem[id]}</span>
         </button>`).join('')}
     </div>
-    <p class="ex-nota">A completude é a parcela dos pneus montados com medida informada. A ordem começa por quem tem mais dados incompletos. A compra fica bloqueada quando a filial tem montado sem medida ou alguma decisão sem quantidade confirmada.</p>
+    <p class="ex-nota">A completude é a parcela dos pneus montados com medida informada. A ordem começa por quem tem mais dados incompletos. A compra fica em análise quando a filial tem montado sem medida ou alguma decisão sem quantidade confirmada.</p>
     ${htmlPrioridadesRegularizacao(base)}
     <section class="ex-card">
       <header class="ex-card-head">
@@ -1129,7 +1194,7 @@ function htmlQualidade(modelo) {
       ${lista.length ? `
         <div class="ex-tabela-wrap">
           <table class="ex-tabela">
-            <caption class="ex-sr">Completude das medidas e bloqueio de compra</caption>
+            <caption class="ex-sr">Completude das medidas e situação da análise de compra</caption>
             <thead>
               <tr>
                 <th scope="col">Filial</th>

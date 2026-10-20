@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 import {
   classificarDecisoes,
+  necessidadesPorPosicao,
   prepararPainel,
+  proximoPassoApresentacao,
+  rotuloApresentacao,
   unidadeForaDoPainel,
 } from './executivo.js';
 
@@ -106,6 +109,36 @@ const coberto = classificarDecisoes([
 assert.equal(coberto[0].tipo, 'nao_comprar');
 assert.match(coberto[0].motivo, /cobre a necessidade/);
 
+assert.equal(rotuloApresentacao(semMedida[0]), 'Aguardando validação');
+assert.equal(proximoPassoApresentacao(semMedida[0]), 'Informar a medida dos pneus desta linha.');
+assert.equal(rotuloApresentacao(incompleta[0]), 'Aguardando validação');
+assert.equal(proximoPassoApresentacao(incompleta[0]), 'Completar a medida dos pneus montados desta filial.');
+assert.notEqual(rotuloApresentacao(incompleta[0]), 'Estoque suficiente');
+assert.equal(rotuloApresentacao(comprar.find((item) => item.tipo === 'comprar')), 'Compra recomendada');
+assert.equal(proximoPassoApresentacao(comprar.find((item) => item.tipo === 'comprar')), null);
+assert.equal(rotuloApresentacao(transferencias[0]), 'Transferência recomendada');
+assert.equal(rotuloApresentacao(coberto[0]), 'Estoque suficiente');
+assert.equal(rotuloApresentacao({ tipo: 'comprar', confirmada: false, motivo: 'sem fechar' }), 'Aguardando validação');
+assert.equal(rotuloApresentacao({ tipo: 'nao_comprar', confirmada: false, motivo: 'sem dados' }), 'Aguardando validação');
+
+const comEstimativa = classificarDecisoes([
+  linha({
+    filial_id: 1,
+    medida: '295/80R22.5',
+    estoque_novo: 2,
+    necessidade_pneu_novo: 2,
+    comprar_novo: 0,
+    saldo_novo: 0,
+    previsao_novo_90d: 3,
+  }),
+], nomes);
+const estimativaLinha = comEstimativa.find((item) => item.tipo === 'estimativa');
+assert.equal(estimativaLinha.confirmada, false);
+assert.equal(estimativaLinha.quantidade, 3);
+assert.equal(rotuloApresentacao(estimativaLinha), 'Estimativa');
+assert.equal(proximoPassoApresentacao(estimativaLinha), null);
+assert.equal(comEstimativa.some((item) => item.tipo === 'nao_comprar' && item.confirmada === true), true);
+
 assert.equal(unidadeForaDoPainel({ codigo: 'MATRIZ', filial: 'Matriz' }), true);
 assert.equal(unidadeForaDoPainel({ codigo: 'E2E-01', filial: 'Teste' }), true);
 assert.equal(unidadeForaDoPainel({ codigo: 'APA', filial: 'Aparecida' }), false);
@@ -172,6 +205,20 @@ assert.equal(painel.indicadores.sem_medida, 1);
 assert.equal(painel.posicoes.length, 1);
 assert.equal(painel.posicoes[0].posicao, 'Dianteira');
 assert.match(painel.posicoes[0].motivo, /Recapado não se aplica/);
+assert.equal(proximoPassoApresentacao(painel.posicoes[0]), null);
+const semMedicao = necessidadesPorPosicao([{
+  filial_id: 1,
+  filial: 'Aparecida',
+  status_pneu: 'montado',
+  medida: '',
+  faixa: 'sem_medicao',
+  papel: 'tracao',
+  posicao: '2D',
+}]);
+assert.equal(semMedicao[0].leitura, 'dados_insuficientes');
+assert.match(semMedicao[0].motivo, /ainda não está confirmada/);
+assert.equal(semMedicao[0].motivo.includes('Não há quantidade de compra'), false);
+assert.equal(proximoPassoApresentacao(semMedicao[0]), 'Informar a medida e a medição de banda para concluir a leitura desta posição.');
 assert.equal(painel.decisoes.some((item) => item.filial_id === 8), false);
 assert.equal(JSON.stringify(painel).includes('R$'), false);
 

@@ -6,6 +6,8 @@ import {
   prepararPainel,
   prioridadesRegularizacao,
   qualidadePorFilial,
+  rotuloSituacaoCompra,
+  textoSituacaoCompra,
 } from './executivo.js';
 
 assert.equal(percentual(1, 4), 25);
@@ -61,6 +63,21 @@ assert.equal(vazia.compra_bloqueada, false);
 const travada = qualidade.find((item) => item.filial === 'Travada');
 assert.equal(travada.completude, 100);
 assert.equal(travada.compra_bloqueada, true);
+
+assert.equal(rotuloSituacaoCompra(cega), 'Em análise');
+assert.match(textoSituacaoCompra(cega), /Compra em análise/);
+assert.match(textoSituacaoCompra(cega), /8 pneus montados estão sem medida/);
+assert.match(textoSituacaoCompra(cega), /Próximo passo: completar essas medidas/);
+assert.equal(rotuloSituacaoCompra(travada), 'Em análise');
+assert.match(textoSituacaoCompra(travada), /sem quantidade confirmada/);
+assert.equal(textoSituacaoCompra(travada).includes('Estoque suficiente'), false);
+assert.equal(rotuloSituacaoCompra(completa), 'Sem pendência');
+assert.match(textoSituacaoCompra(completa), /Sem pendência de análise de cadastro/);
+assert.equal(textoSituacaoCompra(completa).includes('Estoque suficiente'), false);
+assert.equal(rotuloSituacaoCompra(vazia), 'Sem montados');
+assert.match(textoSituacaoCompra(vazia), /Sem pneus montados/);
+assert.equal(textoSituacaoCompra(vazia).includes('bloquead'), false);
+assert.equal(textoSituacaoCompra(cega).includes('bloquead'), false);
 
 const incoerente = qualidadePorFilial([
   { filial_id: 9, filial: 'Estourada', pneus_montados: 2, sem_medida: 5 },
