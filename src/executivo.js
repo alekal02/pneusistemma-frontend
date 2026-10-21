@@ -2379,7 +2379,8 @@ function htmlParecer(filial) {
   const quantidade = parecer.quantidade_compra == null
     ? 'Quantidade de compra não fechada'
     : `Quantidade conferida: ${parecer.quantidade_compra}`;
-  const selos = (parecer.recomendacoes || []).map((nome) => htmlSelo(nome)).join(' ');
+  const recomendacoes = Array.isArray(parecer.recomendacoes) ? parecer.recomendacoes : [];
+  const selos = recomendacoes.map((nome) => htmlSelo(nome)).join(' ');
   return `
     <div class="ex-recomendacoes">${selos || '<span class="ex-selo ex-selo-insuficiente">Sem recomendação fechada</span>'}</div>
     <dl class="ex-parecer">
@@ -2459,15 +2460,32 @@ function htmlCartaoFilial(filial, { botao = true } = {}) {
     </article>`;
 }
 
+function htmlCartaoFilialSeguro(filial) {
+  try {
+    return htmlCartaoFilial(filial);
+  } catch (erro) {
+    console.error('Cartão da filial', filial?.filial_id, erro);
+    const nome = esc(filial?.filial || 'Filial');
+    const id = esc(filial?.filial_id ?? '');
+    return `
+      <article class="ex-filial-card">
+        <h3>${nome}</h3>
+        <p class="ex-semana-nota">O cartão completo desta filial não pôde ser montado.</p>
+        <button type="button" class="ex-btn ex-btn-largo" data-abrir-filial="${id}">Ver ${nome}</button>
+      </article>`;
+  }
+}
+
 function htmlConsultaSituacao(consulta) {
-  if (!consulta.filiais.length) {
+  const filiais = Array.isArray(consulta?.filiais) ? consulta.filiais : [];
+  if (!filiais.length) {
     return '<p class="ex-estado">Nenhuma filial operacional neste relatório.</p>';
   }
   return `
     <div class="ex-consulta">
       <p class="ex-consulta-intro">Cada filial mostra a condição dos pneus, a necessidade de substituição, os candidatos à recapagem, o estoque e a recomendação. A medição dos sulcos é mensal.</p>
       <div class="ex-filial-lista">
-        ${consulta.filiais.map(htmlCartaoFilial).join('')}
+        ${filiais.map(htmlCartaoFilialSeguro).join('')}
       </div>
     </div>`;
 }
@@ -2635,7 +2653,21 @@ function pintar() {
     quando.textContent = hora ? `Atualizado em ${hora}` : '';
   }
   const conteudo = document.getElementById('exec-conteudo');
-  if (conteudo) conteudo.innerHTML = htmlConteudo();
+  if (conteudo) {
+    try {
+      conteudo.innerHTML = htmlConteudo();
+    } catch (erro) {
+      console.error(erro);
+      estado.aba = 'situacao';
+      estado.filialId = null;
+      conteudo.innerHTML = htmlConsultaSituacao(estado.consulta);
+    }
+    conteudo.querySelector('[data-voltar-situacao]')?.addEventListener('click', (evento) => {
+      evento.preventDefault();
+      evento.stopPropagation();
+      voltarAsFiliais();
+    });
+  }
   root.querySelector('.exec-nav .is-ativa')?.scrollIntoView?.({ inline: 'nearest', block: 'nearest' });
   const usuario = document.getElementById('exec-usuario');
   if (usuario && !usuario.textContent) usuario.textContent = 'Presidente';
@@ -2646,6 +2678,19 @@ function abrirFilial(id) {
   estado.filialId = id;
   pintar();
   document.getElementById('exec-conteudo')?.querySelector('.ex-filial-detalhe')?.scrollIntoView({ block: 'start' });
+}
+
+function alvoClique(evento) {
+  const alvo = evento.target;
+  if (alvo && typeof alvo.closest === 'function') return alvo;
+  return alvo?.parentElement || null;
+}
+
+function voltarAsFiliais() {
+  estado.aba = 'situacao';
+  estado.filialId = null;
+  pintar();
+  document.getElementById('exec-conteudo')?.scrollIntoView?.({ block: 'start' });
 }
 
 function comandoDecisao(evento) {
@@ -2678,19 +2723,27 @@ function dispararDecisao() {
 }
 
 function onClick(evento) {
-  const aba = evento.target.closest('[data-aba]');
+  const alvo = alvoClique(evento);
+  if (!alvo) return;
+  if (alvo.closest('[data-voltar-situacao]')) {
+    evento.preventDefault?.();
+    voltarAsFiliais();
+    return;
+  }
+  const aba = alvo.closest('[data-aba]');
   if (aba) {
     estado.aba = aba.dataset.aba;
+    if (estado.aba !== 'filial') estado.filialId = null;
     pintar();
     return;
   }
-  const filtroQualidade = evento.target.closest('[data-filtro-qualidade]');
+  const filtroQualidade = alvo.closest('[data-filtro-qualidade]');
   if (filtroQualidade) {
     estado.filtroQualidade = filtroQualidade.dataset.filtroQualidade;
     pintar();
     return;
   }
-  const filtro = evento.target.closest('[data-filtro]');
+  const filtro = alvo.closest('[data-filtro]');
   if (filtro) {
     estado.filtro = filtro.dataset.filtro;
     estado.decisaoIndice = 0;
@@ -2707,8 +2760,8 @@ function onClick(evento) {
     pintar();
     return;
   }
-  if (evento.target.closest('[data-decisao-indisponivel]')) return;
-  const compararFilial = evento.target.closest('[data-comparar-filial]');
+  if (alvo.closest('[data-decisao-indisponivel]')) return;
+  const compararFilial = alvo.closest('[data-comparar-filial]');
   if (compararFilial) {
     const id = Number(compararFilial.dataset.compararFilial);
     if (estado.comparar.has(id)) {
@@ -2724,46 +2777,42 @@ function onClick(evento) {
     pintar();
     return;
   }
-  if (evento.target.closest('[data-voltar-situacao]')) {
-    estado.aba = 'situacao';
-    pintar();
-    return;
-  }
-  const navegacao = evento.target.closest('[data-decisao-nav]');
+  const navegacao = alvo.closest('[data-decisao-nav]');
   if (navegacao) {
     estado.decisaoIndice += navegacao.dataset.decisaoNav === 'proxima' ? 1 : -1;
     pintar();
     return;
   }
-  if (evento.target.closest('[data-analise-detalhada]')) {
+  if (alvo.closest('[data-analise-detalhada]')) {
     estado.analiseDetalhada = !estado.analiseDetalhada;
     pintar();
     return;
   }
-  const abrir = evento.target.closest('[data-abrir-filial]');
+  const abrir = alvo.closest('[data-abrir-filial]');
   if (abrir) {
     abrirFilial(Number(abrir.dataset.abrirFilial));
     return;
   }
-  const linha = evento.target.closest('tr[data-filial]');
-  if (linha && !evento.target.closest('input, button, a')) {
+  const linha = alvo.closest('tr[data-filial]');
+  if (linha && !alvo.closest('input, button, a')) {
     abrirFilial(Number(linha.dataset.filial));
     return;
   }
-  if (evento.target.closest('[data-fechar-filial]')) {
+  if (alvo.closest('[data-fechar-filial]')) {
     estado.filialId = null;
+    estado.aba = 'situacao';
     pintar();
     return;
   }
-  if (evento.target.closest('[data-exec-atualizar]')) {
+  if (alvo.closest('[data-exec-atualizar]')) {
     acoes.aoAtualizar();
     return;
   }
-  if (evento.target.closest('[data-exec-pdf]')) {
+  if (alvo.closest('[data-exec-pdf]')) {
     acoes.aoPdf(estado.filialId);
     return;
   }
-  if (evento.target.closest('[data-exec-sair]')) acoes.aoSair();
+  if (alvo.closest('[data-exec-sair]')) acoes.aoSair();
 }
 
 function onChange(evento) {
