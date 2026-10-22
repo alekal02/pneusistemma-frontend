@@ -18,7 +18,11 @@ assert.match(presidente, /\/presidente\/evolucao/);
 assert.match(presidente, /\/presidente\/detalhe/);
 assert.match(presidente, /\/presidente\/visao\.pdf/);
 assert.match(presidente, /\/presidente\/diagnostico-filiais/);
-assert.match(presidente, /htmlBarrasFiliais\(state\.resumo\.filiais/);
+assert.match(presidente, /htmlBarrasFiliais\(\)/);
+assert.match(presidente, /frota_avaliada_pct/);
+assert.equal(presidente.includes('htmlBarrasFiliais(state.resumo.filiais'), false);
+assert.equal(presidente.includes('f.situacao?.cor'), false);
+assert.equal(presidente.includes('f.situacao?.label'), false);
 assert.match(presidente, /incluir_matriz: false/);
 assert.equal(presidente.includes('classificar'), false);
 

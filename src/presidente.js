@@ -310,13 +310,7 @@ function htmlVisao() {
     <div class="px-grid">
       <section class="px-bloco">
         <header><h3>Filiais</h3></header>
-        ${htmlBarrasFiliais(state.resumo.filiais || [])}
-        <div class="px-legenda">
-          <span class="px-dot verde"></span> No critério
-          <span class="px-dot amarelo"></span> Atenção
-          <span class="px-dot vermelho"></span> Crítica
-          <span class="px-dot cinza"></span> Sem decisão
-        </div>
+        ${htmlBarrasFiliais()}
       </section>
       <section class="px-bloco">
         <header><h3>Condição física</h3></header>
@@ -362,26 +356,41 @@ function htmlDelta(card) {
   return `<span class="px-delta">${sinal}${esc(cmp.delta)}</span>`;
 }
 
-function htmlBarrasFiliais(filiais) {
+const CORES_SITUACAO_EXEC = {
+  controlada: 'verde',
+  atencao: 'amarelo',
+  critica: 'vermelho',
+  nao_avaliada: 'cinza',
+};
+
+function corSituacaoExec(situacao) {
+  return CORES_SITUACAO_EXEC[situacao] || 'cinza';
+}
+
+function htmlBarrasFiliais() {
+  const filiais = state.diagnostico?.filiais || [];
   if (!filiais.length) return `<p class="px-vazio">Sem filiais neste recorte.</p>`;
-  return `<div class="px-barras">${filiais.map((f) => {
-    const pct = f.percentual_atualizado;
-    const semDecisao = f.situacao?.codigo === 'insuficiente';
-    const largura = pct == null ? (semDecisao ? 100 : 0) : Math.max(0, Math.min(100, pct));
-    const texto = pct == null ? '—' : `${pct}%`;
-    const fill = semDecisao && pct == null
-      ? 'px-cinza px-fill-sem-decisao'
-      : `px-${esc(f.situacao?.cor || 'cinza')}`;
-    const nome = semDecisao
-      ? `${esc(f.nome)}<small>${esc(f.situacao?.label || '')}</small>`
-      : esc(f.nome);
+  const barras = filiais.map((f) => {
+    const pct = f.frota_avaliada_pct;
+    const largura = pct == null ? 0 : Math.max(0, Math.min(100, Number(pct)));
+    const texto = pct == null ? '—' : fmtPctExec(pct);
+    const cor = corSituacaoExec(f.situacao);
     return `
-      <button type="button" class="px-barra" data-filial="${f.id}" data-tip="${esc(f.nome)} · ${esc(f.situacao?.label || '')} · críticos ${f.criticos} · fora do mês ${f.atrasados}">
-        <span class="px-barra-nome">${nome}</span>
-        <span class="px-trilho"><span class="px-fill ${fill}" style="width:${largura}%"></span></span>
+      <button type="button" class="px-barra" data-filial="${f.id}" data-situacao="${esc(f.situacao || '')}" data-tip="${esc(f.nome)} · ${esc(f.situacao_label || '')} · frota avaliada ${texto} · ${f.com_criticos ?? 0} veículos críticos">
+        <span class="px-barra-nome">${esc(f.nome)}<small>${esc(f.situacao_label || '')}</small></span>
+        <span class="px-trilho"><span class="px-fill px-${cor}" style="width:${largura}%"></span></span>
         <span class="px-barra-pct">${texto}</span>
       </button>`;
-  }).join('')}</div>`;
+  }).join('');
+  return `
+    <div class="px-barras">${barras}</div>
+    <p class="hint">O comprimento da barra é a frota avaliada. A cor é a situação executiva.</p>
+    <div class="px-legenda">
+      <span class="px-dot verde"></span> Controlada
+      <span class="px-dot amarelo"></span> Atenção
+      <span class="px-dot vermelho"></span> Crítica
+      <span class="px-dot cinza"></span> Não avaliada
+    </div>`;
 }
 
 function htmlDonut(itens, origem) {
@@ -572,7 +581,7 @@ function htmlFiliais() {
   `).join('');
   return `
     ${voltar()}
-    <section class="px-bloco"><header><h3>Filiais</h3></header>${htmlBarrasFiliais(state.resumo.filiais || [])}</section>
+    <section class="px-bloco"><header><h3>Filiais</h3></header>${htmlBarrasFiliais()}</section>
     <section class="px-bloco">
       <header><h3>Diagnóstico executivo</h3></header>
       ${cards || '<p class="px-vazio">Diagnóstico indisponível neste recorte.</p>'}
@@ -581,21 +590,28 @@ function htmlFiliais() {
 }
 
 function htmlFilial() {
+  const diag = diagDaFilial(state.filialAberta);
   const f = (state.resumo.filiais || []).find((item) => item.id === Number(state.filialAberta));
-  if (!f) return `${voltar()}<p class="px-vazio">Filial fora deste recorte.</p>`;
-  return `
-    ${voltar()}
-    <section class="px-bloco">
-      <header><h3>${esc(f.nome)}</h3><span class="px-chip px-${esc(f.situacao?.cor || 'cinza')}">${esc(f.situacao?.label || '')}</span></header>
+  if (!diag && !f) return `${voltar()}<p class="px-vazio">Filial fora deste recorte.</p>`;
+  const nome = diag?.nome || f?.nome || '';
+  const chip = diag
+    ? `<span class="px-chip px-${corSituacaoExec(diag.situacao)}" data-situacao="${esc(diag.situacao || '')}">${esc(diag.situacao_label || '—')}</span>`
+    : '';
+  const operacao = f ? `
       <div class="px-mini">
         <div><b>${f.veiculos}</b><span>Veículos</span></div>
         <div><b>${f.montados}</b><span>Montados</span></div>
-        <div><b>${f.criticos}</b><span>Críticos</span></div>
+        <div><b>${f.criticos}</b><span>Pneus críticos</span></div>
         <div><b>${f.atrasados}</b><span>Fora do mês</span></div>
         <div><b>${f.percentual_atualizado == null ? '—' : `${f.percentual_atualizado}%`}</b><span>No mês</span></div>
-      </div>
+      </div>` : '';
+  return `
+    ${voltar()}
+    <section class="px-bloco">
+      <header><h3>${esc(nome)}</h3>${chip}</header>
+      ${operacao}
     </section>
-    ${htmlDetalheExec(diagDaFilial(f.id))}
+    ${htmlDetalheExec(diag)}
     ${htmlListaFrota()}
   `;
 }
