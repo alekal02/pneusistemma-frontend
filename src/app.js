@@ -1816,6 +1816,7 @@ async function openVeiculoDetalhe(id, origem = 'dashboard', dadosPreload = null,
 
     const btnExcluir = document.getElementById('btn-truck-excluir');
     if (btnExcluir) {
+      btnExcluir.classList.toggle('hidden', !isAdmin() || modoAcessoRapido);
       btnExcluir.onclick = () => {
         if (modoAcessoRapido) return toast('Indisponível no acesso rápido', 'error');
         excluirCaminhaoGestao({
@@ -1896,6 +1897,8 @@ function aplicarVisibilidadeAcessoRapido() {
   }
   const btnWa = document.getElementById('btn-truck-whatsapp');
   if (btnWa) btnWa.classList.toggle('hidden', modoAcessoRapido || !isGestao());
+  const btnExcluir = document.getElementById('btn-truck-excluir');
+  if (btnExcluir) btnExcluir.classList.toggle('hidden', modoAcessoRapido || !isAdmin());
   const tabEstoque = document.querySelector('.montar-tab[data-montar-tab="estoque"]');
   if (tabEstoque) tabEstoque.classList.remove('hidden');
   const linkPneus = document.getElementById('link-ir-pneus');
@@ -5547,16 +5550,31 @@ function renderUnidadeKpis(data) {
       <section class="dash-grupo" aria-label="Estoque e recapagem">
         <h3>Estoque e recapagem</h3>
         <div class="stats-grid">
-          ${kpiUnidadeFixo({ valor: r.pneus_em_estoque ?? 0, label: 'Estoque' })}
+          ${isAdmin()
+            ? kpiUnidadeBtn({
+              valor: r.pneus_em_estoque ?? 0,
+              label: 'Estoque',
+              attrs: 'data-unidade-tab="pneus" data-pneus-status="estoque"',
+            })
+            : kpiUnidadeFixo({ valor: r.pneus_em_estoque ?? 0, label: 'Estoque' })}
           ${kpiUnidadeBtn({
             valor: c.pneus_para_recap ?? r.pneus_em_recapagem ?? 0,
             label: 'Em recapagem',
             cls: 'stat-recap',
             attrs: 'data-unidade-tab="pendencias" data-pend-filtro="recap"',
           })}
-          ${kpiUnidadeFixo({ valor: r.pneus_em_descarte ?? 0, label: 'Descarte' })}
+          ${isAdmin()
+            ? kpiUnidadeBtn({
+              valor: r.pneus_em_descarte ?? 0,
+              label: 'Descarte',
+              cls: 'stat-critico',
+              attrs: 'data-unidade-tab="pneus" data-pneus-status="descarte"',
+            })
+            : kpiUnidadeFixo({ valor: r.pneus_em_descarte ?? 0, label: 'Descarte' })}
         </div>
-        <p class="dash-grupo-nota">Estoque e descarte são totais do resumo. Esta resposta não traz o pneu a pneu.</p>
+        <p class="dash-grupo-nota">${isAdmin()
+          ? 'Estoque e Descarte abrem a lista para excluir o pneu. Pneu montado ou em recapagem não pode ser excluído.'
+          : 'Estoque e descarte são totais do resumo. Esta resposta não traz o pneu a pneu.'}</p>
       </section>
       <section class="dash-grupo${semSemana ? ' dash-grupo-destaque' : ''}" aria-label="Medições pendentes">
         <h3>Medições pendentes</h3>
@@ -5763,6 +5781,89 @@ function valorCampoWa(v) {
   return s;
 }
 
+let pneusLivresSeq = 0;
+
+async function carregarPneusLivresAdmin(filialId, status = 'todos') {
+  if (!isAdmin()) return;
+  const box = document.getElementById('unidade-pneus-livres');
+  if (!box) return;
+  const seq = ++pneusLivresSeq;
+  box.innerHTML = '<p class="hint">Carregando pneus…</p>';
+  try {
+    const params = new URLSearchParams({ status: status || 'todos' });
+    const pneus = await fetchJSON(`${API}/filiais/${filialId}/pneus-livres?${params}`);
+    const alvo = document.getElementById('unidade-pneus-livres');
+    if (seq !== pneusLivresSeq || !alvo) return;
+    if (!pneus.length) {
+      alvo.innerHTML = '<p class="hint">Nenhum pneu em estoque ou descarte nesta unidade.</p>';
+      return;
+    }
+    alvo.innerHTML = `
+      <div class="unidade-table-wrap">
+        <table class="historico-table unidade-table">
+          <thead>
+            <tr>
+              <th>Fogo</th><th>Pneu</th><th>Onde</th><th>Padrão</th><th>Tratamento</th><th></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${pneus.map((p) => `
+              <tr>
+                <td><strong>${escapeHtml(p.numero_fogo || '—')}</strong></td>
+                <td>${escapeHtml([p.marca, p.modelo, p.medida].filter(Boolean).join(' ') || 'Sem modelo')}
+                  ${p.dot ? `<br><span class="hint">DOT ${escapeHtml(p.dot)}</span>` : ''}</td>
+                <td>${p.status_pneu === 'descarte' ? 'Descarte' : 'Estoque'}</td>
+                <td>${escapeHtml(p.padrao_label || labelPadraoPneu(p.tipo_pneu))}</td>
+                <td>${p.status_pneu === 'descarte' ? escapeHtml(p.tratamento_descarte_label || 'Aguardando destino') : '—'}</td>
+                <td>
+                  <button type="button" class="btn btn-sm btn-danger-text" data-excluir-pneu="${p.id}">Excluir</button>
+                </td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+      </div>`;
+    alvo.querySelectorAll('[data-excluir-pneu]').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        const pneu = pneus.find((p) => String(p.id) === btn.dataset.excluirPneu);
+        if (pneu) excluirPneuLivreAdmin(filialId, pneu);
+      });
+    });
+  } catch (err) {
+    const alvo = document.getElementById('unidade-pneus-livres');
+    if (seq !== pneusLivresSeq || !alvo) return;
+    alvo.innerHTML = `<p class="hint login-erro">${escapeHtml(err.message)}</p>`;
+  }
+}
+
+async function excluirPneuLivreAdmin(filialId, pneu) {
+  if (!isAdmin()) {
+    toast('Só o administrador pode excluir pneu', 'error');
+    return;
+  }
+  if (pneu.status_pneu !== 'estoque' && pneu.status_pneu !== 'descarte') {
+    toast('Só pneu em estoque ou descarte pode ser excluído', 'error');
+    return;
+  }
+  const nome = pneu.numero_fogo ? `fogo ${pneu.numero_fogo}` : 'este pneu';
+  const onde = pneu.status_pneu === 'descarte' ? 'descarte' : 'estoque';
+  if (!confirm(
+    `Excluir o pneu ${nome} do ${onde}?\n\nMedições e histórico deste pneu serão apagados. Esta ação não pode ser desfeita.`
+  )) return;
+  try {
+    const data = await fetchJSON(`${API}/filiais/${filialId}/pneus/${pneu.id}`, { method: 'DELETE' });
+    toast(data.mensagem || 'Pneu excluído', 'success');
+    const filtro = document.getElementById('unidade-pneus-filtro')?.value || pneu.status_pneu || 'todos';
+    await abrirDetalheFilial(filialId);
+    setUnidadeTab('pneus');
+    const sel = document.getElementById('unidade-pneus-filtro');
+    if (sel) sel.value = filtro;
+    await carregarPneusLivresAdmin(filialId, filtro);
+  } catch (err) {
+    toast(err.message, 'error');
+  }
+}
+
 async function abrirDetalheFilial(id) {
   try {
     const [data, diagResp] = await Promise.all([
@@ -5815,6 +5916,7 @@ async function abrirDetalheFilial(id) {
           <button type="button" class="unidade-tab ativo" data-unidade-tab="resumo">Visão geral</button>
           <button type="button" class="unidade-tab" data-unidade-tab="pendencias">Pendências (${nPend})</button>
           <button type="button" class="unidade-tab" data-unidade-tab="frota">Frota (${nFrota})</button>
+          ${isAdmin() ? '<button type="button" class="unidade-tab" data-unidade-tab="pneus">Estoque e descarte</button>' : ''}
         </nav>
         <div data-unidade-panel="resumo">${renderUnidadeResumo(data)}</div>
         <div data-unidade-panel="pendencias" class="hidden">
@@ -5838,6 +5940,18 @@ async function abrirDetalheFilial(id) {
           <p class="hint">Caminhões lado a lado. Verde = ok, amarelo = alerta, vermelho = crítico. Clique para o desenho completo.</p>
           ${renderUnidadeFrota(data)}
         </div>
+        ${isAdmin() ? `
+        <div data-unidade-panel="pneus" class="hidden">
+          <p class="hint">Só o administrador exclui pneu, e somente os que estão em estoque ou descarte. A exclusão apaga medições e histórico desse pneu.</p>
+          <div class="unidade-frota-toolbar">
+            <select id="unidade-pneus-filtro" aria-label="Filtrar pneus excluíveis">
+              <option value="todos">Estoque e descarte</option>
+              <option value="estoque">Só estoque</option>
+              <option value="descarte">Só descarte</option>
+            </select>
+          </div>
+          <div id="unidade-pneus-livres"><p class="hint">A lista aparece ao abrir esta aba.</p></div>
+        </div>` : ''}
       </div>
     `;
 
@@ -5867,7 +5981,16 @@ async function abrirDetalheFilial(id) {
           if (sel) sel.value = frotaFiltro;
           filtrarFrotaUnidade();
         }
+        if (tab === 'pneus') {
+          const filtro = btn.dataset.pneusStatus || document.getElementById('unidade-pneus-filtro')?.value || 'todos';
+          const sel = document.getElementById('unidade-pneus-filtro');
+          if (sel) sel.value = filtro;
+          carregarPneusLivresAdmin(id, filtro);
+        }
       });
+    });
+    document.getElementById('unidade-pneus-filtro')?.addEventListener('change', (e) => {
+      carregarPneusLivresAdmin(id, e.target.value || 'todos');
     });
     el.querySelectorAll('[data-pend-filtro]').forEach((btn) => {
       if (btn.dataset.unidadeTab) return;
@@ -7485,19 +7608,19 @@ function renderListaAnomalias(anomalias) {
 }
 
 async function excluirCaminhaoGestao({ filialId, veiculoId, placa, apelido, nPneus, depois }) {
-  if (!isGestao()) {
-    toast('Só gerente ou administrador pode excluir caminhão', 'error');
+  if (!isAdmin()) {
+    toast('Só o administrador pode excluir veículo', 'error');
     return false;
   }
   const nome = [apelido, placa].filter(Boolean).join(' · ') || 'este caminhão';
   const n = Number(nPneus) || 0;
   const pneusTxt = n === 1
-    ? 'o pneu montado nele'
+    ? 'O pneu montado volta para o estoque.'
     : n > 0
-      ? `os ${n} pneus montados nele`
-      : 'os pneus montados nele';
+      ? `Os ${n} pneus montados voltam para o estoque.`
+      : 'Pneus que estiverem montados voltam para o estoque.';
   if (!confirm(
-    `Excluir ${nome} e ${pneusTxt}?\n\nMedições e histórico desses pneus também serão apagados. Esta ação não pode ser desfeita.`
+    `Excluir ${nome}?\n\n${pneusTxt} O cadastro do veículo será apagado. Esta ação não pode ser desfeita.`
   )) {
     return false;
   }
@@ -7576,7 +7699,7 @@ async function abrirInspecaoVeiculoFilial(filialId, veiculoId) {
         </div>
         <div class="inspecao-header-actions">
           <button type="button" class="btn btn-ghost btn-sm" id="btn-insp-config-layout">Configurar layout</button>
-          <button type="button" class="btn btn-ghost btn-sm btn-danger-text" id="btn-insp-excluir-veiculo">Excluir caminhão</button>
+          ${isAdmin() ? '<button type="button" class="btn btn-ghost btn-sm btn-danger-text" id="btn-insp-excluir-veiculo">Excluir caminhão</button>' : ''}
           <button type="button" class="btn btn-ghost btn-sm" id="btn-fechar-inspecao">Fechar desenho</button>
         </div>
       </div>
@@ -7660,7 +7783,8 @@ async function abrirInspecaoVeiculoFilial(filialId, veiculoId) {
         posicoes
       );
     };
-    document.getElementById('btn-insp-excluir-veiculo').onclick = () => {
+    const btnExcluirInsp = document.getElementById('btn-insp-excluir-veiculo');
+    if (btnExcluirInsp) btnExcluirInsp.onclick = () => {
       excluirCaminhaoGestao({
         filialId,
         veiculoId: v.id,
