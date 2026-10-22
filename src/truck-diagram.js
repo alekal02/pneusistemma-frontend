@@ -150,7 +150,7 @@ function renderPneu(p, n, coord, cores, sulco, nome, ativo) {
     </g>`;
 }
 
-function renderSlotVazio(posicao, coord, nome, ativo) {
+function renderSlotVazio(posicao, coord, nome, ativo, titulo) {
   const { cx, cy, w, h, short } = coord;
   const x = cx - w / 2;
   const y = cy - h / 2;
@@ -166,7 +166,7 @@ function renderSlotVazio(posicao, coord, nome, ativo) {
             fill="#64748b" pointer-events="none">${short}</text>
       <text x="${cx}" y="${cy + (w >= 90 ? 22 : 14)}" text-anchor="middle" font-size="${w >= 90 ? 22 : 16}" font-weight="700"
             fill="#94a3b8" pointer-events="none">+</text>
-      <title>${nome} — vazio (montar do estoque)</title>
+      <title>${titulo || `${nome} — vazio (montar do estoque)`}</title>
     </g>`;
 }
 
@@ -335,13 +335,13 @@ function buildSchemaSvg(pneusSvg, posicoes, layoutId = null, opts = {}) {
 }
 
 /** Miniatura da frota: caminhões lado a lado, só cores de sulco. */
-export function svgMiniCaminhao({ layoutId = null, posicoes = [], pneus = [] } = {}) {
+export function svgMiniCaminhao({ layoutId = null, posicoes = [], pneus = [], consulta = false } = {}) {
   const byPos = new Map((pneus || []).map((p) => [p.posicao, p]));
   const slots = (posicoes?.length ? posicoes : (pneus || []).map((p) => p.posicao)).filter(Boolean);
   const itens = slots.map((codigo, i) => {
     const p = byPos.get(codigo);
     const coord = coordsPneu(codigo, i, slots.length, layoutId);
-    if (!p) return renderSlotVazio(codigo, coord, codigo, '');
+    if (!p) return renderSlotVazio(codigo, coord, codigo, '', consulta ? 'Posição sem pneu montado' : '');
     const cores = STATUS_CORES[p.status_sulco] || STATUS_CORES.sem_dado;
     const sulco = p.menor_sulco != null ? String(p.menor_sulco) : '—';
     return renderPneu({ id: p.id || i, posicao: codigo }, i + 1, coord, cores, sulco, codigo, '');

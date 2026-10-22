@@ -2,6 +2,7 @@
  * Dashboard executivo do presidente. Só desenha o que a API devolve.
  * Não recalcula sulco, validade nem situação.
  */
+import { svgMiniCaminhao } from './truck-diagram.js';
 
 const CORES = {
   ok: '#15803d',
@@ -34,6 +35,9 @@ const state = {
   carregandoEvolucao: false,
   detalhe: null,
   filialAberta: null,
+  filtrosAntesDaFrota: null,
+  pneuSelecionado: null,
+  erroDiagnostico: '',
   foco: '',
   pagina: 1,
   ponto: null,
@@ -51,7 +55,9 @@ export function abrirPainelPresidente(painel) {
   if (!deps?.podeVer?.()) return;
   state.painel = painel || 'visao';
   if (state.painel === 'visao') {
+    restaurarFiltrosDaFrota();
     state.filialAberta = null;
+    state.pneuSelecionado = null;
     state.foco = '';
     state.ponto = null;
   }
@@ -86,7 +92,7 @@ function garantirShell() {
       <label>Tipo
         <select name="tipo" id="px-tipo"><option value="">Todos</option></select>
       </label>
-      <label>Situação
+      <label>Pneus
         <select name="situacao" id="px-situacao">
           <option value="">Todas</option>
           <option value="ok">Boa condição</option>
@@ -107,6 +113,7 @@ function garantirShell() {
       <label class="px-datas hidden" id="px-ate-wrap">Até <input type="date" id="px-ate"></label>
       <label class="px-check"><input type="checkbox" id="px-matriz"> Incluir Matriz</label>
     </form>
+    <p class="hint">O filtro de pneus escolhe quais unidades entram. A condição de cada filial continua a da frota completa. Clique na filial para abrir a frota ilustrada.</p>
     <div id="px-conteudo"></div>
     <div id="px-tip" class="px-tip hidden" role="tooltip"></div>
   `;
@@ -132,6 +139,7 @@ function aoFiltrar(ev) {
   document.getElementById('px-de-wrap')?.classList.toggle('hidden', state.filtros.periodo !== 'custom');
   document.getElementById('px-ate-wrap')?.classList.toggle('hidden', state.filtros.periodo !== 'custom');
   if (state.filtros.periodo === 'custom' && (!state.filtros.de || !state.filtros.ate)) return;
+  state.filtrosAntesDaFrota = null;
   state.filialAberta = null;
   state.pagina = 1;
   carregar();
@@ -142,6 +150,8 @@ function limpar() {
     filial_id: '', tipo: '', situacao: '', periodo: '30', de: '', ate: '', incluir_matriz: false,
   };
   state.filialAberta = null;
+  state.filtrosAntesDaFrota = null;
+  state.pneuSelecionado = null;
   state.foco = '';
   state.pagina = 1;
   const form = document.getElementById('px-filtros');
@@ -182,12 +192,16 @@ async function carregar() {
   state.erroResumo = '';
   state.evolucao = null;
   state.diagnostico = null;
+  state.erroDiagnostico = '';
   state.erroEvolucao = '';
   renderConteudo();
   try {
     const [resumo, diagnostico] = await Promise.all([
       deps.fetchJSON(`${deps.api}/presidente/visao?${query()}`),
-      deps.fetchJSON(`${deps.api}/presidente/diagnostico-filiais?${query()}`).catch(() => null),
+      deps.fetchJSON(`${deps.api}/presidente/diagnostico-filiais?${query()}`).catch((err) => {
+        state.erroDiagnostico = err.message || 'Falha ao carregar o diagnóstico das filiais.';
+        return null;
+      }),
     ]);
     if (id !== seq) return;
     state.resumo = resumo;
@@ -241,11 +255,17 @@ async function carregarDetalhe() {
     filial: ['frota', ''],
   };
   const [recorte, foco] = mapa[state.painel] || ['pneus', ''];
+  if (state.painel === 'frota') q.set('limite', '80');
   q.set('recorte', recorte);
   if (foco) q.set('foco', foco);
-  if (state.filialAberta) q.set('filial_foco', String(state.filialAberta));
+  if (state.painel === 'frota' && state.filialAberta) {
+    q.set('filial_id', String(state.filialAberta));
+    q.set('filial_foco', String(state.filialAberta));
+  } else if (state.filialAberta) {
+    q.set('filial_foco', String(state.filialAberta));
+  }
   q.set('pagina', String(state.pagina || 1));
-  q.set('limite', '40');
+  if (!q.has('limite')) q.set('limite', '40');
   try {
     state.detalhe = await deps.fetchJSON(`${deps.api}/presidente/detalhe?${q}`);
   } catch (err) {
@@ -306,6 +326,7 @@ function esqueleto() {
 
 function htmlVisao() {
   return `
+    ${state.erroDiagnostico ? `<p class="px-erro">${esc(state.erroDiagnostico)}</p>` : ''}
     ${htmlCards()}
     <div class="px-grid">
       <section class="px-bloco">
@@ -386,8 +407,13 @@ function htmlPartesPneus(f) {
 }
 
 function htmlBarrasFiliais() {
-  const filiais = state.diagnostico?.filiais || [];
-  if (!filiais.length) return `<p class="px-vazio">Sem filiais neste recorte.</p>`;
+  let filiais = state.diagnostico?.filiais || [];
+  if (state.foco === 'pendentes') filiais = filiais.filter((f) => f.situacao !== 'controlada');
+  if (!filiais.length) {
+    return state.erroDiagnostico
+      ? `<p class="px-erro">${esc(state.erroDiagnostico)}</p>`
+      : `<p class="px-vazio">Sem filiais neste recorte.</p>`;
+  }
   const barras = filiais.map((f) => {
     const semFrota = f.sem_frota || Number(f.veiculos_ativos) === 0;
     const semPneu = !semFrota && !(Number(f.pneus_montados) > 0);
@@ -395,15 +421,15 @@ function htmlBarrasFiliais() {
       ? 'Sem frota cadastrada'
       : semPneu
         ? 'Sem pneus montados'
-        : `${qtdPct(f.pneus_criticos, f.pct_critico)} substituição`;
+        : `${f.pneus_sem_alerta ?? 0} bons · ${f.pneus_atencao ?? 0} acomp. · ${f.pneus_criticos ?? 0} subst. · ${f.pneus_sem_dados ?? 0} sem med.`;
     const dica = semFrota
       ? `${f.nome} · sem frota cadastrada`
       : `${f.nome} · ${f.situacao_label || ''} · boa condição ${qtdPct(f.pneus_sem_alerta, f.pct_sem_alerta)} · acompanhamento ${qtdPct(f.pneus_atencao, f.pct_atencao)} · substituição ${qtdPct(f.pneus_criticos, f.pct_critico)} · sem medição ${qtdPct(f.pneus_sem_dados, f.pct_sem_dados)}`;
     return `
-      <button type="button" class="px-barra" data-filial="${f.id}" data-situacao="${esc(f.situacao || '')}" data-tip="${esc(dica)}">
+      <button type="button" class="px-barra px-clicavel" data-filial="${f.id}" data-situacao="${esc(f.situacao || '')}" data-tip="${esc(dica)} · Abrir frota" aria-label="Abrir frota de ${esc(f.nome)}">
         <span class="px-barra-nome">${esc(f.nome)}<small><span class="exec-sit exec-sit-${esc(f.situacao || '')}">${esc(f.situacao_label || '')}</span>${f.riscos_imediatos > 0 ? ` <span class="px-risco">Intervenção imediata ${f.riscos_imediatos}</span>` : ''}</small></span>
         ${semFrota || semPneu ? '<span class="px-trilho px-trilho-vazio"></span>' : htmlPartesPneus(f)}
-        <span class="px-barra-pct">${esc(resumo)}</span>
+        <span class="px-barra-pct">${esc(resumo)} <em class="px-abrir">Abrir frota</em></span>
       </button>`;
   }).join('');
   return `
@@ -496,7 +522,6 @@ function pintarEvolucao() {
     ['filiais', 'Filiais com medição'],
     ['recapagens', 'Recapagens'],
     ['descartes', 'Descartes'],
-    ['conformidade', 'Conformidade'],
   ];
   box.innerHTML = `<div class="px-series">${blocos.map(([id, nome]) => htmlSerie(nome, series[id], id)).join('')}</div>`;
 }
@@ -611,8 +636,10 @@ function htmlDetalheExec(diag) {
 }
 
 function htmlFiliais() {
-  const cards = (state.diagnostico?.filiais || []).map((diag) => `
-    <button type="button" class="px-exec-card" data-filial="${diag.id}">
+  let lista = state.diagnostico?.filiais || [];
+  if (state.foco === 'pendentes') lista = lista.filter((diag) => diag.situacao !== 'controlada');
+  const cards = lista.map((diag) => `
+    <button type="button" class="px-exec-card px-clicavel" data-filial="${diag.id}" aria-label="Abrir frota de ${esc(diag.nome || '')}">
       <strong>${esc(diag.nome || '')}</strong>
       ${htmlBlocoExec(diag)}
     </button>
@@ -655,7 +682,142 @@ function htmlFilial() {
 }
 
 function htmlFrota() {
-  return `${voltar()}<section class="px-bloco"><header><h3>Frota</h3></header>${htmlListaFrota()}</section>`;
+  const diag = diagDaFilial(state.filialAberta);
+  const nome = diag?.nome || (state.resumo?.filiais || []).find((f) => Number(f.id) === Number(state.filialAberta))?.nome || '';
+  const titulo = state.filialAberta ? `Frota · ${nome || 'Filial'}` : 'Frota';
+  return `
+    ${voltar()}
+    <section class="px-bloco">
+      <header><h3>${esc(titulo)}</h3></header>
+      ${htmlResumoFrota(diag)}
+      ${htmlFrotaIlustrada()}
+    </section>`;
+}
+
+function htmlResumoFrota(diag) {
+  if (state.erroDiagnostico && !diag) return `<p class="px-erro">${esc(state.erroDiagnostico)}</p>`;
+  if (!diag && !state.filialAberta) {
+    const cards = state.resumo?.resumo?.cards || [];
+    const valor = (id) => cards.find((c) => c.id === id)?.valor ?? '—';
+    return `<div class="px-mini px-mini-frota">
+      <div><b>${esc(valor('veiculos'))}</b><span>Veículos</span></div>
+      <div><b>${esc(valor('montados'))}</b><span>Pneus montados</span></div>
+    </div>`;
+  }
+  if (!diag) return '';
+  if (diag.sem_frota || Number(diag.veiculos_ativos) === 0) {
+    return `<p class="px-vazio">Sem frota cadastrada. Nenhum veículo ou pneu para desenhar.</p>`;
+  }
+  return `
+    <div class="px-mini px-mini-frota">
+      <div><b>${diag.veiculos_ativos ?? 0}</b><span>Veículos</span></div>
+      <div><b>${diag.pneus_montados ?? 0}</b><span>Pneus montados</span></div>
+      <div><b>${qtdPct(diag.pneus_sem_alerta, diag.pct_sem_alerta)}</b><span>Boa condição</span></div>
+      <div><b>${qtdPct(diag.pneus_atencao, diag.pct_atencao)}</b><span>Acompanhamento</span></div>
+      <div><b>${qtdPct(diag.pneus_criticos, diag.pct_critico)}</b><span>Substituição prioritária</span></div>
+      <div><b>${qtdPct(diag.pneus_sem_dados, diag.pct_sem_dados)}</b><span>Sem dados suficientes</span></div>
+    </div>`;
+}
+
+function statusDesenho(kpi) {
+  if (kpi === 'ok') return 'ok';
+  if (kpi === 'monitorar') return 'alerta';
+  if (kpi === 'critico') return 'critico';
+  return 'sem_dado';
+}
+
+function mm(valor) {
+  if (valor == null || valor === '') return '—';
+  return `${valor} mm`;
+}
+
+function htmlSulcosIndividuais(pneu) {
+  if (!pneu || pneu.sem_medicao) return '<p>Sem medição de sulco.</p>';
+  if (pneu.perfil_sulco === 'simples') {
+    return `<div class="px-sulcos"><div><span>Sulco</span><b>${esc(mm(pneu.sulco_mm))}</b></div></div>`;
+  }
+  const pontos = [
+    ['Externo', pneu.sulco_externo],
+    ['Central', pneu.sulco_central],
+    ['Interno', pneu.sulco_interno],
+    ['Auxiliar', pneu.sulco_auxiliar],
+  ];
+  return `<div class="px-sulcos">${pontos.map(([nome, valor]) => `
+    <div><span>${nome}</span><b>${esc(mm(valor))}</b></div>
+  `).join('')}</div>
+  <p class="hint">Menor sulco: ${esc(mm(pneu.menor_sulco))}. Os pontos não são substituídos pela média.</p>`;
+}
+
+function htmlDetalhePneu(veiculo) {
+  const sel = state.pneuSelecionado;
+  if (!sel || Number(sel.veiculoId) !== Number(veiculo.id)) return '';
+  if (sel.vazio) {
+    return `<div class="px-pneu-detalhe"><strong>Posição vazia</strong><p>${esc(sel.posicao || '')} não tem pneu montado.</p></div>`;
+  }
+  const pneu = (veiculo.pneus || []).find((p) => Number(p.id) === Number(sel.id));
+  if (!pneu) return '';
+  const condicao = pneu.condicao || (
+    pneu.kpi === 'critico' ? 'Substituição prioritária'
+      : pneu.kpi === 'monitorar' ? 'Acompanhamento'
+        : pneu.kpi === 'ok' ? 'Boa condição'
+          : 'Sem dados suficientes'
+  );
+  return `
+    <div class="px-pneu-detalhe">
+      <strong>Fogo ${esc(pneu.numero_fogo || '—')}</strong>
+      <p>${esc(pneu.posicao_label || pneu.posicao || 'Sem posição')}</p>
+      <p>Última medição: ${dataCurta(pneu.data_medicao)}</p>
+      ${htmlSulcosIndividuais(pneu)}
+      <p>Pressão: ${pneu.pressao_psi == null ? 'não registrada' : `${esc(pneu.pressao_psi)} psi`}</p>
+      <p>Condição técnica: ${esc(condicao)}</p>
+      ${pneu.sem_medicao ? '<p>Sem medição</p>' : ''}
+      ${pneu.atrasada ? '<p>Medição vencida</p>' : ''}
+      ${pneu.risco_imediato ? '<p class="px-risco">Intervenção imediata — posição direcional</p>' : ''}
+    </div>`;
+}
+
+function htmlCartaoVeiculo(veiculo) {
+  const posicoes = Array.isArray(veiculo.posicoes) ? veiculo.posicoes : [];
+  const pneus = (veiculo.pneus || []).map((p) => ({
+    ...p,
+    status_sulco: statusDesenho(p.kpi),
+  }));
+  const desenho = posicoes.length
+    ? svgMiniCaminhao({
+      layoutId: veiculo.layout_id,
+      posicoes,
+      pneus,
+      consulta: true,
+    })
+    : '';
+  const fora = posicoes.length
+    ? pneus.filter((p) => p.posicao && !posicoes.includes(p.posicao))
+    : pneus;
+  return `
+    <article class="px-veiculo" data-veiculo="${veiculo.id}">
+      <header>
+        <strong>${esc(veiculo.placa || '—')}</strong>
+        <span>${esc(veiculo.apelido || '')}</span>
+        <span>${esc(veiculo.tipo || 'Tipo não informado')}</span>
+        <em>${esc(veiculo.medicao_label || '')}</em>
+      </header>
+      ${desenho || '<p class="px-vazio">Sem layout cadastrado. Os pneus abaixo são os que existem neste veículo, sem desenho de eixo inventado.</p>'}
+      ${fora.length ? `<ul class="px-pneus-fora">${fora.map((p) => `
+        <li><button type="button" data-pneu-id="${p.id}" data-veiculo-id="${veiculo.id}">${esc(p.numero_fogo || 'Pneu')} · ${esc(p.posicao || 'sem posição')}</button></li>
+      `).join('')}</ul>` : ''}
+      ${!pneus.length && posicoes.length ? '<p class="hint">Veículo sem pneus montados. As posições vazias são as do layout cadastrado.</p>' : ''}
+      ${htmlDetalhePneu(veiculo)}
+    </article>`;
+}
+
+function htmlFrotaIlustrada() {
+  const d = state.detalhe;
+  if (!d) return '<div class="px-skel px-skel-linha"></div>';
+  if (d.erro) return `<p class="px-erro">${esc(d.erro)}</p>`;
+  if (!d.itens?.length) {
+    return '<p class="px-vazio">Nenhum veículo neste recorte.</p>';
+  }
+  return `<div class="px-frota-grade">${d.itens.map(htmlCartaoVeiculo).join('')}</div>${htmlPaginacao(d)}`;
 }
 
 function htmlListaFrota() {
@@ -746,6 +908,37 @@ function htmlPaginacao(d) {
   </div>`;
 }
 
+function sincronizarFormulario() {
+  const form = document.getElementById('px-filtros');
+  if (!form) return;
+  const f = state.filtros;
+  form.querySelector('#px-filial').value = f.filial_id || '';
+  form.querySelector('#px-tipo').value = f.tipo || '';
+  form.querySelector('#px-situacao').value = f.situacao || '';
+  form.querySelector('#px-periodo').value = f.periodo || '30';
+  form.querySelector('#px-de').value = f.de || '';
+  form.querySelector('#px-ate').value = f.ate || '';
+  form.querySelector('#px-matriz').checked = Boolean(f.incluir_matriz);
+  document.getElementById('px-de-wrap')?.classList.toggle('hidden', f.periodo !== 'custom');
+  document.getElementById('px-ate-wrap')?.classList.toggle('hidden', f.periodo !== 'custom');
+}
+
+function restaurarFiltrosDaFrota() {
+  if (!state.filtrosAntesDaFrota) return;
+  state.filtros = { ...state.filtrosAntesDaFrota };
+  state.filtrosAntesDaFrota = null;
+  sincronizarFormulario();
+}
+
+function abrirFrotaDaFilial(id) {
+  if (!state.filtrosAntesDaFrota) state.filtrosAntesDaFrota = { ...state.filtros };
+  state.filialAberta = Number(id);
+  state.pneuSelecionado = null;
+  state.pagina = 1;
+  state.detalhe = null;
+  deps.navegar('frota');
+}
+
 function voltar() {
   if (state.painel === 'visao') return '';
   return `<button type="button" class="btn btn-ghost btn-sm px-voltar" data-ir="visao">Voltar à visão geral</button>`;
@@ -753,8 +946,19 @@ function voltar() {
 
 function aoClicar(ev) {
   esconderTip();
-  const btn = ev.target.closest('button, .px-arco');
+  const btn = ev.target.closest('button, .px-arco, .pneu-click, .slot-vazio');
   if (!btn) return;
+  if (btn.classList?.contains('pneu-click') || btn.classList?.contains('slot-vazio')) {
+    const card = btn.closest('[data-veiculo]');
+    state.pneuSelecionado = {
+      veiculoId: Number(card?.dataset.veiculo),
+      id: btn.dataset.pneuId ? Number(btn.dataset.pneuId) : null,
+      posicao: btn.dataset.posicao || '',
+      vazio: btn.classList.contains('slot-vazio'),
+    };
+    renderConteudo();
+    return;
+  }
   if (btn.id === 'px-pdf-2') {
     baixarPdf();
     return;
@@ -777,10 +981,16 @@ function aoClicar(ev) {
     return;
   }
   if (btn.dataset.filial && !btn.dataset.ir) {
-    state.filialAberta = Number(btn.dataset.filial);
-    state.pagina = 1;
-    state.detalhe = null;
-    deps.navegar('filial');
+    abrirFrotaDaFilial(btn.dataset.filial);
+    return;
+  }
+  if (btn.dataset.pneuId && btn.dataset.veiculoId) {
+    state.pneuSelecionado = {
+      veiculoId: Number(btn.dataset.veiculoId),
+      id: Number(btn.dataset.pneuId),
+      vazio: false,
+    };
+    renderConteudo();
     return;
   }
   if (btn.dataset.ir) {
