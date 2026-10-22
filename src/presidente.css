@@ -92,7 +92,7 @@ html.perfil-presidente #nav-tabs-filial { display: none !important; }
 .px-barras { display: flex; flex-direction: column; gap: .45rem; margin-top: .7rem; }
 .px-barra {
   display: grid;
-  grid-template-columns: minmax(6rem, 9rem) 1fr auto;
+  grid-template-columns: minmax(12rem, 18rem) 1fr auto;
   gap: .55rem;
   align-items: center;
   padding: .35rem .4rem;
@@ -101,8 +101,25 @@ html.perfil-presidente #nav-tabs-filial { display: none !important; }
 }
 .px-barra-nome, .px-barra-pct { font-size: .82rem; }
 .px-barra-nome small { display: block; color: #64748b; font-size: .68rem; font-weight: 650; line-height: 1.25; }
-.px-barra-pct { min-width: 2.6rem; text-align: right; font-variant-numeric: tabular-nums; }
+.px-barra-pct { min-width: 8.5rem; text-align: right; font-variant-numeric: tabular-nums; }
 .px-trilho { height: 8px; background: #e7eee8; border-radius: 99px; overflow: hidden; }
+.px-trilho-partes { display: flex; }
+.px-trilho-vazio { background: transparent; }
+.px-parte { display: block; height: 100%; min-width: 2px; }
+.px-parte.px-ok { background: #15803d; }
+.px-parte.px-atencao { background: #a16207; }
+.px-parte.px-critico { background: #b91c1c; }
+.px-parte.px-cinza { background: #94a3b8; }
+.px-risco {
+  display: inline-block;
+  margin-left: .35rem;
+  padding: .05rem .35rem;
+  border-radius: 99px;
+  background: #fee2e2;
+  color: #991b1b;
+  font-size: .68rem;
+  font-weight: 700;
+}
 .px-fill { display: block; height: 100%; border-radius: 99px; }
 .px-fill.px-verde, .px-fill.px-ok { background: #15803d; }
 .px-fill.px-amarelo, .px-fill.px-atencao { background: #a16207; }
@@ -222,4 +239,9 @@ html.perfil-presidente #nav-tabs-filial { display: none !important; }
   .px-cards, .px-grid, .px-grid-3, .px-series, .px-alertas-grade, .px-mini, .px-linha { grid-template-columns: 1fr; }
   .px-donut-wrap { flex-direction: column; align-items: flex-start; }
   .px-filtros select, .px-filtros input[type="date"] { width: 100%; }
+  .px-barra {
+    grid-template-columns: 1fr;
+    align-items: stretch;
+  }
+  .px-barra-pct { min-width: 0; text-align: left; }
 }

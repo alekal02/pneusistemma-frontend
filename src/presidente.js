@@ -89,9 +89,9 @@ function garantirShell() {
       <label>Situação
         <select name="situacao" id="px-situacao">
           <option value="">Todas</option>
-          <option value="ok">OK</option>
-          <option value="monitorar">Monitoramento</option>
-          <option value="critico">Crítico</option>
+          <option value="ok">Boa condição</option>
+          <option value="monitorar">Acompanhamento</option>
+          <option value="critico">Substituição prioritária</option>
           <option value="sem_medicao">Sem medição</option>
         </select>
       </label>
@@ -367,29 +367,53 @@ function corSituacaoExec(situacao) {
   return CORES_SITUACAO_EXEC[situacao] || 'cinza';
 }
 
+function qtdPct(qtd, pct) {
+  const n = Number(qtd) || 0;
+  return `${n} (${fmtPctExec(pct)})`;
+}
+
+function htmlPartesPneus(f) {
+  const partes = [
+    ['ok', Number(f.pneus_sem_alerta) || 0],
+    ['atencao', Number(f.pneus_atencao) || 0],
+    ['critico', Number(f.pneus_criticos) || 0],
+    ['cinza', Number(f.pneus_sem_dados) || 0],
+  ];
+  if (!partes.some(([, n]) => n > 0)) return '';
+  return `<span class="px-trilho px-trilho-partes">${partes.filter(([, n]) => n > 0).map(([cor, n]) => (
+    `<span class="px-parte px-${cor}" style="flex:${n} 1 0"></span>`
+  )).join('')}</span>`;
+}
+
 function htmlBarrasFiliais() {
   const filiais = state.diagnostico?.filiais || [];
   if (!filiais.length) return `<p class="px-vazio">Sem filiais neste recorte.</p>`;
   const barras = filiais.map((f) => {
-    const pct = f.frota_avaliada_pct;
-    const largura = pct == null ? 0 : Math.max(0, Math.min(100, Number(pct)));
-    const texto = pct == null ? '—' : fmtPctExec(pct);
-    const cor = corSituacaoExec(f.situacao);
+    const semFrota = f.sem_frota || Number(f.veiculos_ativos) === 0;
+    const semPneu = !semFrota && !(Number(f.pneus_montados) > 0);
+    const resumo = semFrota
+      ? 'Sem frota cadastrada'
+      : semPneu
+        ? 'Sem pneus montados'
+        : `${qtdPct(f.pneus_criticos, f.pct_critico)} substituição`;
+    const dica = semFrota
+      ? `${f.nome} · sem frota cadastrada`
+      : `${f.nome} · ${f.situacao_label || ''} · boa condição ${qtdPct(f.pneus_sem_alerta, f.pct_sem_alerta)} · acompanhamento ${qtdPct(f.pneus_atencao, f.pct_atencao)} · substituição ${qtdPct(f.pneus_criticos, f.pct_critico)} · sem medição ${qtdPct(f.pneus_sem_dados, f.pct_sem_dados)}`;
     return `
-      <button type="button" class="px-barra" data-filial="${f.id}" data-situacao="${esc(f.situacao || '')}" data-tip="${esc(f.nome)} · ${esc(f.situacao_label || '')} · frota avaliada ${texto} · ${f.com_criticos ?? 0} veículos críticos">
-        <span class="px-barra-nome">${esc(f.nome)}<small>${esc(f.situacao_label || '')}</small></span>
-        <span class="px-trilho"><span class="px-fill px-${cor}" style="width:${largura}%"></span></span>
-        <span class="px-barra-pct">${texto}</span>
+      <button type="button" class="px-barra" data-filial="${f.id}" data-situacao="${esc(f.situacao || '')}" data-tip="${esc(dica)}">
+        <span class="px-barra-nome">${esc(f.nome)}<small><span class="exec-sit exec-sit-${esc(f.situacao || '')}">${esc(f.situacao_label || '')}</span>${f.riscos_imediatos > 0 ? ` <span class="px-risco">Intervenção imediata ${f.riscos_imediatos}</span>` : ''}</small></span>
+        ${semFrota || semPneu ? '<span class="px-trilho px-trilho-vazio"></span>' : htmlPartesPneus(f)}
+        <span class="px-barra-pct">${esc(resumo)}</span>
       </button>`;
   }).join('');
   return `
     <div class="px-barras">${barras}</div>
-    <p class="hint">O comprimento da barra é a frota avaliada. A cor é a situação executiva.</p>
+    <p class="hint">A barra é a distribuição dos pneus montados. A etiqueta é a situação da filial, separada do risco de um pneu.</p>
     <div class="px-legenda">
-      <span class="px-dot verde"></span> Controlada
-      <span class="px-dot amarelo"></span> Atenção
-      <span class="px-dot vermelho"></span> Crítica
-      <span class="px-dot cinza"></span> Não avaliada
+      <span class="px-dot verde"></span> Boa condição
+      <span class="px-dot amarelo"></span> Acompanhamento
+      <span class="px-dot vermelho"></span> Substituição prioritária
+      <span class="px-dot cinza"></span> Sem medição
     </div>`;
 }
 
@@ -468,7 +492,7 @@ function pintarEvolucao() {
   }
   const blocos = [
     ['medicoes', 'Medições'],
-    ['criticos', 'Críticos'],
+    ['criticos', 'Substituição'],
     ['filiais', 'Filiais com medição'],
     ['recapagens', 'Recapagens'],
     ['descartes', 'Descartes'],
@@ -514,18 +538,30 @@ function diagDaFilial(id) {
 
 function htmlBlocoExec(diag) {
   if (!diag) return '';
+  const semFrota = diag.sem_frota || Number(diag.veiculos_ativos) === 0;
+  const nums = semFrota ? `
+      <div class="px-mini">
+        <div><b>0</b><span>Veículos</span></div>
+        <div><b>—</b><span>Boa condição</span></div>
+        <div><b>—</b><span>Acompanhamento</span></div>
+        <div><b>—</b><span>Substituição</span></div>
+        <div><b>—</b><span>Sem medição</span></div>
+      </div>
+      <p>Sem frota cadastrada. Nenhum percentual de pneu se aplica.</p>` : `
+      <div class="px-mini">
+        <div><b>${qtdPct(diag.pneus_sem_alerta, diag.pct_sem_alerta)}</b><span>Boa condição</span></div>
+        <div><b>${qtdPct(diag.pneus_atencao, diag.pct_atencao)}</b><span>Acompanhamento</span></div>
+        <div><b>${qtdPct(diag.pneus_criticos, diag.pct_critico)}</b><span>Substituição</span></div>
+        <div><b>${qtdPct(diag.pneus_sem_dados, diag.pct_sem_dados)}</b><span>Sem medição</span></div>
+        <div><b>${diag.com_criticos ?? 0} (${fmtPctExec(diag.frota_afetada_pct)})</b><span>Frota afetada</span></div>
+      </div>
+      <p>${diag.pneus_montados ?? 0} pneus montados · ${diag.veiculos_ativos ?? 0} veículos · cobertura integral ${fmtPctExec(diag.frota_avaliada_pct)} · ${diag.veiculos_medicao_vencida ?? 0} com medição vencida${diag.riscos_imediatos > 0 ? ` · intervenção imediata ${diag.riscos_imediatos}` : ''}</p>`;
   return `
     <div class="px-exec">
       <span class="exec-sit exec-sit-${esc(diag.situacao || '')}">${esc(diag.situacao_label || '—')}</span>
+      ${diag.riscos_imediatos > 0 ? '<span class="px-risco">Intervenção imediata</span>' : ''}
       <p>${esc(diag.motivo || '')}</p>
-      <div class="px-mini">
-        <div><b>${diag.veiculos_ativos ?? 0}</b><span>Ativos</span></div>
-        <div><b>${diag.sem_risco_critico ?? 0}</b><span>Sem risco</span></div>
-        <div><b>${diag.com_monitoramento ?? 0}</b><span>Monitoramento</span></div>
-        <div><b>${diag.com_criticos ?? 0}</b><span>Críticos</span></div>
-        <div><b>${diag.sem_dados ?? 0}</b><span>Sem dados</span></div>
-      </div>
-      <p>Frota avaliada ${fmtPctExec(diag.frota_avaliada_pct)} · ${diag.veiculos_medicao_vencida ?? 0} com medição vencida</p>
+      ${nums}
     </div>`;
 }
 
@@ -535,8 +571,8 @@ function htmlPneusExec(veiculo) {
     return `<article class="px-linha px-linha-estatica"><span><b>${esc(veiculo.placa || '—')}</b></span><span>${esc(veiculo.classe_label || 'Sem dados suficientes')}</span></article>`;
   }
   return pneus.map((pneu) => {
-    const chip = pneu.kpi === 'critico' ? 'vermelho' : (pneu.kpi === 'monitorar' ? 'amarelo' : 'cinza');
-    const rotulo = pneu.kpi === 'critico' ? 'CRÍTICO' : (pneu.kpi === 'monitorar' ? 'MONITORAR' : 'SEM DADO');
+    const chip = pneu.risco_imediato ? 'vermelho' : (pneu.kpi === 'critico' ? 'vermelho' : (pneu.kpi === 'monitorar' ? 'amarelo' : 'cinza'));
+    const rotulo = pneu.risco_imediato ? 'INTERVENÇÃO IMEDIATA' : (pneu.kpi === 'critico' ? 'SUBSTITUIÇÃO' : (pneu.kpi === 'monitorar' ? 'ACOMPANHAMENTO' : 'SEM MEDIÇÃO'));
     const alertas = (pneu.alertas || []).map((alerta) => `<span class="exec-alerta">${esc(alerta)}</span>`).join('');
     return `
       <article class="px-linha px-linha-estatica">
@@ -557,7 +593,8 @@ function htmlGrupoExec(titulo, veiculos) {
 function htmlDetalheExec(diag) {
   if (!diag) return '';
   const lista = diag.justificativa || [];
-  const criticos = lista.filter((item) => item.classe === 'critico');
+  const imediatos = lista.filter((item) => (item.pneus || []).some((pneu) => pneu.risco_imediato));
+  const criticos = lista.filter((item) => item.classe === 'critico' && !imediatos.includes(item));
   const monitoramento = lista.filter((item) => item.classe === 'monitoramento');
   const semDados = lista.filter((item) => item.classe === 'sem_dados');
   const outros = lista.filter((item) => !['critico', 'monitoramento', 'sem_dados'].includes(item.classe));
@@ -565,9 +602,10 @@ function htmlDetalheExec(diag) {
     <section class="px-bloco" aria-label="Diagnóstico executivo">
       <header><h3>Diagnóstico executivo</h3></header>
       ${htmlBlocoExec(diag)}
-      ${htmlGrupoExec('Veículos com pneus críticos', criticos)}
-      ${htmlGrupoExec('Veículos com pneus em monitoramento', monitoramento)}
-      ${htmlGrupoExec('Veículos sem dados suficientes', semDados)}
+      ${htmlGrupoExec('Intervenção imediata — posição direcional', imediatos)}
+      ${htmlGrupoExec('Substituição prioritária', criticos)}
+      ${htmlGrupoExec('Acompanhamento', monitoramento)}
+      ${htmlGrupoExec('Dados insuficientes', semDados)}
       ${htmlGrupoExec('Medição vencida ou sulco incompleto', outros)}
     </section>`;
 }
@@ -601,7 +639,7 @@ function htmlFilial() {
       <div class="px-mini">
         <div><b>${f.veiculos}</b><span>Veículos</span></div>
         <div><b>${f.montados}</b><span>Montados</span></div>
-        <div><b>${f.criticos}</b><span>Pneus críticos</span></div>
+        <div><b>${f.criticos}</b><span>Substituição prioritária</span></div>
         <div><b>${f.atrasados}</b><span>Fora do mês</span></div>
         <div><b>${f.percentual_atualizado == null ? '—' : `${f.percentual_atualizado}%`}</b><span>No mês</span></div>
       </div>` : '';
@@ -630,7 +668,7 @@ function htmlListaFrota() {
       <span><b>${esc(v.placa)}</b> ${esc(v.apelido || '')}</span>
       <span>${esc(v.filial || '')}</span>
       <span class="px-chip px-${esc(v.situacao?.cor || 'cinza')}">${esc(v.situacao?.label || '')}</span>
-      <span>${v.criticos} críticos</span>
+      <span>${v.criticos} substituição</span>
     </button>
   `).join('')}${htmlPaginacao(d)}`;
 }

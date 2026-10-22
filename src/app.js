@@ -5079,10 +5079,10 @@ function fmtPctExec(valor) {
 
 function textoCortesExecutivos(cortes) {
   const c = cortes || {};
-  const veiculos = c.min_veiculos_criticos ?? 2;
+  const pneus = c.min_pneus_criticos ?? 2;
   const criticos = c.pct_criticos ?? 20;
   const semDados = c.pct_sem_dados_nao_avaliada ?? 50;
-  return `Cortes provisórios: crítica a partir de ${veiculos} veículos críticos e ${criticos}% dos veículos com condição comprovada. Sem risco comprovado e ${semDados}% ou mais sem dados deixa a unidade não avaliada.`;
+  return `Alta necessidade de intervenção a partir de ${pneus} pneus em substituição prioritária e ${criticos}% dos pneus montados. Abaixo de 10% a unidade pode permanecer em boa condição, com esses pneus listados à parte. ${semDados}% ou mais sem medição, sem risco comprovado, deixa a unidade com dados insuficientes.`;
 }
 
 function renderBlocoExecutivoCard(diag) {
@@ -5098,7 +5098,10 @@ function renderBlocoExecutivoCard(diag) {
         <span class="text-critico"><strong>${diag.com_criticos ?? 0}</strong> críticos</span>
         <span><strong>${diag.sem_dados ?? 0}</strong> sem dados</span>
       </div>
-      <p class="hint">Frota avaliada ${fmtPctExec(diag.frota_avaliada_pct)} · ${diag.veiculos_medicao_vencida ?? 0} com medição vencida</p>
+      <p class="hint">${diag.sem_frota || !(diag.pneus_montados > 0)
+        ? 'Sem frota cadastrada. Nenhum percentual de pneu se aplica.'
+        : `Pneus montados ${diag.pneus_montados}: boa condição ${fmtPctExec(diag.pct_sem_alerta)} · acompanhamento ${fmtPctExec(diag.pct_atencao)} · substituição prioritária ${fmtPctExec(diag.pct_critico)} · sem medição ${fmtPctExec(diag.pct_sem_dados)}`}</p>
+      <p class="hint">Cobertura integral ${fmtPctExec(diag.frota_avaliada_pct)} · ${diag.veiculos_medicao_vencida ?? 0} com medição vencida${diag.riscos_imediatos > 0 ? ` · intervenção imediata ${diag.riscos_imediatos}` : ''}</p>
     </div>
   `;
 }
@@ -5165,7 +5168,10 @@ function renderDiagnosticoExecutivoDetalhe(diag, cortes) {
           <span class="text-critico"><strong>${diag.com_criticos ?? 0}</strong> com pneus críticos</span>
           <span><strong>${diag.sem_dados ?? 0}</strong> sem dados suficientes</span>
         </div>
-        <p class="hint">Frota efetivamente avaliada: ${fmtPctExec(diag.frota_avaliada_pct)}. Veículos com medição vencida: ${diag.veiculos_medicao_vencida ?? 0}.</p>
+        <p class="hint">${diag.sem_frota || !(diag.pneus_montados > 0)
+          ? 'Sem frota cadastrada. Nenhum percentual de pneu se aplica.'
+          : `Pneus montados ${diag.pneus_montados}: boa condição ${fmtPctExec(diag.pct_sem_alerta)} · acompanhamento ${fmtPctExec(diag.pct_atencao)} · substituição prioritária ${fmtPctExec(diag.pct_critico)} · sem medição ${fmtPctExec(diag.pct_sem_dados)}. Frota afetada ${fmtPctExec(diag.frota_afetada_pct)}.`}</p>
+        <p class="hint">Cobertura integral: ${fmtPctExec(diag.frota_avaliada_pct)}. Veículos com medição vencida: ${diag.veiculos_medicao_vencida ?? 0}.${diag.riscos_imediatos > 0 ? ` Intervenção imediata: ${diag.riscos_imediatos}.` : ''}</p>
         <p class="hint">${escapeHtml(textoCortesExecutivos(cortes))}</p>
       </div>
       <div class="unidade-exec-grupos">
