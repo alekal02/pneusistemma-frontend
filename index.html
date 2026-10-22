@@ -169,9 +169,23 @@
         <button class="tab" data-view="configuracoes">Limites</button>
       </div>
     </nav>
+    <nav class="nav-tabs hidden" id="nav-tabs-presidente" aria-label="Menu do presidente">
+      <div class="nav-group">
+        <button class="tab" data-view="presidente" data-painel="visao">Visão geral</button>
+        <button class="tab" data-view="presidente" data-painel="filiais">Filiais</button>
+        <button class="tab" data-view="presidente" data-painel="frota">Frota</button>
+        <button class="tab" data-view="presidente" data-painel="pneus">Pneus</button>
+        <button class="tab" data-view="presidente" data-painel="alertas">Alertas</button>
+        <button class="tab" data-view="presidente" data-painel="relatorios">Relatórios</button>
+      </div>
+    </nav>
   </header>
 
   <main class="container">
+    <section id="view-presidente" class="view">
+      <div id="px-root"></div>
+    </section>
+
     <section id="view-saude" class="view">
       <div class="section-header">
         <h2>Saúde e desgaste dos pneus</h2>

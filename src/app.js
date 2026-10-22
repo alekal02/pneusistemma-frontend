@@ -1,7 +1,7 @@
 import { TireMarker } from './tire-marker.js';
 import { TruckDiagram, renderLayoutPreview, svgMiniCaminhao } from './truck-diagram.js';
 import { renderPerfilSulco } from './perfil-sulco.js';
-import { exibirExecutivo, iniciarExecutivo } from './executivo.js';
+import { initPresidente, abrirPainelPresidente } from './presidente.js';
 
 /** Normaliza VITE_API_URL — em prod precisa terminar com /api */
 function resolveApiBase() {
@@ -681,18 +681,26 @@ function mostrarRodizioSugestao(pneuOuResult) {
   el.classList.remove('hidden');
 }
 
-function showView(name) {
+let painelPresidente = 'visao';
+
+function showView(name, painel) {
   if (name === 'saude' && !isPresidente()) return;
   if (name !== 'chatbot') stopWaPoll();
+  if (name === 'presidente') painelPresidente = painel || painelPresidente || 'visao';
   document.querySelectorAll('.view').forEach((v) => v.classList.remove('active'));
   const el = document.getElementById(`view-${name}`);
   if (el) el.classList.add('active');
+  const abaPresidente = painelPresidente === 'filial' ? 'filiais' : painelPresidente;
   document.querySelectorAll('.tab').forEach((t) => {
-    const on = t.dataset.view === name;
+    const on = t.dataset.view === 'presidente'
+      ? name === 'presidente' && t.dataset.painel === abaPresidente
+      : t.dataset.view === name;
     t.classList.toggle('active', on);
     if (on) t.setAttribute('aria-current', 'page');
     else t.removeAttribute('aria-current');
   });
+  document.querySelector('.container')?.classList.toggle('container-exec', name === 'presidente');
+  if (name === 'presidente') abrirPainelPresidente(painelPresidente);
 }
 
 function setCabecalho({ unidade, papel, login, subtitle }) {
@@ -719,12 +727,13 @@ function finalizarBootVisual() {
 }
 
 function showLogin() {
-  document.documentElement.classList.remove('session-pending', 'app-ready');
+  document.documentElement.classList.remove('session-pending', 'app-ready', 'perfil-presidente');
   document.getElementById('app-boot')?.setAttribute('aria-busy', 'false');
   document.getElementById('app-login').classList.remove('hidden');
   document.getElementById('app-shell').classList.add('hidden');
   document.getElementById('app-shell')?.classList.remove('modo-executivo');
   document.getElementById('exec-app')?.classList.add('hidden');
+  document.getElementById('nav-tabs-presidente')?.classList.add('hidden');
   setCabecalho({
     unidade: 'Pneu Sistemma',
     papel: '',
@@ -747,19 +756,22 @@ function showAppShell() {
   navFilial.classList.add('hidden');
   navAdmin.classList.add('hidden');
   navGerente?.classList.add('hidden');
+  document.getElementById('nav-tabs-presidente')?.classList.add('hidden');
   document.getElementById('tab-saude')?.classList.toggle('hidden', !isPresidente());
   shell.classList.remove('modo-executivo');
   document.getElementById('exec-app')?.classList.add('hidden');
+  document.documentElement.classList.toggle('perfil-presidente', isPresidente());
 
   if (isPresidente()) {
-    shell.classList.add('modo-executivo');
-    document.getElementById('exec-app')?.classList.remove('hidden');
+    document.getElementById('nav-tabs-presidente')?.classList.remove('hidden');
     setCabecalho({
-      unidade: 'Painel executivo',
+      unidade: 'Visão executiva',
       papel: 'Presidente',
       login: currentUser.login,
-      subtitle: 'Filiais operacionais',
+      subtitle: 'Consulta da frota',
     });
+    document.getElementById('btn-salvar-config')?.classList.add('hidden');
+    document.getElementById('btn-nova-filial')?.classList.add('hidden');
     aplicarVisibilidadeOrientacaoGestao();
     return;
   }
@@ -862,6 +874,14 @@ function atualizarPerfilLocal(containerId, pontos, diagnostico = null) {
 document.querySelectorAll('.tab').forEach((tab) => {
   tab.addEventListener('click', () => {
     const view = tab.dataset.view;
+    if (view === 'presidente') {
+      if (!isPresidente()) {
+        toast('Visão executiva: somente o perfil presidente', 'error');
+        return;
+      }
+      showView('presidente', tab.dataset.painel || 'visao');
+      return;
+    }
     showView(view);
     if (view === 'dashboard') loadDashboard();
     if (view === 'veiculos') loadVeiculos();
@@ -7874,7 +7894,7 @@ function atualizarHintPapelUsuario() {
     hint.textContent = 'Gerente: Minha unidade, alertas/compras e frota da sua unidade.';
     filialWrap?.classList.remove('hidden');
   } else if (papel === 'presidente') {
-    hint.textContent = 'Presidente: mesmas permissões do admin total, mais Saúde e desgaste. Sem vínculo de filial.';
+    hint.textContent = 'Presidente: consulta e PDF da visão executiva. Sem cadastro, medição ou configuração.';
     filialWrap?.classList.add('hidden');
   } else {
     hint.textContent = 'Admin total: relatórios, usuários, filiais, WhatsApp e limites. Sem a aba Saúde e desgaste.';
@@ -8753,31 +8773,10 @@ async function bootAcessoRapido(token) {
   }
 }
 
-async function abrirDashboardExecutivo() {
-  if (!isPresidente()) return;
-  exibirExecutivo({
-    carregando: true,
-    usuario: currentUser?.login || 'Presidente',
-  });
-  try {
-    const rel = await fetchJSON(`${API}/relatorios/saude-desgaste`);
-    exibirExecutivo({
-      relatorio: rel,
-      usuario: currentUser?.login || 'Presidente',
-    });
-  } catch (err) {
-    exibirExecutivo({
-      erro: err.message || 'Falha ao carregar o painel executivo',
-      usuario: currentUser?.login || 'Presidente',
-    });
-    toast(err.message || 'Falha ao carregar o painel executivo', 'error');
-  }
-}
-
 async function bootApp() {
   showAppShell();
   if (isPresidente()) {
-    await abrirDashboardExecutivo();
+    showView('presidente', 'visao');
     return;
   }
   try {
@@ -8808,11 +8807,6 @@ async function bootApp() {
 }
 
 async function init() {
-  iniciarExecutivo({
-    aoSair() { document.getElementById('btn-logout')?.click(); },
-    aoAtualizar() { abrirDashboardExecutivo(); },
-    aoPdf(filialId) { baixarPdfSaude(filialId); },
-  });
   ligarIndicacaoMenuRolavel();
   const params = new URLSearchParams(window.location.search);
   const tokenUrl = params.get('token');
@@ -8842,6 +8836,22 @@ async function init() {
   }
   showLogin();
 }
+
+initPresidente({
+  api: API,
+  fetchJSON,
+  getToken: () => authToken,
+  toast,
+  podeVer: () => isPresidente(),
+  isAdmin,
+  navegar: (painel) => showView('presidente', painel),
+  abrirView: (view) => {
+    if (!isAdmin()) return;
+    showView(view);
+    if (view === 'saude') loadSaudeDesgaste();
+    if (view === 'relatorios') loadRelatorioDiretoria();
+  },
+});
 
 init();
 
