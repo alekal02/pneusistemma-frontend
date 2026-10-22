@@ -5540,21 +5540,12 @@ function usoUnidadeHtml(titulo, bloco) {
   </div>`;
 }
 
-function renderUnidadeKpis(data) {
+function blocosLeituraUnidade(data) {
   const r = data.resumo || {};
-  const c = data.compras || r.compras || {};
   const uso = r.indicadores_uso || {};
   const total = r.pneus_total || 0;
   const w = (n) => `${pctBar(n, total)}%`;
-  const semSemana = veiculosSemMedicaoNaSemana(data).length;
-  const medir = r.precisa_medir_semana
-    ? '<p class="dash-grupo-alerta">Medir esta semana</p>'
-    : '';
-  const ultima = r.ultima_medicao
-    ? `Última medição ${formatDate(r.ultima_medicao)}${r.dias_sem_medicao != null ? ` · ${r.dias_sem_medicao} dia(s)` : ''}`
-    : 'Nunca mediu';
-  return `
-    <div class="dash-grupos dash-grupos-gerencial" id="unidade-kpis">
+  const pneus = `
       <section class="dash-grupo${(r.pneus_critico || 0) > 0 ? ' dash-grupo-destaque' : ''}" aria-label="Situação dos pneus">
         <h3>Situação dos pneus</h3>
         <div class="stats-grid">
@@ -5563,7 +5554,56 @@ function renderUnidadeKpis(data) {
           ${kpiUnidadeBtn({ valor: r.pneus_sem_dado ?? 0, label: 'Sem medição', cls: 'stat-alerta', attrs: 'data-sulco="sem_dado"' })}
           ${kpiUnidadeBtn({ valor: r.pneus_ok ?? 0, label: 'OK', cls: 'stat-ok', attrs: 'data-sulco="ok"' })}
         </div>
-      </section>
+      </section>`;
+  const frota = `
+      <section class="dash-grupo dash-grupo-frota" aria-label="Situação da frota">
+        <h3>Situação da frota</h3>
+        <p class="dash-grupo-nota">Veículos ativos: <strong>${r.veiculos_ativos ?? 0}</strong> · ${total} pneus montados</p>
+        <div class="unidade-health" aria-label="Composição da frota">
+          <span class="h-crit" style="width:${w(r.pneus_critico)}"></span>
+          <span class="h-alerta" style="width:${w(r.pneus_alerta)}"></span>
+          <span class="h-ok" style="width:${w(r.pneus_ok)}"></span>
+          <span class="h-sem" style="width:${w(r.pneus_sem_dado)}"></span>
+        </div>
+        <p class="unidade-health-legend hint">
+          <span class="dot-inline critico"></span> Crítico
+          <span class="dot-inline alerta"></span> Alerta
+          <span class="dot-inline ok"></span> OK
+          <span class="dot-inline sem"></span> Sem medição
+        </p>
+        <div class="unidade-uso-grid">
+          ${usoUnidadeHtml('Uso em km', uso.km)}
+          ${usoUnidadeHtml('Uso em horas', uso.horas)}
+        </div>
+      </section>`;
+  return { pneus, frota };
+}
+
+function renderLeituraUnidade(data) {
+  const { pneus, frota } = blocosLeituraUnidade(data);
+  return `
+    <div class="unidade-leitura" id="unidade-kpis">
+      ${pneus}
+      ${frota}
+    </div>
+    <div id="unidade-lista-kpi" class="unidade-lista-kpi"></div>
+  `;
+}
+
+function renderUnidadeKpis(data) {
+  const r = data.resumo || {};
+  const c = data.compras || r.compras || {};
+  const semSemana = veiculosSemMedicaoNaSemana(data).length;
+  const medir = r.precisa_medir_semana
+    ? '<p class="dash-grupo-alerta">Medir esta semana</p>'
+    : '';
+  const ultima = r.ultima_medicao
+    ? `Última medição ${formatDate(r.ultima_medicao)}${r.dias_sem_medicao != null ? ` · ${r.dias_sem_medicao} dia(s)` : ''}`
+    : 'Nunca mediu';
+  const leitura = isAdmin() ? '' : blocosLeituraUnidade(data);
+  return `
+    <div class="dash-grupos dash-grupos-gerencial" ${isAdmin() ? '' : 'id="unidade-kpis"'}>
+      ${leitura ? leitura.pneus : ''}
       <section class="dash-grupo" aria-label="Estoque e recapagem">
         <h3>Estoque e recapagem</h3>
         <div class="stats-grid">
@@ -5624,28 +5664,9 @@ function renderUnidadeKpis(data) {
         </div>
         <p class="dash-grupo-nota">Comprar abre a lista de troca. Monitorar abre a ação acompanhar. Rodízio continua na aba Pendências.</p>
       </section>
-      <section class="dash-grupo dash-grupo-frota" aria-label="Situação da frota">
-        <h3>Situação da frota</h3>
-        <p class="dash-grupo-nota">Veículos ativos: <strong>${r.veiculos_ativos ?? 0}</strong> · ${total} pneus montados</p>
-        <div class="unidade-health" aria-label="Composição da frota">
-          <span class="h-crit" style="width:${w(r.pneus_critico)}"></span>
-          <span class="h-alerta" style="width:${w(r.pneus_alerta)}"></span>
-          <span class="h-ok" style="width:${w(r.pneus_ok)}"></span>
-          <span class="h-sem" style="width:${w(r.pneus_sem_dado)}"></span>
-        </div>
-        <p class="unidade-health-legend hint">
-          <span class="dot-inline critico"></span> Crítico
-          <span class="dot-inline alerta"></span> Alerta
-          <span class="dot-inline ok"></span> OK
-          <span class="dot-inline sem"></span> Sem medição
-        </p>
-        <div class="unidade-uso-grid">
-          ${usoUnidadeHtml('Uso em km', uso.km)}
-          ${usoUnidadeHtml('Uso em horas', uso.horas)}
-        </div>
-      </section>
+      ${leitura ? leitura.frota : ''}
     </div>
-    <div id="unidade-lista-kpi" class="unidade-lista-kpi"></div>
+    ${isAdmin() ? '' : '<div id="unidade-lista-kpi" class="unidade-lista-kpi"></div>'}
   `;
 }
 
@@ -5912,7 +5933,6 @@ async function abrirDetalheFilial(id) {
 
     el.innerHTML = `
       <div class="unidade-shell">
-        <div class="unidade-comando">
         <div class="unidade-head">
           <div>
             ${gerenteUnidade
@@ -5931,6 +5951,8 @@ async function abrirDetalheFilial(id) {
               : ''}
           </div>
         </div>
+        ${isAdmin() ? renderLeituraUnidade(data) : ''}
+        <div class="unidade-comando">
         <div class="unidade-fazer" aria-label="O que fazer nesta unidade">
           <button type="button" class="unidade-fazer-btn${(comprasU.pneus_para_comprar || 0) > 0 ? ' is-critico' : ''}" data-unidade-tab="pendencias" data-pend-filtro="troca">
             <strong>${comprasU.pneus_para_comprar ?? 0}</strong><span>Comprar</span>

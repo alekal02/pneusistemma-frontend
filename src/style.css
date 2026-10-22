@@ -3316,6 +3316,17 @@ button.stat-card:focus-visible {
   grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
 }
 .dash-grupo-frota { grid-column: 1 / -1; }
+.unidade-leitura {
+  display: grid;
+  grid-template-columns: minmax(280px, 380px) minmax(0, 1fr);
+  gap: .75rem;
+  align-items: stretch;
+}
+.unidade-leitura .dash-grupo-frota { grid-column: auto; }
+.unidade-leitura .dash-grupo { margin: 0; }
+@media (max-width: 860px) {
+  .unidade-leitura { grid-template-columns: 1fr; }
+}
 .dash-grupo-destaque { border-color: #fecaca; box-shadow: inset 3px 0 0 var(--critico); }
 .dash-kpi-fixo { cursor: default; }
 .dash-grupo-alerta {
