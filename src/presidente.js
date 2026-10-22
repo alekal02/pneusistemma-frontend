@@ -113,7 +113,6 @@ function garantirShell() {
       <label class="px-datas hidden" id="px-ate-wrap">Até <input type="date" id="px-ate"></label>
       <label class="px-check"><input type="checkbox" id="px-matriz"> Incluir Matriz</label>
     </form>
-    <p class="hint">O filtro de pneus escolhe quais unidades entram. A condição de cada filial continua a da frota completa. Clique na filial para abrir a frota ilustrada.</p>
     <div id="px-conteudo"></div>
     <div id="px-tip" class="px-tip hidden" role="tooltip"></div>
   `;
@@ -434,7 +433,6 @@ function htmlBarrasFiliais() {
   }).join('');
   return `
     <div class="px-barras">${barras}</div>
-    <p class="hint">A barra é a distribuição dos pneus montados. A etiqueta é a situação da filial, separada do risco de um pneu.</p>
     <div class="px-legenda">
       <span class="px-dot verde"></span> Boa condição
       <span class="px-dot amarelo"></span> Acompanhamento
