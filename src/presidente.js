@@ -26,6 +26,7 @@ const state = {
     incluir_matriz: false,
   },
   resumo: null,
+  diagnostico: null,
   evolucao: null,
   erroResumo: '',
   erroEvolucao: '',
@@ -180,12 +181,17 @@ async function carregar() {
   state.carregandoEvolucao = true;
   state.erroResumo = '';
   state.evolucao = null;
+  state.diagnostico = null;
   state.erroEvolucao = '';
   renderConteudo();
   try {
-    const resumo = await deps.fetchJSON(`${deps.api}/presidente/visao?${query()}`);
+    const [resumo, diagnostico] = await Promise.all([
+      deps.fetchJSON(`${deps.api}/presidente/visao?${query()}`),
+      deps.fetchJSON(`${deps.api}/presidente/diagnostico-filiais?${query()}`).catch(() => null),
+    ]);
     if (id !== seq) return;
     state.resumo = resumo;
+    state.diagnostico = diagnostico;
     state.carregando = false;
     preencherOpcoes(resumo.opcoes);
     renderConteudo();
@@ -195,6 +201,7 @@ async function carregar() {
     if (id !== seq) return;
     state.carregando = false;
     state.resumo = null;
+    state.diagnostico = null;
     state.erroResumo = err.message || 'Falha ao carregar a visão.';
     renderConteudo();
   }
@@ -481,10 +488,95 @@ function htmlSerie(nome, serie, id) {
     </article>`;
 }
 
+function fmtPctExec(valor) {
+  if (valor == null || valor === '') return '—';
+  return `${Number(valor).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+}
+
+function dataCurta(valor) {
+  const [ano, mes, dia] = String(valor || '').slice(0, 10).split('-');
+  if (!ano || !mes || !dia) return '—';
+  return `${dia}/${mes}/${ano}`;
+}
+
+function diagDaFilial(id) {
+  return (state.diagnostico?.filiais || []).find((item) => Number(item.id) === Number(id)) || null;
+}
+
+function htmlBlocoExec(diag) {
+  if (!diag) return '';
+  return `
+    <div class="px-exec">
+      <span class="exec-sit exec-sit-${esc(diag.situacao || '')}">${esc(diag.situacao_label || '—')}</span>
+      <p>${esc(diag.motivo || '')}</p>
+      <div class="px-mini">
+        <div><b>${diag.veiculos_ativos ?? 0}</b><span>Ativos</span></div>
+        <div><b>${diag.sem_risco_critico ?? 0}</b><span>Sem risco</span></div>
+        <div><b>${diag.com_monitoramento ?? 0}</b><span>Monitoramento</span></div>
+        <div><b>${diag.com_criticos ?? 0}</b><span>Críticos</span></div>
+        <div><b>${diag.sem_dados ?? 0}</b><span>Sem dados</span></div>
+      </div>
+      <p>Frota avaliada ${fmtPctExec(diag.frota_avaliada_pct)} · ${diag.veiculos_medicao_vencida ?? 0} com medição vencida</p>
+    </div>`;
+}
+
+function htmlPneusExec(veiculo) {
+  const pneus = veiculo.pneus || [];
+  if (!pneus.length) {
+    return `<article class="px-linha px-linha-estatica"><span><b>${esc(veiculo.placa || '—')}</b></span><span>${esc(veiculo.classe_label || 'Sem dados suficientes')}</span></article>`;
+  }
+  return pneus.map((pneu) => {
+    const chip = pneu.kpi === 'critico' ? 'vermelho' : (pneu.kpi === 'monitorar' ? 'amarelo' : 'cinza');
+    const rotulo = pneu.kpi === 'critico' ? 'CRÍTICO' : (pneu.kpi === 'monitorar' ? 'MONITORAR' : 'SEM DADO');
+    const alertas = (pneu.alertas || []).map((alerta) => `<span class="exec-alerta">${esc(alerta)}</span>`).join('');
+    return `
+      <article class="px-linha px-linha-estatica">
+        <span><b>${esc(veiculo.placa || '—')}</b> ${esc(pneu.posicao_label || pneu.posicao || '')}</span>
+        <span>${esc(pneu.numero_fogo || '—')}</span>
+        <span>${pneu.menor_sulco == null ? '—' : `${esc(pneu.menor_sulco)} mm`}</span>
+        <span>${dataCurta(pneu.data_medicao)}</span>
+        <span class="px-chip px-${chip}">${rotulo}</span>${alertas}
+      </article>`;
+  }).join('');
+}
+
+function htmlGrupoExec(titulo, veiculos) {
+  if (!veiculos.length) return '';
+  return `<section class="px-exec-grupo"><h4>${esc(titulo)} (${veiculos.length})</h4>${veiculos.map(htmlPneusExec).join('')}</section>`;
+}
+
+function htmlDetalheExec(diag) {
+  if (!diag) return '';
+  const lista = diag.justificativa || [];
+  const criticos = lista.filter((item) => item.classe === 'critico');
+  const monitoramento = lista.filter((item) => item.classe === 'monitoramento');
+  const semDados = lista.filter((item) => item.classe === 'sem_dados');
+  const outros = lista.filter((item) => !['critico', 'monitoramento', 'sem_dados'].includes(item.classe));
+  return `
+    <section class="px-bloco" aria-label="Diagnóstico executivo">
+      <header><h3>Diagnóstico executivo</h3></header>
+      ${htmlBlocoExec(diag)}
+      ${htmlGrupoExec('Veículos com pneus críticos', criticos)}
+      ${htmlGrupoExec('Veículos com pneus em monitoramento', monitoramento)}
+      ${htmlGrupoExec('Veículos sem dados suficientes', semDados)}
+      ${htmlGrupoExec('Medição vencida ou sulco incompleto', outros)}
+    </section>`;
+}
+
 function htmlFiliais() {
+  const cards = (state.diagnostico?.filiais || []).map((diag) => `
+    <button type="button" class="px-exec-card" data-filial="${diag.id}">
+      <strong>${esc(diag.nome || '')}</strong>
+      ${htmlBlocoExec(diag)}
+    </button>
+  `).join('');
   return `
     ${voltar()}
     <section class="px-bloco"><header><h3>Filiais</h3></header>${htmlBarrasFiliais(state.resumo.filiais || [])}</section>
+    <section class="px-bloco">
+      <header><h3>Diagnóstico executivo</h3></header>
+      ${cards || '<p class="px-vazio">Diagnóstico indisponível neste recorte.</p>'}
+    </section>
   `;
 }
 
@@ -503,6 +595,7 @@ function htmlFilial() {
         <div><b>${f.percentual_atualizado == null ? '—' : `${f.percentual_atualizado}%`}</b><span>No mês</span></div>
       </div>
     </section>
+    ${htmlDetalheExec(diagDaFilial(f.id))}
     ${htmlListaFrota()}
   `;
 }

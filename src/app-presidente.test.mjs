@@ -17,6 +17,8 @@ assert.match(presidente, /\/presidente\/visao/);
 assert.match(presidente, /\/presidente\/evolucao/);
 assert.match(presidente, /\/presidente\/detalhe/);
 assert.match(presidente, /\/presidente\/visao\.pdf/);
+assert.match(presidente, /\/presidente\/diagnostico-filiais/);
+assert.match(presidente, /htmlBarrasFiliais\(state\.resumo\.filiais/);
 assert.match(presidente, /incluir_matriz: false/);
 assert.equal(presidente.includes('classificar'), false);
 

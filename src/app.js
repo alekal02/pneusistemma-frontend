@@ -792,7 +792,7 @@ function showAppShell() {
     const tit = document.getElementById('filiais-titulo');
     const hint = document.getElementById('filiais-hint');
     if (tit) tit.textContent = 'Unidades';
-    if (hint) hint.textContent = 'Clique numa filial para ver só os dados dela (alertas e frota).';
+    if (hint) hint.textContent = 'Clique numa filial para ver a situação da frota, os pneus que a justificam e os dados operacionais.';
   } else if (isGerente()) {
     navGerente?.classList.remove('hidden');
     const nome = currentUser.filial?.nome || 'Multiunidade';
@@ -5060,6 +5060,121 @@ document.getElementById('btn-wa-qr-fechar')?.addEventListener('click', () => {
 
 // ── Filiais (admin total + gerente de unidade) ──────────
 
+let diagExecPorId = new Map();
+
+function guardarDiagnosticoExecutivo(payload) {
+  diagExecPorId = new Map();
+  for (const filial of payload?.filiais || []) {
+    diagExecPorId.set(Number(filial.id), filial);
+  }
+}
+
+function fmtPctExec(valor) {
+  if (valor == null || valor === '') return '—';
+  return `${Number(valor).toLocaleString('pt-BR', { minimumFractionDigits: 1, maximumFractionDigits: 1 })}%`;
+}
+
+function textoCortesExecutivos(cortes) {
+  const c = cortes || {};
+  const veiculos = c.min_veiculos_criticos ?? 2;
+  const criticos = c.pct_criticos ?? 20;
+  const semDados = c.pct_sem_dados_nao_avaliada ?? 50;
+  return `Cortes provisórios: crítica a partir de ${veiculos} veículos críticos e ${criticos}% dos veículos com condição comprovada. Sem risco comprovado e ${semDados}% ou mais sem dados deixa a unidade não avaliada.`;
+}
+
+function renderBlocoExecutivoCard(diag) {
+  if (!diag) return '';
+  return `
+    <div class="filial-exec">
+      <span class="exec-sit exec-sit-${escapeHtml(diag.situacao || '')}">${escapeHtml(diag.situacao_label || '—')}</span>
+      <p class="hint filial-exec-motivo">${escapeHtml(diag.motivo || '')}</p>
+      <div class="filial-exec-nums">
+        <span><strong>${diag.veiculos_ativos ?? 0}</strong> ativos</span>
+        <span><strong>${diag.sem_risco_critico ?? 0}</strong> sem risco</span>
+        <span><strong>${diag.com_monitoramento ?? 0}</strong> monitoramento</span>
+        <span class="text-critico"><strong>${diag.com_criticos ?? 0}</strong> críticos</span>
+        <span><strong>${diag.sem_dados ?? 0}</strong> sem dados</span>
+      </div>
+      <p class="hint">Frota avaliada ${fmtPctExec(diag.frota_avaliada_pct)} · ${diag.veiculos_medicao_vencida ?? 0} com medição vencida</p>
+    </div>
+  `;
+}
+
+function linhasJustificativaExec(veiculo) {
+  const pneus = veiculo.pneus || [];
+  if (!pneus.length) {
+    const vazias = (veiculo.posicoes_vazias || []).map((p) => p.label || p.codigo).filter(Boolean);
+    const texto = vazias.length
+      ? `Posições sem pneu: ${vazias.join(', ')}`
+      : (veiculo.classe_label || 'Sem dados suficientes');
+    return `<tr>
+      <td><strong>${escapeHtml(veiculo.placa || '—')}</strong></td>
+      <td colspan="5">${escapeHtml(texto)}</td>
+    </tr>`;
+  }
+  return pneus.map((p) => {
+    const status = p.kpi === 'monitorar' ? 'alerta' : (p.kpi || 'sem_dado');
+    const alertas = (p.alertas || []).map((a) => `<span class="exec-alerta">${escapeHtml(a)}</span>`).join('');
+    return `<tr class="exec-row" data-veiculo-id="${veiculo.id || ''}">
+      <td><strong>${escapeHtml(veiculo.placa || '—')}</strong></td>
+      <td>${escapeHtml(p.posicao_label || p.posicao || '—')}</td>
+      <td>${escapeHtml(p.numero_fogo || '—')}</td>
+      <td>${p.menor_sulco != null ? `${escapeHtml(String(p.menor_sulco))} mm` : '—'}</td>
+      <td>${p.data_medicao ? formatDate(p.data_medicao) : '—'}</td>
+      <td>${badge(status)}${alertas}</td>
+    </tr>`;
+  }).join('');
+}
+
+function grupoJustificativaExec(titulo, veiculos) {
+  if (!veiculos.length) return '';
+  return `
+    <section>
+      <h4>${escapeHtml(titulo)} (${veiculos.length})</h4>
+      <div class="unidade-table-wrap">
+        <table class="historico-table unidade-table">
+          <thead>
+            <tr><th>Placa</th><th>Posição</th><th>Fogo</th><th>Menor sulco</th><th>Medição</th><th>Alertas</th></tr>
+          </thead>
+          <tbody>${veiculos.map(linhasJustificativaExec).join('')}</tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
+function renderDiagnosticoExecutivoDetalhe(diag, cortes) {
+  if (!diag) return '';
+  const lista = diag.justificativa || [];
+  const criticos = lista.filter((v) => v.classe === 'critico');
+  const monitoramento = lista.filter((v) => v.classe === 'monitoramento');
+  const semDados = lista.filter((v) => v.classe === 'sem_dados');
+  const outros = lista.filter((v) => v.classe !== 'critico' && v.classe !== 'monitoramento' && v.classe !== 'sem_dados');
+  return `
+    <section class="unidade-exec" aria-label="Diagnóstico executivo">
+      <div class="filial-exec">
+        <span class="exec-sit exec-sit-${escapeHtml(diag.situacao || '')}">${escapeHtml(diag.situacao_label || '—')}</span>
+        <p class="filial-exec-motivo">${escapeHtml(diag.motivo || '')}</p>
+        <div class="filial-exec-nums">
+          <span><strong>${diag.veiculos_ativos ?? 0}</strong> ativos</span>
+          <span><strong>${diag.sem_risco_critico ?? 0}</strong> sem risco crítico</span>
+          <span><strong>${diag.com_monitoramento ?? 0}</strong> em monitoramento</span>
+          <span class="text-critico"><strong>${diag.com_criticos ?? 0}</strong> com pneus críticos</span>
+          <span><strong>${diag.sem_dados ?? 0}</strong> sem dados suficientes</span>
+        </div>
+        <p class="hint">Frota efetivamente avaliada: ${fmtPctExec(diag.frota_avaliada_pct)}. Veículos com medição vencida: ${diag.veiculos_medicao_vencida ?? 0}.</p>
+        <p class="hint">${escapeHtml(textoCortesExecutivos(cortes))}</p>
+      </div>
+      <div class="unidade-exec-grupos">
+        ${grupoJustificativaExec('Veículos com pneus críticos', criticos)}
+        ${grupoJustificativaExec('Veículos com pneus em monitoramento', monitoramento)}
+        ${grupoJustificativaExec('Veículos sem dados suficientes', semDados)}
+        ${grupoJustificativaExec('Medição vencida ou sulco incompleto', outros)}
+      </div>
+    </section>
+  `;
+}
+
 function setModoListaFiliais(listaVisivel) {
   const lista = document.getElementById('filiais-lista');
   const banner = document.getElementById('compras-consolidado');
@@ -5080,7 +5195,7 @@ function setModoListaFiliais(listaVisivel) {
     if (hint) {
       hint.textContent = isGerente() && !isAdmin()
         ? 'Painel da sua unidade: indicadores, pendências e frota para análise.'
-        : 'Clique numa filial para ver só os dados dela (alertas e frota).';
+        : 'Clique numa filial para ver a situação da frota, os pneus que a justificam e os dados operacionais.';
     }
   }
 }
@@ -5103,11 +5218,13 @@ async function loadFiliais() {
         return;
       }
     }
-    const [filiais, compras] = await Promise.all([
+    const [filiais, compras, diagnostico] = await Promise.all([
       fetchJSON(`${API}/filiais`),
       fetchJSON(`${API}/filiais/compras/consolidado`),
+      fetchJSON(`${API}/filiais/diagnostico-executivo`).catch(() => null),
     ]);
     filiaisCache = filiais;
+    guardarDiagnosticoExecutivo(diagnostico);
     if (isGerente() && !isAdmin() && filiais.length === 1) {
       await abrirDetalheFilial(filiais[0].id);
       return;
@@ -5164,12 +5281,14 @@ async function loadFiliais() {
       const c = r.compras || {};
       const urgente = (r.pneus_critico || 0) > 0 || (c.pneus_para_comprar || 0) > 0;
       const atrasado = r.precisa_medir_semana;
+      const diag = diagExecPorId.get(Number(f.id));
       return `
         <div class="filial-card ${urgente ? 'is-urgente' : ''} ${atrasado ? 'is-atrasado' : ''}" data-id="${f.id}" role="button" tabindex="0">
           <div class="filial-card-head">
             <h3>${escapeHtml(f.nome)}</h3>
             <span class="badge badge-vida">${escapeHtml(f.codigo)}</span>
           </div>
+          ${renderBlocoExecutivoCard(diag)}
           <p class="hint">${escapeHtml(f.contrato || 'Sem contrato')} · login: ${escapeHtml(f.login || '—')}</p>
           <p class="hint">
             ${f.whatsapp_grupo ? `Grupo: <span class="mono">${escapeHtml(f.whatsapp_grupo)}</span>` : 'Grupo do chatbot: não definido'}
@@ -5646,8 +5765,13 @@ function valorCampoWa(v) {
 
 async function abrirDetalheFilial(id) {
   try {
-    const data = await fetchJSON(`${API}/filiais/${id}`);
+    const [data, diagResp] = await Promise.all([
+      fetchJSON(`${API}/filiais/${id}`),
+      fetchJSON(`${API}/filiais/diagnostico-executivo?filial_id=${encodeURIComponent(id)}`).catch(() => null),
+    ]);
     filialDetalheCache = data;
+    const diag = (diagResp?.filiais || []).find((f) => Number(f.id) === Number(id)) || null;
+    if (diag) diagExecPorId.set(Number(id), diag);
     const el = document.getElementById('filial-detalhe');
     const pend = data.pendencias || { troca: [], recap: [], monitorar: [] };
     const tit = document.getElementById('filiais-titulo');
@@ -5685,6 +5809,7 @@ async function abrirDetalheFilial(id) {
               : ''}
           </div>
         </div>
+        ${renderDiagnosticoExecutivoDetalhe(diag, diagResp?.cortes)}
         ${renderUnidadeKpis(data)}
         <nav class="unidade-tabs" aria-label="Seções da unidade">
           <button type="button" class="unidade-tab ativo" data-unidade-tab="resumo">Visão geral</button>
@@ -5717,6 +5842,11 @@ async function abrirDetalheFilial(id) {
     `;
 
     document.getElementById('btn-fechar-detalhe-filial')?.addEventListener('click', () => fecharDetalheFilial());
+    el.querySelectorAll('.exec-row[data-veiculo-id]').forEach((row) => {
+      row.addEventListener('click', () => {
+        if (row.dataset.veiculoId) abrirVeiculoNaUnidade(id, row.dataset.veiculoId);
+      });
+    });
     el.querySelector('.btn-editar-filial-detalhe')?.addEventListener('click', () => abrirModalFilial(id));
     el.querySelector('.btn-excluir-filial-detalhe')?.addEventListener('click', () => {
       abrirModalExcluirFilial(id, data.nome, data.codigo);
