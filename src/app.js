@@ -5093,10 +5093,10 @@ function renderBlocoExecutivoCard(diag) {
       <p class="hint filial-exec-motivo">${escapeHtml(diag.motivo || '')}</p>
       <div class="filial-exec-nums">
         <span><strong>${diag.veiculos_ativos ?? 0}</strong> ativos</span>
-        <span><strong>${diag.sem_risco_critico ?? 0}</strong> sem risco</span>
-        <span><strong>${diag.com_monitoramento ?? 0}</strong> monitoramento</span>
-        <span class="text-critico"><strong>${diag.com_criticos ?? 0}</strong> críticos</span>
-        <span><strong>${diag.sem_dados ?? 0}</strong> sem dados</span>
+        <span><strong>${diag.sem_risco_critico ?? 0}</strong> sem substituição</span>
+        <span><strong>${diag.com_monitoramento ?? 0}</strong> acompanhamento</span>
+        <span class="text-critico"><strong>${diag.com_criticos ?? 0}</strong> substituição</span>
+        <span><strong>${diag.sem_dados ?? 0}</strong> dados insuficientes</span>
       </div>
       <p class="hint">${diag.sem_frota || !(diag.pneus_montados > 0)
         ? 'Sem frota cadastrada. Nenhum percentual de pneu se aplica.'
@@ -5119,7 +5119,12 @@ function linhasJustificativaExec(veiculo) {
     </tr>`;
   }
   return pneus.map((p) => {
-    const status = p.kpi === 'monitorar' ? 'alerta' : (p.kpi || 'sem_dado');
+    const rotulo = p.risco_imediato
+      ? 'Intervenção imediata'
+      : (p.kpi === 'critico'
+        ? 'Substituição prioritária'
+        : (p.kpi === 'monitorar' ? 'Acompanhamento' : 'Sem medição'));
+    const status = p.risco_imediato || p.kpi === 'critico' ? 'critico' : (p.kpi === 'monitorar' ? 'alerta' : 'sem_dado');
     const alertas = (p.alertas || []).map((a) => `<span class="exec-alerta">${escapeHtml(a)}</span>`).join('');
     return `<tr class="exec-row" data-veiculo-id="${veiculo.id || ''}">
       <td><strong>${escapeHtml(veiculo.placa || '—')}</strong></td>
@@ -5127,7 +5132,7 @@ function linhasJustificativaExec(veiculo) {
       <td>${escapeHtml(p.numero_fogo || '—')}</td>
       <td>${p.menor_sulco != null ? `${escapeHtml(String(p.menor_sulco))} mm` : '—'}</td>
       <td>${p.data_medicao ? formatDate(p.data_medicao) : '—'}</td>
-      <td>${badge(status)}${alertas}</td>
+      <td><span class="badge badge-${status}">${escapeHtml(rotulo)}</span>${alertas}</td>
     </tr>`;
   }).join('');
 }
