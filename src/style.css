@@ -1554,6 +1554,63 @@ h3 {
   padding: 1.1rem 1.15rem 1.4rem;
 }
 .unidade-shell { display: flex; flex-direction: column; gap: .9rem; }
+.unidade-comando {
+  position: sticky;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: .7rem;
+  background: var(--surface);
+  padding-bottom: .35rem;
+  border-bottom: 1px solid var(--border);
+}
+.unidade-fazer {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: .5rem;
+}
+.unidade-fazer-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: .15rem;
+  padding: .7rem .75rem;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-2, #f8fafc);
+  color: inherit;
+  font-family: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+.unidade-fazer-btn strong {
+  font-family: var(--font-display);
+  font-size: 1.4rem;
+  line-height: 1;
+}
+.unidade-fazer-btn span {
+  font-size: .72rem;
+  font-weight: 700;
+  letter-spacing: .03em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+.unidade-fazer-btn.is-critico { background: #fef2f2; border-color: #fecaca; }
+.unidade-fazer-btn.is-critico strong { color: #991b1b; }
+.unidade-fazer-btn.is-alerta { background: #fff7ed; border-color: #fed7aa; }
+.unidade-fazer-btn.is-alerta strong { color: #9a3412; }
+.unidade-fazer-btn:hover { border-color: var(--primary); }
+.unidade-exec-mais {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: .7rem .85rem;
+  background: var(--surface-2, #f8fafc);
+}
+.unidade-exec-mais summary { cursor: pointer; font-weight: 700; }
+.unidade-exec-mais .unidade-exec-grupos { margin-top: .75rem; }
+@media (max-width: 860px) {
+  .unidade-fazer { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
 .unidade-head {
   display: flex;
   justify-content: space-between;
@@ -1744,7 +1801,9 @@ h3 {
 .gestao-only-hidden { display: none !important; }
 .filial-card.is-urgente { border-color: #fca5a5; box-shadow: 0 0 0 1px #fecaca; }
 .filial-card.is-atrasado { border-left: 4px solid #f59e0b; }
-.filial-card-head { display: flex; justify-content: space-between; align-items: center; gap: .5rem; }
+.filial-card-head { display: flex; justify-content: space-between; align-items: flex-start; gap: .75rem; flex-wrap: wrap; }
+.filial-card-titulo { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; min-width: 0; }
+.filial-card-titulo h3 { margin: 0; }
 .filial-card-head h3 {
   font-family: var(--font-display);
   font-size: 1.05rem;
@@ -1758,7 +1817,7 @@ h3 {
   font-size: .8rem;
   color: #475569;
 }
-.filial-card-actions { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .25rem; }
+.filial-card-actions { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: 0; margin-left: auto; justify-content: flex-end; }
 .filial-card-actions .btn-danger-text {
   border: 1px solid transparent;
 }

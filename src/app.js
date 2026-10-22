@@ -5179,12 +5179,16 @@ function renderDiagnosticoExecutivoDetalhe(diag, cortes) {
         <p class="hint">Cobertura integral: ${fmtPctExec(diag.frota_avaliada_pct)}. Veículos com medição vencida: ${diag.veiculos_medicao_vencida ?? 0}.${diag.riscos_imediatos > 0 ? ` Intervenção imediata: ${diag.riscos_imediatos}.` : ''}</p>
         <p class="hint">${escapeHtml(textoCortesExecutivos(cortes))}</p>
       </div>
-      <div class="unidade-exec-grupos">
-        ${grupoJustificativaExec('Veículos com pneus críticos', criticos)}
-        ${grupoJustificativaExec('Veículos com pneus em monitoramento', monitoramento)}
-        ${grupoJustificativaExec('Veículos sem dados suficientes', semDados)}
-        ${grupoJustificativaExec('Medição vencida ou sulco incompleto', outros)}
-      </div>
+      ${lista.length ? `
+      <details class="unidade-exec-mais">
+        <summary>Ver os pneus que justificam a situação</summary>
+        <div class="unidade-exec-grupos">
+          ${grupoJustificativaExec('Veículos com pneus críticos', criticos)}
+          ${grupoJustificativaExec('Veículos com pneus em monitoramento', monitoramento)}
+          ${grupoJustificativaExec('Veículos sem dados suficientes', semDados)}
+          ${grupoJustificativaExec('Medição vencida ou sulco incompleto', outros)}
+        </div>
+      </details>` : ''}
     </section>
   `;
 }
@@ -5299,8 +5303,17 @@ async function loadFiliais() {
       return `
         <div class="filial-card ${urgente ? 'is-urgente' : ''} ${atrasado ? 'is-atrasado' : ''}" data-id="${f.id}" role="button" tabindex="0">
           <div class="filial-card-head">
-            <h3>${escapeHtml(f.nome)}</h3>
-            <span class="badge badge-vida">${escapeHtml(f.codigo)}</span>
+            <div class="filial-card-titulo">
+              <h3>${escapeHtml(f.nome)}</h3>
+              <span class="badge badge-vida">${escapeHtml(f.codigo)}</span>
+            </div>
+            <div class="filial-card-actions">
+              <button type="button" class="btn btn-sm btn-primary btn-abrir-filial" data-id="${f.id}">Abrir</button>
+              <button type="button" class="btn btn-sm btn-ghost btn-editar-filial" data-id="${f.id}">Editar</button>
+              ${isAdmin()
+                ? `<button type="button" class="btn btn-sm btn-danger-text btn-excluir-filial" data-id="${f.id}" data-nome="${escapeHtml(f.nome)}" data-codigo="${escapeHtml(f.codigo || '')}">Excluir</button>`
+                : ''}
+            </div>
           </div>
           ${renderBlocoExecutivoCard(diag)}
           <p class="hint">${escapeHtml(f.contrato || 'Sem contrato')} · login: ${escapeHtml(f.login || '—')}</p>
@@ -5319,13 +5332,6 @@ async function loadFiliais() {
               : 'Nunca mediu'}
             ${atrasado ? ' · <strong>Medir esta semana</strong>' : ''}
           </p>
-          <div class="filial-card-actions">
-            <button type="button" class="btn btn-sm btn-primary btn-abrir-filial" data-id="${f.id}">Abrir</button>
-            <button type="button" class="btn btn-sm btn-ghost btn-editar-filial" data-id="${f.id}">Editar / senha</button>
-            ${isAdmin()
-              ? `<button type="button" class="btn btn-sm btn-danger-text btn-excluir-filial" data-id="${f.id}" data-nome="${escapeHtml(f.nome)}" data-codigo="${escapeHtml(f.codigo || '')}">Excluir</button>`
-              : ''}
-          </div>
         </div>
       `;
     }).join('');
@@ -5741,6 +5747,10 @@ function renderUnidadeFrota(data) {
     || String(a.apelido || a.placa).localeCompare(String(b.apelido || b.placa), 'pt-BR'));
   if (!veiculos.length) return '<p class="hint">Nenhum veículo nesta unidade.</p>';
   return `
+    ${renderPainelAcoesDiagnosticos({
+      acoes: data.pendencias?.todos || [],
+      diagnosticos: data.pendencias?.diagnosticos || [],
+    })}
     <div class="unidade-frota-toolbar">
       <div class="busca-campo">
         <input type="text" class="campo-busca" id="unidade-frota-busca" placeholder="Buscar placa ou apelido…" autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" enterkeyhint="search" inputmode="search">
@@ -5775,10 +5785,6 @@ function renderUnidadeFrota(data) {
         <div id="unidade-frota-log">${renderLogMedicoes(data.logs_medicao || [])}</div>
       </aside>
     </div>
-    ${renderPainelAcoesDiagnosticos({
-      acoes: data.pendencias?.todos || [],
-      diagnosticos: data.pendencias?.diagnosticos || [],
-    })}
     <div class="unidade-frota-split" id="unidade-frota-split">
       <div id="filial-veiculo-inspecao" class="filial-inspecao hidden"></div>
     </div>
@@ -5900,9 +5906,13 @@ async function abrirDetalheFilial(id) {
 
     const nPend = pend.todos?.length || 0;
     const nFrota = data.veiculos?.length || 0;
+    const resumoU = data.resumo || {};
+    const comprasU = data.compras || resumoU.compras || {};
+    const semSemanaU = veiculosSemMedicaoNaSemana(data).length;
 
     el.innerHTML = `
       <div class="unidade-shell">
+        <div class="unidade-comando">
         <div class="unidade-head">
           <div>
             ${gerenteUnidade
@@ -5921,14 +5931,30 @@ async function abrirDetalheFilial(id) {
               : ''}
           </div>
         </div>
-        ${renderDiagnosticoExecutivoDetalhe(diag, diagResp?.cortes)}
-        ${renderUnidadeKpis(data)}
+        <div class="unidade-fazer" aria-label="O que fazer nesta unidade">
+          <button type="button" class="unidade-fazer-btn${(comprasU.pneus_para_comprar || 0) > 0 ? ' is-critico' : ''}" data-unidade-tab="pendencias" data-pend-filtro="troca">
+            <strong>${comprasU.pneus_para_comprar ?? 0}</strong><span>Comprar</span>
+          </button>
+          <button type="button" class="unidade-fazer-btn${(comprasU.pneus_para_recap || resumoU.pneus_em_recapagem || 0) > 0 ? ' is-alerta' : ''}" data-unidade-tab="pendencias" data-pend-filtro="recap">
+            <strong>${comprasU.pneus_para_recap ?? resumoU.pneus_em_recapagem ?? 0}</strong><span>Recapagem</span>
+          </button>
+          <button type="button" class="unidade-fazer-btn${(comprasU.pneus_monitorar || 0) > 0 ? ' is-alerta' : ''}" data-unidade-tab="pendencias" data-pend-filtro="monitorar">
+            <strong>${comprasU.pneus_monitorar ?? 0}</strong><span>Monitorar</span>
+          </button>
+          <button type="button" class="unidade-fazer-btn${semSemanaU > 0 ? ' is-alerta' : ''}" data-unidade-tab="frota" data-frota-filtro="semana">
+            <strong>${semSemanaU}</strong><span>Medir na semana</span>
+          </button>
+          <button type="button" class="unidade-fazer-btn${(resumoU.pneus_critico || 0) > 0 ? ' is-critico' : ''}" data-unidade-tab="frota" data-frota-filtro="critico">
+            <strong>${resumoU.pneus_critico ?? 0}</strong><span>Críticos</span>
+          </button>
+        </div>
         <nav class="unidade-tabs" aria-label="Seções da unidade">
           <button type="button" class="unidade-tab ativo" data-unidade-tab="resumo">Visão geral</button>
           <button type="button" class="unidade-tab" data-unidade-tab="pendencias">Pendências (${nPend})</button>
           <button type="button" class="unidade-tab" data-unidade-tab="frota">Frota (${nFrota})</button>
           ${isAdmin() ? '<button type="button" class="unidade-tab" data-unidade-tab="pneus">Estoque e descarte</button>' : ''}
         </nav>
+        </div>
         <div data-unidade-panel="resumo">${renderUnidadeResumo(data)}</div>
         <div data-unidade-panel="pendencias" class="hidden">
           <div class="unidade-pend-filtros">
@@ -5963,8 +5989,13 @@ async function abrirDetalheFilial(id) {
           </div>
           <div id="unidade-pneus-livres"><p class="hint">A lista aparece ao abrir esta aba.</p></div>
         </div>` : ''}
+        ${renderUnidadeKpis(data)}
+        ${renderDiagnosticoExecutivoDetalhe(diag, diagResp?.cortes)}
       </div>
     `;
+
+    const comando = el.querySelector('.unidade-comando');
+    if (comando) comando.style.top = `${document.querySelector('.header')?.offsetHeight || 0}px`;
 
     document.getElementById('btn-fechar-detalhe-filial')?.addEventListener('click', () => fecharDetalheFilial());
     el.querySelectorAll('.exec-row[data-veiculo-id]').forEach((row) => {
@@ -7714,7 +7745,7 @@ async function abrirInspecaoVeiculoFilial(filialId, veiculoId) {
           <button type="button" class="btn btn-ghost btn-sm" id="btn-fechar-inspecao">Fechar desenho</button>
         </div>
       </div>
-      <details class="form-avancado inspecao-corrigir" open>
+      <details class="form-avancado inspecao-corrigir">
         <summary>Corrigir dados do veículo</summary>
         <p class="hint">Use se a placa, KM ou identificação foram cadastrados errados. O layout dos pneus continua no botão Configurar layout.</p>
         <section class="cad-secao">
