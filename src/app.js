@@ -5,6 +5,13 @@ import { initPresidente, abrirPainelPresidente } from './presidente.js';
 import { criarCacheAbas, tamanhoLoteDesenho, tamanhoPaginaLista } from './frota-pagina.js';
 import { filaPorChave, filaUnica, pintarSemBloquearDesenhos, planoAbertura } from './abertura-tela.js';
 import {
+  chaveMemoriaFiliais,
+  criarMemoriaFiliais,
+  decidirCargaFiliais,
+  gravacaoInvalidaFiliais,
+  seloComum,
+} from './filiais-navegacao.js';
+import {
   avisoEncerraEstaAba,
   descartarTokenLegado,
   gravarSessaoAba,
@@ -26,6 +33,7 @@ function resolveApiBase() {
 
 const API = resolveApiBase();
 const cacheAbas = criarCacheAbas();
+const memoriaFiliais = criarMemoriaFiliais();
 const canalAuth = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('pneu_auth') : null;
 
 let meta = { posicoes: {}, tipos: [], layouts: [], layout_padrao: 'truck_10' };
@@ -271,6 +279,10 @@ function clearAuth() {
   geracaoDashboard += 1;
   dashCargaSeq += 1;
   pinturaSeq += 1;
+  memoriaFiliais.invalidar();
+  cacheAbas.invalidar();
+  const viewFiliais = document.getElementById('view-filiais');
+  if (viewFiliais) delete viewFiliais.dataset.memoriaFiliais;
   limparSessaoAba(sessionStorage, localStorage);
 }
 
@@ -321,7 +333,7 @@ function escapeHtml(str) {
 }
 
 async function fetchJSON(url, options = {}) {
-  const { timeoutMs, headers: extraHeaders, ...fetchOpts } = options;
+  const { timeoutMs, headers: extraHeaders, devolverMeta = false, ...fetchOpts } = options;
   const headers = {
     'Content-Type': 'application/json',
     ...(extraHeaders || {}),
@@ -384,8 +396,14 @@ async function fetchJSON(url, options = {}) {
     throw err;
   }
   const metodo = String(fetchOpts.method || 'GET').toUpperCase();
-  if (metodo !== 'GET' && metodo !== 'HEAD' && /\/(veiculos|pneus|dashboard|medicoes|frota)(\/|\?|$)/.test(String(url))) {
+  if (gravacaoInvalidaFiliais(url, metodo)) {
     invalidarAbasOperacionais();
+  }
+  if (devolverMeta) {
+    return {
+      dados: data,
+      revisao: resp.headers.get('X-Painel-Revisao') || data?.revisao || null,
+    };
   }
   return data;
 }
@@ -1284,6 +1302,9 @@ function chaveAbaPneus() {
 
 function invalidarAbasOperacionais() {
   cacheAbas.invalidar();
+  memoriaFiliais.invalidar();
+  const viewFiliais = document.getElementById('view-filiais');
+  if (viewFiliais) delete viewFiliais.dataset.memoriaFiliais;
   geracaoDashboard += 1;
   dashCargaSeq += 1;
   pinturaSeq += 1;
@@ -1295,6 +1316,7 @@ function invalidarAbasOperacionais() {
   if (ativa === 'view-dashboard') loadDashboard();
   if (ativa === 'view-veiculos') loadVeiculos();
   if (ativa === 'view-pneus') loadPneus();
+  if (ativa === 'view-filiais') loadFiliais({ forcar: true });
 }
 
 function restaurarBuscaFrota(id) {
@@ -5661,24 +5683,112 @@ function fecharDetalheFilial() {
   setModoListaFiliais(true);
 }
 
-async function loadFiliais() {
+let vooFiliais = null;
+
+function capturarUiFiliais() {
+  const detalhe = document.getElementById('filial-detalhe');
+  const aberta = Boolean(detalhe && !detalhe.classList.contains('hidden'));
+  return {
+    filialId: aberta ? (filialDetalheCache?.id ?? null) : null,
+    unidadeTab: detalhe?.querySelector('.unidade-tab.ativo')?.dataset.unidadeTab || '',
+    pendFiltro: detalhe?.dataset.pendFiltroAtivo || '',
+    pendBusca: document.getElementById('unidade-pend-busca')?.value || '',
+    frotaFiltro: document.getElementById('unidade-frota-filtro')?.value || '',
+    frotaTipo: document.getElementById('unidade-frota-tipo')?.value || '',
+    frotaBusca: document.getElementById('unidade-frota-busca')?.value || '',
+  };
+}
+
+function restaurarUiFiliais(ui) {
+  if (!ui?.filialId) return;
+  if (ui.unidadeTab) setUnidadeTab(ui.unidadeTab);
+  const detalhe = document.getElementById('filial-detalhe');
+  const pendBusca = document.getElementById('unidade-pend-busca');
+  if (pendBusca && ui.pendBusca) pendBusca.value = ui.pendBusca;
+  if (ui.pendFiltro) filtrarPendenciasUnidade(ui.pendFiltro);
+  const frotaTipo = document.getElementById('unidade-frota-tipo');
+  const frotaFiltro = document.getElementById('unidade-frota-filtro');
+  const frotaBusca = document.getElementById('unidade-frota-busca');
+  if (frotaTipo && ui.frotaTipo) frotaTipo.value = ui.frotaTipo;
+  if (frotaFiltro && ui.frotaFiltro) frotaFiltro.value = ui.frotaFiltro;
+  if (frotaBusca && ui.frotaBusca) frotaBusca.value = ui.frotaBusca;
+  if (ui.frotaFiltro || ui.frotaTipo || ui.frotaBusca) filtrarFrotaUnidade();
+}
+
+async function loadFiliais(opcoes = {}) {
+  if (opcoes.forcar && vooFiliais) {
+    try { await vooFiliais; } catch { /* a carga anterior já mostrou o erro */ }
+  } else if (vooFiliais) {
+    return vooFiliais;
+  }
+  const exec = executarCargaFiliais(opcoes).finally(() => {
+    if (vooFiliais === exec) vooFiliais = null;
+  });
+  vooFiliais = exec;
+  return exec;
+}
+
+async function executarCargaFiliais({ forcar = false } = {}) {
   if (!isGestao()) return;
+  const chave = chaveMemoriaFiliais(currentUser);
+  const view = document.getElementById('view-filiais');
+  const salvo = memoriaFiliais.ler(chave);
+  const telaPronta = view?.dataset.memoriaFiliais === chave;
+  if (!forcar && salvo && telaPronta) {
+    let redeOk = true;
+    let revisaoAtual = null;
+    try {
+      const selo = await fetchJSON(`${API}/filiais/revisao`);
+      revisaoAtual = selo?.revisao || null;
+    } catch {
+      redeOk = false;
+    }
+    const decisao = decidirCargaFiliais({
+      salvo,
+      revisaoAtual,
+      redeOk,
+      telaPronta,
+    });
+    if (decisao === 'reusar') return;
+    if (decisao === 'erro-rede') {
+      toast('Não foi possível confirmar se as unidades ainda estão atualizadas.', 'error');
+      return;
+    }
+  }
+  const ui = capturarUiFiliais();
   try {
     if (isGerente() && !isAdmin()) {
       const filiaisLeve = await fetchJSON(`${API}/filiais?leve=1`);
       filiaisCache = filiaisLeve;
       if (filiaisLeve.length === 1) {
+        const antes = await fetchJSON(`${API}/filiais/revisao`).catch(() => null);
         await abrirDetalheFilial(filiaisLeve[0].id);
+        restaurarUiFiliais(ui);
+        const depois = await fetchJSON(`${API}/filiais/revisao`).catch(() => null);
+        if (antes?.revisao && antes.revisao === depois?.revisao) {
+          memoriaFiliais.gravar(chave, { revisao: antes.revisao });
+          if (view) view.dataset.memoriaFiliais = chave;
+        }
         return;
       }
     }
-    const [filiais, compras, diagnostico] = await Promise.all([
-      fetchJSON(`${API}/filiais`),
-      fetchJSON(`${API}/filiais/compras/consolidado`),
-      fetchJSON(`${API}/filiais/diagnostico-executivo`).catch(() => null),
+    const [respFiliais, respCompras, respDiag] = await Promise.all([
+      fetchJSON(`${API}/filiais`, { devolverMeta: true }),
+      fetchJSON(`${API}/filiais/compras/consolidado`, { devolverMeta: true }),
+      fetchJSON(`${API}/filiais/diagnostico-executivo`, { devolverMeta: true }).catch(() => null),
     ]);
+    const filiais = respFiliais.dados;
+    const compras = respCompras.dados;
+    const diagnostico = respDiag?.dados || null;
     filiaisCache = filiais;
     guardarDiagnosticoExecutivo(diagnostico);
+    if (respDiag) {
+      const revisao = seloComum([respFiliais.revisao, respCompras.revisao, respDiag.revisao]);
+      if (revisao) {
+        memoriaFiliais.gravar(chave, { revisao, filiais, compras, diagnostico });
+        if (view) view.dataset.memoriaFiliais = chave;
+      }
+    }
     if (isGerente() && !isAdmin() && filiais.length === 1) {
       await abrirDetalheFilial(filiais[0].id);
       return;
@@ -5804,6 +5914,10 @@ async function loadFiliais() {
         abrirModalExcluirFilial(btn.dataset.id, btn.dataset.nome, btn.dataset.codigo);
       });
     });
+    if (ui?.filialId && filiais.some((f) => String(f.id) === String(ui.filialId))) {
+      await abrirDetalheFilial(ui.filialId);
+      restaurarUiFiliais(ui);
+    }
   } catch (err) {
     toast(err.message, 'error');
   }
