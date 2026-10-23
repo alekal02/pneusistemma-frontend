@@ -3,6 +3,14 @@
  * Não recalcula sulco, validade nem situação.
  */
 import { svgMiniCaminhao } from './truck-diagram.js';
+import {
+  INTERVALO_ATUALIZACAO_PRESIDENTE_MS,
+  assinaturaPainel,
+  deveIniciarAtualizacao,
+  efeitoFalhaRede,
+  podeAtualizarPainel,
+  respostaAindaVale,
+} from './atualizacao-presidente.js';
 
 const CORES = {
   ok: '#15803d',
@@ -33,6 +41,7 @@ const state = {
   erroEvolucao: '',
   carregando: false,
   carregandoEvolucao: false,
+  atualizando: false,
   detalhe: null,
   filialAberta: null,
   filtrosAntesDaFrota: null,
@@ -46,6 +55,8 @@ const state = {
 let deps = null;
 let seq = 0;
 let shellPronto = false;
+let relogioPainel = null;
+let ultimoInicio = 0;
 
 export function initPresidente(opcoes) {
   deps = opcoes;
@@ -62,6 +73,8 @@ export function abrirPainelPresidente(painel) {
     state.ponto = null;
   }
   garantirShell();
+  garantirRelogio();
+  if (!ultimoInicio) ultimoInicio = Date.now();
   renderConteudo();
   if (!state.resumo && !state.carregando) carregar();
   else if (precisaLista()) carregarDetalhe();
@@ -184,8 +197,187 @@ function query() {
   return q.toString();
 }
 
+function contextoAtual() {
+  return {
+    seq,
+    consulta: query(),
+    painel: state.painel,
+    pagina: state.pagina,
+    foco: state.foco,
+    filialAberta: state.filialAberta,
+  };
+}
+
+function painelVisivel() {
+  const view = document.getElementById('view-presidente');
+  return Boolean(view?.classList.contains('active') && deps?.podeVer?.());
+}
+
+function emEdicao() {
+  const ativo = document.activeElement;
+  if (!ativo || ativo === document.body) return false;
+  if (ativo.closest?.('#px-filtros')) return true;
+  if (ativo.closest?.('dialog,[role="dialog"]')) return true;
+  const tag = ativo.tagName;
+  if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return true;
+  return Boolean(ativo.isContentEditable);
+}
+
+function opcoesIguais(opcoes) {
+  const filial = document.getElementById('px-filial');
+  const tipo = document.getElementById('px-tipo');
+  if (!filial || !tipo || !opcoes) return true;
+  const ids = ['', ...(opcoes.filiais || []).map((f) => String(f.id))].join('|');
+  const atuais = [...filial.options].map((o) => o.value).join('|');
+  const tipos = ['', ...(opcoes.tipos || []).map((t) => String(t.codigo))].join('|');
+  const tiposAtuais = [...tipo.options].map((o) => o.value).join('|');
+  return ids === atuais && tipos === tiposAtuais;
+}
+
+function marcarAtualizacao(aviso) {
+  const sub = document.querySelector('#px-root .px-sub');
+  if (!sub) return;
+  if (!aviso) {
+    if (sub.dataset.aviso === '1') {
+      sub.textContent = 'Situação atual da operação';
+      delete sub.dataset.aviso;
+    }
+    return;
+  }
+  sub.dataset.aviso = '1';
+  sub.textContent = aviso;
+}
+
+function redesenharConteudo() {
+  const box = document.getElementById('px-conteudo');
+  const rolagemBox = box ? box.scrollTop : 0;
+  const rolagemJanela = window.scrollY;
+  renderConteudo();
+  const deNovo = document.getElementById('px-conteudo');
+  if (deNovo) deNovo.scrollTop = rolagemBox;
+  window.scrollTo(0, rolagemJanela);
+}
+
+function garantirRelogio() {
+  if (relogioPainel != null) return;
+  relogioPainel = setInterval(() => { void tickAtualizacao(true); }, INTERVALO_ATUALIZACAO_PRESIDENTE_MS);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible') void tickAtualizacao(false);
+  });
+}
+
+function tickAtualizacao(disparoRelogio) {
+  const pode = podeAtualizarPainel({
+    visivel: painelVisivel(),
+    oculto: document.visibilityState === 'hidden',
+    editando: emEdicao(),
+    carregando: state.carregando,
+    carregandoEvolucao: state.carregandoEvolucao,
+  });
+  if (!deveIniciarAtualizacao({
+    pode,
+    emAndamento: state.atualizando,
+    desdeUltimaMs: Date.now() - ultimoInicio,
+    intervaloMs: INTERVALO_ATUALIZACAO_PRESIDENTE_MS,
+    disparoRelogio,
+  })) return;
+  void atualizarEmSilencio();
+}
+
+async function atualizarEmSilencio() {
+  if (state.atualizando || !deps?.fetchJSON) return;
+  const capturado = contextoAtual();
+  state.atualizando = true;
+  ultimoInicio = Date.now();
+  const q = capturado.consulta;
+  let aviso = '';
+  try {
+    const [resumoRes, diagRes] = await Promise.all([
+      deps.fetchJSON(`${deps.api}/presidente/visao?${q}`).then((v) => ({ ok: true, v }), (err) => ({ ok: false, err })),
+      deps.fetchJSON(`${deps.api}/presidente/diagnostico-filiais?${q}`).then((v) => ({ ok: true, v }), (err) => ({ ok: false, err })),
+    ]);
+    if (!respostaAindaVale(capturado, contextoAtual()) || emEdicao()) return;
+    if (!resumoRes.ok) {
+      const efeito = efeitoFalhaRede({ tinhaResumo: Boolean(state.resumo) });
+      if (efeito.manterTela) marcarAtualizacao(efeito.aviso);
+      return;
+    }
+    const mudouResumo = assinaturaPainel(state.resumo) !== assinaturaPainel(resumoRes.v);
+    const mudouDiag = diagRes.ok && assinaturaPainel(state.diagnostico) !== assinaturaPainel(diagRes.v);
+    if (mudouResumo) state.resumo = resumoRes.v;
+    if (mudouDiag) {
+      state.diagnostico = diagRes.v;
+      state.erroDiagnostico = '';
+    }
+    if (mudouResumo && !opcoesIguais(resumoRes.v?.opcoes)) preencherOpcoes(resumoRes.v.opcoes);
+    if (mudouResumo || mudouDiag) redesenharConteudo();
+    if (!diagRes.ok) aviso = 'Não foi possível atualizar o diagnóstico das filiais. Os demais dados continuam na tela.';
+
+    const evolucaoOk = await atualizarEvolucaoSilencio(capturado);
+    if (!evolucaoOk) aviso = aviso || 'Não foi possível atualizar a evolução. Os indicadores na tela continuam os últimos recebidos.';
+    if (precisaLista()) {
+      const detalheOk = await atualizarDetalheSilencio(capturado);
+      if (!detalheOk) aviso = aviso || 'Não foi possível atualizar a lista. Os indicadores na tela continuam os últimos recebidos.';
+    }
+    if (respostaAindaVale(capturado, contextoAtual())) marcarAtualizacao(aviso);
+  } catch {
+    if (!respostaAindaVale(capturado, contextoAtual())) return;
+    const efeito = efeitoFalhaRede({ tinhaResumo: Boolean(state.resumo) });
+    if (efeito.manterTela) marcarAtualizacao(efeito.aviso);
+  } finally {
+    state.atualizando = false;
+  }
+}
+
+async function atualizarEvolucaoSilencio(capturado) {
+  try {
+    const data = await deps.fetchJSON(`${deps.api}/presidente/evolucao?${capturado.consulta}`);
+    if (!respostaAindaVale(capturado, contextoAtual()) || emEdicao()) return true;
+    if (assinaturaPainel(state.evolucao) === assinaturaPainel(data.evolucao)) return true;
+    state.evolucao = data.evolucao;
+    state.erroEvolucao = data.evolucao?.erro || '';
+    pintarEvolucao();
+    return true;
+  } catch {
+    return !respostaAindaVale(capturado, contextoAtual());
+  }
+}
+
+async function atualizarDetalheSilencio(capturado) {
+  const q = new URLSearchParams(capturado.consulta);
+  const mapa = {
+    frota: ['frota', ''],
+    pneus: ['pneus', capturado.foco || 'montados'],
+    alertas: ['alertas', capturado.foco || 'veiculos_criticos'],
+    filial: ['frota', ''],
+  };
+  const [recorte, foco] = mapa[capturado.painel] || ['pneus', ''];
+  if (capturado.painel === 'frota') q.set('limite', '80');
+  q.set('recorte', recorte);
+  if (foco) q.set('foco', foco);
+  if (capturado.painel === 'frota' && capturado.filialAberta) {
+    q.set('filial_id', String(capturado.filialAberta));
+    q.set('filial_foco', String(capturado.filialAberta));
+  } else if (capturado.filialAberta) {
+    q.set('filial_foco', String(capturado.filialAberta));
+  }
+  q.set('pagina', String(capturado.pagina || 1));
+  if (!q.has('limite')) q.set('limite', '40');
+  try {
+    const detalhe = await deps.fetchJSON(`${deps.api}/presidente/detalhe?${q}`);
+    if (!respostaAindaVale(capturado, contextoAtual()) || emEdicao()) return true;
+    if (assinaturaPainel(state.detalhe) === assinaturaPainel(detalhe)) return true;
+    state.detalhe = detalhe;
+    redesenharConteudo();
+    return true;
+  } catch {
+    return !respostaAindaVale(capturado, contextoAtual());
+  }
+}
+
 async function carregar() {
   const id = ++seq;
+  ultimoInicio = Date.now();
   state.carregando = true;
   state.carregandoEvolucao = true;
   state.erroResumo = '';
@@ -213,6 +405,7 @@ async function carregar() {
   } catch (err) {
     if (id !== seq) return;
     state.carregando = false;
+    state.carregandoEvolucao = false;
     state.resumo = null;
     state.diagnostico = null;
     state.erroResumo = err.message || 'Falha ao carregar a visão.';

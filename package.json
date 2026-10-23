@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "test:frota-pagina": "node scripts/test-frota-pagina.mjs",
-    "test:abertura": "node scripts/test-abertura-tela.mjs"
+    "test:abertura": "node scripts/test-abertura-tela.mjs",
+    "test:atualizacao-presidente": "node scripts/test-atualizacao-presidente.mjs"
   },
   "license": "MIT",
   "devDependencies": {
