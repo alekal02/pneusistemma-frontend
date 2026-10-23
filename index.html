@@ -9,7 +9,7 @@
   <link href="https://fonts.googleapis.com/css2?family=Barlow:wght@500;600;700&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><circle cx='50' cy='50' r='42' fill='%23145223'/><circle cx='50' cy='50' r='18' fill='%232d8a3e'/><circle cx='50' cy='50' r='8' fill='%23e8f5e9'/></svg>">
   <style>
-    /* Evita flash do login enquanto restaura sessão do localStorage */
+    /* Evita flash do login enquanto a aba ainda tem sessão */
     html.session-pending #app-login { display: none !important; }
     html.session-pending:not(.app-ready) #app-boot { display: grid; }
     #app-boot {
@@ -42,8 +42,9 @@
   </style>
   <script>
     (function () {
+      try { localStorage.removeItem('pneu_auth'); } catch (e) { /* ignore */ }
       try {
-        var raw = localStorage.getItem('pneu_auth');
+        var raw = sessionStorage.getItem('pneu_auth');
         if (!raw) return;
         var data = JSON.parse(raw);
         if (data && data.token) document.documentElement.classList.add('session-pending');

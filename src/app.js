@@ -2,6 +2,14 @@ import { TireMarker } from './tire-marker.js';
 import { TruckDiagram, renderLayoutPreview, svgMiniCaminhao } from './truck-diagram.js';
 import { renderPerfilSulco } from './perfil-sulco.js';
 import { initPresidente, abrirPainelPresidente } from './presidente.js';
+import {
+  avisoEncerraEstaAba,
+  descartarTokenLegado,
+  gravarSessaoAba,
+  lerSessaoAba,
+  limparSessaoAba,
+  sidDoToken,
+} from './auth-sessao.js';
 
 /** Normaliza VITE_API_URL — em prod precisa terminar com /api */
 function resolveApiBase() {
@@ -15,7 +23,7 @@ function resolveApiBase() {
 }
 
 const API = resolveApiBase();
-const AUTH_KEY = 'pneu_auth';
+const canalAuth = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('pneu_auth') : null;
 
 let meta = { posicoes: {}, tipos: [], layouts: [], layout_padrao: 'truck_10' };
 let veiculoLayoutId = null;
@@ -237,26 +245,26 @@ let limitesAtuais = {
 const LIMITES_PADRAO = { ...limitesAtuais };
 
 function loadAuth() {
-  try {
-    const raw = localStorage.getItem(AUTH_KEY);
-    if (!raw) return null;
-    return JSON.parse(raw);
-  } catch {
-    return null;
-  }
+  descartarTokenLegado(localStorage);
+  return lerSessaoAba(sessionStorage);
 }
 
 function saveAuth(token, usuario) {
   authToken = token;
   currentUser = usuario;
-  localStorage.setItem(AUTH_KEY, JSON.stringify({ token, usuario }));
+  gravarSessaoAba(sessionStorage, localStorage, token, usuario);
 }
 
 function clearAuth() {
   authToken = null;
   currentUser = null;
   configuracoesEmSessao = null;
-  localStorage.removeItem(AUTH_KEY);
+  limparSessaoAba(sessionStorage, localStorage);
+}
+
+function avisarLogout(sid) {
+  if (!sid) return;
+  try { canalAuth?.postMessage({ tipo: 'logout', sid }); } catch { /* ignore */ }
 }
 
 function isPresidente() {
@@ -344,7 +352,9 @@ async function fetchJSON(url, options = {}) {
     // Erros do WuzAPI/WhatsApp nunca devem derrubar a sessão do app
     const isWhatsappProxy = url.includes('/whatsapp/');
     if (!isLogin && !isAcessoRapido && !isWhatsappProxy) {
+      const sid = sidDoToken(authToken);
       clearAuth();
+      avisarLogout(sid);
       showLogin();
     }
     throw new Error(data.erro || (isLogin ? 'Login ou senha inválidos' : 'Sessão expirada — faça login novamente'));
@@ -943,11 +953,41 @@ document.querySelectorAll('.tab').forEach((tab) => {
   });
 });
 
-document.getElementById('btn-logout')?.addEventListener('click', () => {
+canalAuth?.addEventListener('message', (ev) => {
+  if (ev.data?.tipo !== 'logout') return;
+  if (!avisoEncerraEstaAba(sidDoToken(authToken), ev.data.sid)) return;
   clearAuth();
   showLogin();
   toast('Sessão encerrada');
 });
+
+document.getElementById('btn-logout')?.addEventListener('click', () => {
+  encerrarSessao();
+});
+
+async function encerrarSessao() {
+  const sid = sidDoToken(authToken);
+  const token = authToken;
+  if (token) {
+    try {
+      await fetch(`${API}/auth/logout`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}`,
+        },
+        body: '{}',
+        keepalive: true,
+      });
+    } catch {
+      /* A aba sai mesmo se o servidor não responder. A sessão remota vence por ociosidade. */
+    }
+  }
+  clearAuth();
+  avisarLogout(sid);
+  showLogin();
+  toast('Sessão encerrada');
+}
 
 document.getElementById('form-login')?.addEventListener('submit', async (e) => {
   e.preventDefault();
