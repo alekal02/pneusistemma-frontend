@@ -7,7 +7,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test:frota-pagina": "node scripts/test-frota-pagina.mjs"
+    "test:frota-pagina": "node scripts/test-frota-pagina.mjs",
+    "test:abertura": "node scripts/test-abertura-tela.mjs"
   },
   "license": "MIT",
   "devDependencies": {

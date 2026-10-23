@@ -3,6 +3,7 @@ import { TruckDiagram, renderLayoutPreview, svgMiniCaminhao } from './truck-diag
 import { renderPerfilSulco } from './perfil-sulco.js';
 import { initPresidente, abrirPainelPresidente } from './presidente.js';
 import { criarCacheAbas, tamanhoLoteDesenho, tamanhoPaginaLista } from './frota-pagina.js';
+import { filaPorChave, filaUnica, pintarSemBloquearDesenhos, planoAbertura } from './abertura-tela.js';
 import {
   avisoEncerraEstaAba,
   descartarTokenLegado,
@@ -222,6 +223,14 @@ let filiaisCache = [];
 let tireMarker = null;
 let limitesPainelBackup = null;
 let configuracoesEmSessao = null;
+const filaConfiguracoes = filaUnica();
+const filaMeta = filaUnica();
+const filaDashboard = filaPorChave();
+let geracaoDashboard = 0;
+let dashCargaSeq = 0;
+let pinturaSeq = 0;
+let idsDesenhoDestaPintura = [];
+const desenhosEmVoo = new Map();
 let veiculoDetalheSeq = 0;
 let limitesAtuais = {
   sulco_critico_mm: 3.0,
@@ -259,6 +268,9 @@ function clearAuth() {
   authToken = null;
   currentUser = null;
   configuracoesEmSessao = null;
+  geracaoDashboard += 1;
+  dashCargaSeq += 1;
+  pinturaSeq += 1;
   limparSessaoAba(sessionStorage, localStorage);
 }
 
@@ -445,12 +457,18 @@ function mostrarBotaoGerarFogo(visivel) {
 
 async function fetchConfiguracoes() {
   if (configuracoesEmSessao) return configuracoesEmSessao;
-  try {
-    configuracoesEmSessao = await fetchJSON(`${API}/configuracoes`);
-    return configuracoesEmSessao;
-  } catch {
-    return { ...LIMITES_PADRAO };
-  }
+  return filaConfiguracoes(async () => {
+    if (configuracoesEmSessao) return configuracoesEmSessao;
+    const tokenNaHora = authToken;
+    try {
+      const data = await fetchJSON(`${API}/configuracoes`);
+      if (authToken !== tokenNaHora) return { ...LIMITES_PADRAO };
+      configuracoesEmSessao = data;
+      return data;
+    } catch {
+      return { ...LIMITES_PADRAO };
+    }
+  });
 }
 
 function toast(msg, type = '') {
@@ -897,7 +915,10 @@ document.querySelectorAll('.tab').forEach((tab) => {
       return;
     }
     showView(view);
-    if (view === 'dashboard' && !cacheAbas.pronta(chaveAbaDashboard())) loadDashboard();
+    if (view === 'dashboard') {
+      if (!cacheAbas.pronta(chaveAbaDashboard())) loadDashboard();
+      else retomarDesenhosPendentes();
+    }
     if (view === 'veiculos' && !cacheAbas.pronta(chaveAbaVeiculos())) loadVeiculos();
     if (view === 'pneus' && !cacheAbas.pronta(chaveAbaPneus())) loadPneus();
     if (view === 'medicao') initMedicao();
@@ -1176,14 +1197,16 @@ function renderLogMedicoes(logs) {
   `).join('');
 }
 
-function renderCardCaminhaoFrota(v, { pendente = false, atrasado = false, eHoje = false, diaTxt = '', dataMed = '', posTxt = '', mostrarMedir = false } = {}) {
+function renderCardCaminhaoFrota(v, { pendente = false, atrasado = false, eHoje = false, diaTxt = '', dataMed = '', posTxt = '', mostrarMedir = false, desenhoPendente = false } = {}) {
   const layout = getLayoutById(v.layout_pneus);
   const posicoes = layout?.posicoes || (v.pneus || []).map((p) => p.posicao);
-  const mini = svgMiniCaminhao({
-    layoutId: v.layout_pneus,
-    posicoes,
-    pneus: v.pneus || [],
-  });
+  const mini = desenhoPendente && !layout && !(v.pneus || []).length
+    ? '<p class="hint">Desenho em seguida</p>'
+    : svgMiniCaminhao({
+      layoutId: v.layout_pneus,
+      posicoes,
+      pneus: v.pneus || [],
+    });
   const cadastroPendente = ehCadastroPendente(v);
   const statusSemana = cadastroPendente
     ? '<span class="badge badge-cadastro_pendente">Cadastro pendente</span>'
@@ -1197,6 +1220,7 @@ function renderCardCaminhaoFrota(v, { pendente = false, atrasado = false, eHoje 
   return `
     <article class="veiculo-card veiculo-item frota-truck-card${pendente ? ' veiculo-card-pendente' : ''}${atrasado ? ' veiculo-card-atrasado' : ''}"
              data-id="${v.id}"
+             data-desenho="${desenhoPendente ? 'pendente' : 'pronto'}"
              data-cadastro-pendente="${cadastroPendente ? '1' : '0'}"
              data-status="${v.status_sulco || ''}"
              data-troca="${v.pendencias_troca || 0}"
@@ -1260,6 +1284,9 @@ function chaveAbaPneus() {
 
 function invalidarAbasOperacionais() {
   cacheAbas.invalidar();
+  geracaoDashboard += 1;
+  dashCargaSeq += 1;
+  pinturaSeq += 1;
   dashIndicePneus = null;
   dashDesenhosAte = 0;
   dashMedidosAte = 0;
@@ -1304,23 +1331,37 @@ async function garantirDesenhos(ids) {
     return v && !v._desenho;
   });
   if (!faltam.length) return;
-  const data = await fetchJSON(`${API}/dashboard/desenhos?ids=${faltam.join(',')}`);
-  const porId = new Map((data.veiculos || []).map((v) => [Number(v.id), v]));
-  for (const id of faltam) {
-    const v = (dashResumoAtual.veiculos || []).find((item) => Number(item.id) === Number(id));
-    if (!v) continue;
-    v.pneus = porId.get(Number(id))?.pneus || [];
-    v._desenho = true;
-  }
+  const chave = faltam.slice().sort((a, b) => a - b).join(',');
+  if (desenhosEmVoo.has(chave)) return desenhosEmVoo.get(chave);
+  const promessa = (async () => {
+    const data = await fetchJSON(`${API}/dashboard/desenhos?ids=${faltam.join(',')}`);
+    const porId = new Map((data.veiculos || []).map((v) => [Number(v.id), v]));
+    for (const id of faltam) {
+      const v = (dashResumoAtual.veiculos || []).find((item) => Number(item.id) === Number(id));
+      if (!v) continue;
+      v.pneus = porId.get(Number(id))?.pneus || [];
+      v._desenho = true;
+    }
+  })().finally(() => {
+    if (desenhosEmVoo.get(chave) === promessa) desenhosEmVoo.delete(chave);
+  });
+  desenhosEmVoo.set(chave, promessa);
+  return promessa;
 }
 
 async function garantirIndicePneus() {
   if (dashIndicePneus) return dashIndicePneus;
-  const base = `${API}/dashboard/resumo${queryTipo()}`;
-  const url = base.includes('?') ? `${base}&somente_indice=1` : `${base}?somente_indice=1`;
-  const data = await fetchJSON(url);
-  dashIndicePneus = data.indice || [];
-  return dashIndicePneus;
+  const tipoPedido = lerFiltroTipo();
+  const chave = `indice:${geracaoDashboard}:${tipoPedido}`;
+  return filaDashboard(chave, async () => {
+    if (dashIndicePneus && lerFiltroTipo() === tipoPedido) return dashIndicePneus;
+    const base = `${API}/dashboard/resumo${queryTipo(tipoPedido)}`;
+    const url = base.includes('?') ? `${base}&somente_indice=1` : `${base}?somente_indice=1`;
+    const data = await fetchJSON(url);
+    if (lerFiltroTipo() !== tipoPedido) return dashIndicePneus || [];
+    dashIndicePneus = data.indice || [];
+    return dashIndicePneus;
+  });
 }
 
 function bucketAcaoDashboard(codigo) {
@@ -1371,7 +1412,7 @@ function ordenarVeiculosSemana(lista, semana, diaUnidade) {
   });
 }
 
-function cardDashboardVeiculo(v, semana, diaUnidade) {
+function cardDashboardVeiculo(v, semana, diaUnidade, idsDesenho = null) {
   const classe = classeMedicaoSemana(v, semana, diaUnidade);
   const diaV = Number(v.dia_medicao) || diaUnidade || null;
   const dataMed = v.ultima_medicao
@@ -1379,6 +1420,7 @@ function cardDashboardVeiculo(v, semana, diaUnidade) {
     : 'Ainda sem medição';
   const nMed = Number(v.pneus_medidos) || 0;
   const nTot = Number(v.total_pneus) || 0;
+  const desenhoPendente = Boolean(idsDesenho?.has(Number(v.id)) && !v._desenho);
   return renderCardCaminhaoFrota(v, {
     pendente: classe !== 'medido',
     atrasado: classe === 'atrasado',
@@ -1387,6 +1429,7 @@ function cardDashboardVeiculo(v, semana, diaUnidade) {
     dataMed,
     posTxt: nTot ? `${nMed}/${nTot} posições` : 'Sem pneus',
     mostrarMedir: classe !== 'medido' && classe !== 'cadastro',
+    desenhoPendente,
   });
 }
 
@@ -1403,7 +1446,7 @@ function secaoVeiculosDash(titulo, itens, semana, diaUnidade, extra = '', idsDes
       <h3>${escapeHtml(titulo)} <span>${itens.length}</span></h3>
       ${extra}
       ${aviso}
-      <div class="frota-grid-inner">${visiveis.map((v) => cardDashboardVeiculo(v, semana, diaUnidade)).join('')}</div>
+      <div class="frota-grid-inner">${visiveis.map((v) => cardDashboardVeiculo(v, semana, diaUnidade, idsDesenho)).join('')}</div>
     </section>
   `;
 }
@@ -1420,7 +1463,7 @@ function registroDashboard({ id, buscaVeiculo, titulo, detalhe, extra }) {
   `;
 }
 
-async function pintarListaDashboard(resumo, veiculos) {
+function pintarListaDashboard(resumo, veiculos) {
   const lista = document.getElementById('dashboard-lista');
   if (!lista) return;
   const semana = semanaDoResumo(resumo);
@@ -1437,6 +1480,7 @@ async function pintarListaDashboard(resumo, veiculos) {
   if (String(qBusca).trim() && !String(dashFiltroAtivo).startsWith('semana:') && dashMedidosAte < dashDesenhosAte) {
     dashMedidosAte = dashDesenhosAte;
   }
+  idsDesenhoDestaPintura = [];
   if (resumo.pneus_omitidos && (dashFiltroAtivo === 'prioridade' || String(dashFiltroAtivo).startsWith('semana:'))) {
     const chavePre = String(dashFiltroAtivo).startsWith('semana:') ? String(dashFiltroAtivo).slice(7) : '';
     const fila = chavePre
@@ -1444,7 +1488,10 @@ async function pintarListaDashboard(resumo, veiculos) {
       : [...grupos.atrasado, ...grupos.hoje, ...grupos.pendente, ...grupos.cadastro];
     const ids = fila.slice(0, dashDesenhosAte).map((v) => Number(v.id));
     if (!chavePre) ids.push(...grupos.medido.slice(0, dashMedidosAte).map((v) => Number(v.id)));
-    await garantirDesenhos(ids);
+    idsDesenhoDestaPintura = ids.filter((id) => {
+      const v = veiculos.find((item) => Number(item.id) === Number(id));
+      return v && !v._desenho;
+    });
   }
   const setKpi = (id, valor) => {
     const el = document.getElementById(id);
@@ -1519,7 +1566,7 @@ async function pintarListaDashboard(resumo, veiculos) {
     }
     const medidosCards = grupos.medido
       .filter((v) => idsDesenho.has(Number(v.id)))
-      .map((v) => cardDashboardVeiculo(v, semana, diaUnidade))
+      .map((v) => cardDashboardVeiculo(v, semana, diaUnidade, idsDesenho))
       .join('');
     const maisMedidos = !chave && dashMedidosAte > 0 && dashMedidosAte < grupos.medido.length
       ? '<p class="hint"><button type="button" class="btn btn-ghost btn-sm" id="btn-mais-medidos">Mostrar mais medidos</button></p>'
@@ -1674,7 +1721,73 @@ function ligarListaDashboard() {
   });
 }
 
+function atualizarSvgsDaLista(ids) {
+  const lista = document.getElementById('dashboard-lista');
+  if (!lista || !dashResumoAtual) return;
+  const porId = new Map((dashResumoAtual.veiculos || []).map((v) => [Number(v.id), v]));
+  const alvos = ids?.length
+    ? ids
+    : [...lista.querySelectorAll('.frota-truck-card[data-id]')].map((el) => Number(el.dataset.id));
+  for (const id of alvos) {
+    const v = porId.get(Number(id));
+    if (!v?._desenho) continue;
+    const card = lista.querySelector(`.frota-truck-card[data-id="${id}"]`);
+    const slot = card?.querySelector('.frota-truck-svg');
+    if (!slot) continue;
+    const layout = getLayoutById(v.layout_pneus);
+    const posicoes = layout?.posicoes || (v.pneus || []).map((p) => p.posicao);
+    slot.innerHTML = svgMiniCaminhao({
+      layoutId: v.layout_pneus,
+      posicoes,
+      pneus: v.pneus || [],
+    });
+    card.dataset.desenho = 'pronto';
+  }
+}
+
+function retomarDesenhosPendentes() {
+  const lista = document.getElementById('dashboard-lista');
+  if (!lista || !dashResumoAtual?.pneus_omitidos) return;
+  const ids = [...lista.querySelectorAll('[data-desenho="pendente"]')]
+    .map((el) => Number(el.dataset.id))
+    .filter((id) => id > 0);
+  if (!ids.length) return;
+  const seq = pinturaSeq;
+  void pintarSemBloquearDesenhos({
+    pintar() {},
+    async desenhos() {
+      await garantirDesenhos(ids);
+      if (seq !== pinturaSeq) return;
+      atualizarSvgsDaLista(ids);
+    },
+  }).then((resultado) => {
+    if (seq !== pinturaSeq || resultado.desenhos) return;
+    setDashboardEstado('aviso', 'Indicadores disponíveis. Os desenhos desta fila não carregaram.');
+  });
+}
+
 async function pintarDashboard(resumo) {
+  const seq = ++pinturaSeq;
+  let ids = [];
+  const resultado = await pintarSemBloquearDesenhos({
+    pintar() {
+      pintarConteudoDashboard(resumo);
+      ids = idsDesenhoDestaPintura.slice();
+    },
+    async desenhos() {
+      if (!ids.length) return;
+      await garantirDesenhos(ids);
+      if (seq !== pinturaSeq) return;
+      atualizarSvgsDaLista(ids);
+    },
+  });
+  if (seq !== pinturaSeq) return;
+  if (!resultado.desenhos && !resumo.indicadores_parciais) {
+    setDashboardEstado('aviso', 'Indicadores disponíveis. Os desenhos desta fila não carregaram.');
+  }
+}
+
+function pintarConteudoDashboard(resumo) {
   const veiculos = Array.isArray(resumo.veiculos) ? resumo.veiculos : [];
   const hint = document.getElementById('dashboard-limites-hint');
   if (hint) hint.textContent = hintLimites();
@@ -1696,7 +1809,7 @@ async function pintarDashboard(resumo) {
       ? `Hoje é ${semana.diaHojeLabel}. Meta da frota: ${labelDiaSemana(diaUnidade)}.`
       : `Hoje é ${semana.diaHojeLabel}. Escolha o dia para conferir a semana.`;
   }
-  await pintarListaDashboard(resumo, veiculos);
+  pintarListaDashboard(resumo, veiculos);
   const logEl = document.getElementById('dashboard-log');
   if (logEl) logEl.innerHTML = renderLogMedicoes(resumo.logs_medicao || []);
   const decisaoEl = document.getElementById('dashboard-decisao');
@@ -1721,12 +1834,20 @@ async function pintarDashboard(resumo) {
 }
 
 async function loadDashboard() {
+  const chave = `${geracaoDashboard}:${chaveAbaDashboard()}`;
+  return filaDashboard(chave, () => carregarDashboardAgora());
+}
+
+async function carregarDashboardAgora() {
+  const seq = ++dashCargaSeq;
   setDashboardEstado('loading', 'Carregando prioridades…');
   try {
     const resumo = await fetchDashboardResumo();
+    if (seq !== dashCargaSeq) return;
     const veiculos = Array.isArray(resumo.veiculos)
       ? resumo.veiculos
       : await fetchJSON(`${API}/veiculos`);
+    if (seq !== dashCargaSeq) return;
     resumo.veiculos = veiculos;
     veiculosCache = veiculos;
     registrarTiposAvulsos(veiculos);
@@ -1735,6 +1856,7 @@ async function loadDashboard() {
     limitesAtuais = { ...limitesAtuais, ...resumo.limites };
     syncMarkersLimites();
     dashResumoAtual = resumo;
+    dashIndicePneus = null;
     restaurarBuscaFrota('dash-frota-busca');
     dashBuscaAplicada = document.getElementById('dash-frota-busca')?.value || '';
     dashDesenhosAte = tamanhoLoteDesenho(larguraTela());
@@ -1743,6 +1865,7 @@ async function loadDashboard() {
     if (!resumo.indicadores_parciais) setDashboardEstado('');
     await pintarDashboard(resumo);
   } catch (err) {
+    if (seq !== dashCargaSeq) return;
     setDashboardEstado('erro', err.message || 'Não foi possível carregar o dashboard.');
     const lista = document.getElementById('dashboard-lista');
     if (lista && !dashResumoAtual) {
@@ -4376,12 +4499,18 @@ function preencherCheckboxesPosicoes(containerId, selecionadas = []) {
 }
 
 async function carregarMetaVeiculos() {
-  if (!(meta.layouts?.length && meta.posicoes && Object.keys(meta.posicoes).length && meta.tipos_equipamento?.length)) {
-    const metaData = await fetchJSON(`${API}/veiculos/meta`);
-    meta = { ...meta, ...metaData };
+  if (meta.layouts?.length && meta.posicoes && Object.keys(meta.posicoes).length && meta.tipos_equipamento?.length) {
+    preencherSelectsTipo();
+    return meta;
   }
-  preencherSelectsTipo();
-  return meta;
+  return filaMeta(async () => {
+    if (!(meta.layouts?.length && meta.posicoes && Object.keys(meta.posicoes).length && meta.tipos_equipamento?.length)) {
+      const metaData = await fetchJSON(`${API}/veiculos/meta`);
+      meta = { ...meta, ...metaData };
+    }
+    preencherSelectsTipo();
+    return meta;
+  });
 }
 
 function aplicarTipoVeiculo(codigo, { layoutSalvo = null } = {}) {
@@ -8952,9 +9081,10 @@ async function baixarPdfSemanalUnidade(filialId) {
 async function loadRelatorioDiretoria() {
   if (!isAdmin()) return;
   try {
-    await carregarMetaVeiculos().catch(() => {});
-    preencherSelectsTipo();
-    const rel = await fetchJSON(`${API}/relatorios/diretoria${queryTipo()}`);
+    const [rel] = await Promise.all([
+      fetchJSON(`${API}/relatorios/diretoria${queryTipo()}`),
+      carregarMetaVeiculos().catch(() => {}).then(() => preencherSelectsTipo()),
+    ]);
     const c = rel.consolidado || {};
     document.getElementById('relatorio-resumo').innerHTML = `
       <div class="stat-card"><span class="stat-value">${c.filiais_ativas ?? 0}</span><span class="stat-label">Filiais</span></div>
@@ -9398,34 +9528,44 @@ async function bootAcessoRapido(token) {
   }
 }
 
+function aplicarLayoutsDoBoot() {
+  preencherSelectLayouts('v-layout', meta.layout_padrao, { soTruckToco: true });
+  preencherSelectLayouts('layout-select', meta.layout_padrao);
+  preencherCheckboxesPosicoes('layout-custom-checkboxes', getLayoutById(meta.layout_padrao)?.posicoes || []);
+}
+
 async function bootApp() {
   showAppShell();
-  if (isPresidente()) {
+  const papel = isPresidente() ? 'presidente' : isAdmin() ? 'admin' : isGerente() ? 'gerente' : 'filial';
+  const plano = planoAbertura(papel);
+  if (plano.tela === 'presidente') {
     showView('presidente', 'visao');
     return;
   }
-  try {
-    const config = await fetchConfiguracoes();
-    limitesAtuais = { ...limitesAtuais, ...config };
-    await carregarMetaVeiculos();
-    preencherSelectLayouts('v-layout', meta.layout_padrao, { soTruckToco: true });
-    preencherSelectLayouts('layout-select', meta.layout_padrao);
-    preencherCheckboxesPosicoes('layout-custom-checkboxes', getLayoutById(meta.layout_padrao)?.posicoes || []);
-
-    if (isAdmin()) {
-      showView('relatorios');
-      loadRelatorioDiretoria();
-      return;
-    }
-
-    if (isGerente()) {
-      showView('filiais');
-      loadFiliais();
-      return;
-    }
-
+  if (plano.tela === 'relatorios') {
+    showView('relatorios');
+    loadRelatorioDiretoria();
+  } else if (plano.tela === 'filiais') {
+    showView('filiais');
+    loadFiliais();
+  } else {
     showView('dashboard');
     loadDashboard();
+  }
+  try {
+    const [config] = await Promise.all([
+      fetchConfiguracoes(),
+      carregarMetaVeiculos().then(() => aplicarLayoutsDoBoot()),
+    ]);
+    limitesAtuais = {
+      ...limitesAtuais,
+      ...config,
+      ...(dashResumoAtual?.limites || {}),
+    };
+    syncMarkersLimites();
+    const hint = document.getElementById('dashboard-limites-hint');
+    if (hint && plano.tela === 'dashboard') hint.textContent = hintLimites();
+    if (plano.tela === 'dashboard') atualizarSvgsDaLista();
   } catch (err) {
     toast(err.message || 'Erro ao carregar o sistema', 'error');
   }
