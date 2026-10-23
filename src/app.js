@@ -2,6 +2,7 @@ import { TireMarker } from './tire-marker.js';
 import { TruckDiagram, renderLayoutPreview, svgMiniCaminhao } from './truck-diagram.js';
 import { renderPerfilSulco } from './perfil-sulco.js';
 import { initPresidente, abrirPainelPresidente } from './presidente.js';
+import { criarCacheAbas, tamanhoLoteDesenho, tamanhoPaginaLista } from './frota-pagina.js';
 import {
   avisoEncerraEstaAba,
   descartarTokenLegado,
@@ -23,6 +24,7 @@ function resolveApiBase() {
 }
 
 const API = resolveApiBase();
+const cacheAbas = criarCacheAbas();
 const canalAuth = typeof BroadcastChannel !== 'undefined' ? new BroadcastChannel('pneu_auth') : null;
 
 let meta = { posicoes: {}, tipos: [], layouts: [], layout_padrao: 'truck_10' };
@@ -152,16 +154,14 @@ function registrarTiposAvulsos(veiculos) {
   }
 }
 
-async function coletarTiposAvulsosDaFrota() {
-  if (tiposAvulsosColetaIniciada || currentUser?.papel !== 'filial') return;
+async function coletarTiposAvulsosDaFrota(listaPronta) {
+  if (currentUser?.papel !== 'filial') return;
+  const lista = listaPronta || (veiculosCache.length ? veiculosCache : null);
+  if (!lista) return;
+  if (tiposAvulsosColetaIniciada && !listaPronta) return;
   tiposAvulsosColetaIniciada = true;
-  try {
-    const lista = await fetchJSON(`${API}/veiculos`);
-    registrarTiposAvulsos(lista);
-    preencherSelectsTipo();
-  } catch {
-    tiposAvulsosColetaIniciada = false;
-  }
+  registrarTiposAvulsos(lista);
+  preencherSelectsTipo();
 }
 
 function opcoesFiltroTipo(extraValor) {
@@ -212,7 +212,7 @@ function aoMudarFiltroTipo(e) {
   }
   const view = document.querySelector('.view.active')?.id || '';
   if (view === 'view-dashboard') loadDashboard();
-  else if (view === 'view-veiculos') filtrarListasFrota('veiculos-busca');
+  else if (view === 'view-veiculos') loadVeiculos();
   else if (view === 'view-relatorios') loadRelatorioDiretoria();
   else if (view === 'view-filiais') filtrarFrotaUnidade();
 }
@@ -370,6 +370,10 @@ async function fetchJSON(url, options = {}) {
     err.data = data;
     err.status = resp.status;
     throw err;
+  }
+  const metodo = String(fetchOpts.method || 'GET').toUpperCase();
+  if (metodo !== 'GET' && metodo !== 'HEAD' && /\/(veiculos|pneus|dashboard|medicoes|frota)(\/|\?|$)/.test(String(url))) {
+    invalidarAbasOperacionais();
   }
   return data;
 }
@@ -893,9 +897,9 @@ document.querySelectorAll('.tab').forEach((tab) => {
       return;
     }
     showView(view);
-    if (view === 'dashboard') loadDashboard();
-    if (view === 'veiculos') loadVeiculos();
-    if (view === 'pneus') loadPneus();
+    if (view === 'dashboard' && !cacheAbas.pronta(chaveAbaDashboard())) loadDashboard();
+    if (view === 'veiculos' && !cacheAbas.pronta(chaveAbaVeiculos())) loadVeiculos();
+    if (view === 'pneus' && !cacheAbas.pronta(chaveAbaPneus())) loadPneus();
     if (view === 'medicao') initMedicao();
     if (view === 'alertas') loadAlertas();
     if (view === 'acoes') loadAcoes();
@@ -1035,8 +1039,10 @@ function setDashboardEstado(tipo, msg) {
 }
 
 async function fetchDashboardResumo() {
+  const base = `${API}/dashboard/resumo${queryTipo()}`;
+  const url = base.includes('?') ? `${base}&sem_pneus=1` : `${base}?sem_pneus=1`;
   try {
-    return await fetchJSON(`${API}/dashboard/resumo${queryTipo()}`);
+    return await fetchJSON(url);
   } catch (err) {
     try {
       const veiculos = await fetchJSON(`${API}/veiculos`);
@@ -1050,6 +1056,7 @@ async function fetchDashboardResumo() {
         pneus_sem_dado: null,
         acoes: {},
         indicadores_parciais: true,
+        pneus_omitidos: true,
         limites: limitesAtuais,
       };
     } catch {
@@ -1219,6 +1226,102 @@ function renderCardCaminhaoFrota(v, { pendente = false, atrasado = false, eHoje 
 
 let dashResumoAtual = null;
 let dashFiltroAtivo = 'prioridade';
+let dashDesenhosAte = 0;
+let dashMedidosAte = 0;
+let dashIndicePneus = null;
+let dashLinhasAte = 40;
+let dashBuscaAplicada = '';
+let veiculosListaItens = [];
+let veiculosListaTotal = 0;
+let veiculosListaPagina = 0;
+let veiculosListaSeq = 0;
+let pneusAcumulados = [];
+let pneusTotal = 0;
+let pneusPagina = 0;
+
+function larguraTela() {
+  return window.innerWidth || 1280;
+}
+
+function chaveAbaDashboard() {
+  return `dashboard:${lerFiltroTipo()}`;
+}
+
+function chaveAbaVeiculos() {
+  const q = document.getElementById('veiculos-busca')?.value?.trim() || '';
+  return `veiculos:${lerFiltroTipo()}:${q}`;
+}
+
+function chaveAbaPneus() {
+  const status = document.getElementById('pneus-filtro-status')?.value || 'estoque';
+  const q = document.getElementById('pneus-busca')?.value?.trim() || '';
+  return `pneus:${status}:${q}`;
+}
+
+function invalidarAbasOperacionais() {
+  cacheAbas.invalidar();
+  dashIndicePneus = null;
+  dashDesenhosAte = 0;
+  dashMedidosAte = 0;
+  veiculosCache = [];
+  const ativa = document.querySelector('.view.active')?.id;
+  if (ativa === 'view-dashboard') loadDashboard();
+  if (ativa === 'view-veiculos') loadVeiculos();
+  if (ativa === 'view-pneus') loadPneus();
+}
+
+function restaurarBuscaFrota(id) {
+  const el = document.getElementById(id);
+  if (!el || el.value) return;
+  const salva = lerBuscaFrota();
+  if (!salva) return;
+  el.value = salva;
+  atualizarBotaoLimpar(el);
+}
+
+function veiculoCombinaBuscaObjeto(v, qRaw) {
+  const q = normalizarBuscaPneu(qRaw);
+  if (!q) return true;
+  const hay = normalizarBuscaPneu(textoBuscaVeiculo(v));
+  if (hay.includes(q)) return true;
+  const compacta = compactarBuscaTexto(qRaw);
+  return Boolean(compacta) && compactarBuscaTexto(hay).includes(compacta);
+}
+
+function agruparVeiculosSemana(lista, semana, diaUnidade) {
+  const grupos = { atrasado: [], hoje: [], pendente: [], medido: [], cadastro: [] };
+  for (const v of lista) grupos[classeMedicaoSemana(v, semana, diaUnidade)].push(v);
+  for (const chave of Object.keys(grupos)) {
+    grupos[chave] = ordenarVeiculosSemana(grupos[chave], semana, diaUnidade);
+  }
+  return grupos;
+}
+
+async function garantirDesenhos(ids) {
+  if (!dashResumoAtual?.pneus_omitidos) return;
+  const faltam = ids.filter((id) => {
+    const v = (dashResumoAtual.veiculos || []).find((item) => Number(item.id) === Number(id));
+    return v && !v._desenho;
+  });
+  if (!faltam.length) return;
+  const data = await fetchJSON(`${API}/dashboard/desenhos?ids=${faltam.join(',')}`);
+  const porId = new Map((data.veiculos || []).map((v) => [Number(v.id), v]));
+  for (const id of faltam) {
+    const v = (dashResumoAtual.veiculos || []).find((item) => Number(item.id) === Number(id));
+    if (!v) continue;
+    v.pneus = porId.get(Number(id))?.pneus || [];
+    v._desenho = true;
+  }
+}
+
+async function garantirIndicePneus() {
+  if (dashIndicePneus) return dashIndicePneus;
+  const base = `${API}/dashboard/resumo${queryTipo()}`;
+  const url = base.includes('?') ? `${base}&somente_indice=1` : `${base}?somente_indice=1`;
+  const data = await fetchJSON(url);
+  dashIndicePneus = data.indice || [];
+  return dashIndicePneus;
+}
 
 function bucketAcaoDashboard(codigo) {
   if (codigo === 'troca' || codigo === 'substituir' || codigo === 'corte' || codigo === 'dano_lateral') return 'troca';
@@ -1287,13 +1390,20 @@ function cardDashboardVeiculo(v, semana, diaUnidade) {
   });
 }
 
-function secaoVeiculosDash(titulo, itens, semana, diaUnidade, extra = '') {
+function secaoVeiculosDash(titulo, itens, semana, diaUnidade, extra = '', idsDesenho = null) {
   if (!itens.length) return '';
+  const visiveis = idsDesenho
+    ? itens.filter((v) => idsDesenho.has(Number(v.id)))
+    : itens;
+  const aviso = idsDesenho && !visiveis.length
+    ? '<p class="hint">Os desenhos desta fila entram ao mostrar mais.</p>'
+    : '';
   return `
     <section class="dash-frota-sec">
       <h3>${escapeHtml(titulo)} <span>${itens.length}</span></h3>
       ${extra}
-      <div class="frota-grid-inner">${itens.map((v) => cardDashboardVeiculo(v, semana, diaUnidade)).join('')}</div>
+      ${aviso}
+      <div class="frota-grid-inner">${visiveis.map((v) => cardDashboardVeiculo(v, semana, diaUnidade)).join('')}</div>
     </section>
   `;
 }
@@ -1310,27 +1420,41 @@ function registroDashboard({ id, buscaVeiculo, titulo, detalhe, extra }) {
   `;
 }
 
-function pintarListaDashboard(resumo, veiculos) {
+async function pintarListaDashboard(resumo, veiculos) {
   const lista = document.getElementById('dashboard-lista');
   if (!lista) return;
   const semana = semanaDoResumo(resumo);
   const diaUnidade = Number(resumo.dia_medicao) || null;
-  const grupos = { atrasado: [], hoje: [], pendente: [], medido: [], cadastro: [] };
-  for (const v of veiculos) {
-    grupos[classeMedicaoSemana(v, semana, diaUnidade)].push(v);
+  const gruposKpi = agruparVeiculosSemana(veiculos, semana, diaUnidade);
+  const qBusca = document.getElementById('dash-frota-busca')?.value || '';
+  const fonteLista = String(qBusca).trim()
+    ? veiculos.filter((v) => veiculoCombinaBuscaObjeto(v, qBusca))
+    : veiculos;
+  const grupos = String(qBusca).trim()
+    ? agruparVeiculosSemana(fonteLista, semana, diaUnidade)
+    : gruposKpi;
+  if (dashDesenhosAte <= 0) dashDesenhosAte = tamanhoLoteDesenho(larguraTela());
+  if (String(qBusca).trim() && !String(dashFiltroAtivo).startsWith('semana:') && dashMedidosAte < dashDesenhosAte) {
+    dashMedidosAte = dashDesenhosAte;
   }
-  for (const chave of Object.keys(grupos)) {
-    grupos[chave] = ordenarVeiculosSemana(grupos[chave], semana, diaUnidade);
+  if (resumo.pneus_omitidos && (dashFiltroAtivo === 'prioridade' || String(dashFiltroAtivo).startsWith('semana:'))) {
+    const chavePre = String(dashFiltroAtivo).startsWith('semana:') ? String(dashFiltroAtivo).slice(7) : '';
+    const fila = chavePre
+      ? (grupos[chavePre] || [])
+      : [...grupos.atrasado, ...grupos.hoje, ...grupos.pendente, ...grupos.cadastro];
+    const ids = fila.slice(0, dashDesenhosAte).map((v) => Number(v.id));
+    if (!chavePre) ids.push(...grupos.medido.slice(0, dashMedidosAte).map((v) => Number(v.id)));
+    await garantirDesenhos(ids);
   }
   const setKpi = (id, valor) => {
     const el = document.getElementById(id);
     if (el) el.textContent = textoKpi(valor);
   };
   setKpi('stat-veiculos', resumo.veiculos_ativos ?? veiculos.filter((v) => !ehCadastroPendente(v)).length);
-  setKpi('stat-atrasado', grupos.atrasado.length);
-  setKpi('stat-hoje', grupos.hoje.length);
-  setKpi('stat-pendente', grupos.pendente.length);
-  setKpi('stat-medido', grupos.medido.length);
+  setKpi('stat-atrasado', gruposKpi.atrasado.length);
+  setKpi('stat-hoje', gruposKpi.hoje.length);
+  setKpi('stat-pendente', gruposKpi.pendente.length);
+  setKpi('stat-medido', gruposKpi.medido.length);
   setKpi('stat-ok', resumo.pneus_ok);
   setKpi('stat-alerta', resumo.pneus_alerta);
   setKpi('stat-critico', resumo.pneus_critico);
@@ -1371,34 +1495,58 @@ function pintarListaDashboard(resumo, veiculos) {
   if (filtro === 'prioridade' || filtro.startsWith('semana:')) {
     lista.dataset.contagem = 'veiculo';
     const chave = filtro.startsWith('semana:') ? filtro.slice(7) : '';
+    const idsDesenho = new Set();
+    const filaPrioridade = chave
+      ? (grupos[chave] || [])
+      : [...grupos.atrasado, ...grupos.hoje, ...grupos.pendente, ...grupos.cadastro];
+    filaPrioridade.slice(0, dashDesenhosAte).forEach((v) => idsDesenho.add(Number(v.id)));
+    if (!chave) {
+      grupos.medido.slice(0, dashMedidosAte).forEach((v) => idsDesenho.add(Number(v.id)));
+    }
     const blocos = [];
     if (!chave || chave === 'atrasado') {
       blocos.push(secaoVeiculosDash('Atrasados', grupos.atrasado, semana, diaUnidade,
-        '<p class="hint">O dia de medição deste veículo já passou nesta semana.</p>'));
+        '<p class="hint">O dia de medição deste veículo já passou nesta semana.</p>', idsDesenho));
     }
     if (!chave || chave === 'hoje') {
-      blocos.push(secaoVeiculosDash('Medir hoje', grupos.hoje, semana, diaUnidade));
+      blocos.push(secaoVeiculosDash('Medir hoje', grupos.hoje, semana, diaUnidade, '', idsDesenho));
     }
     if (!chave || chave === 'pendente') {
-      blocos.push(secaoVeiculosDash('Pendentes', grupos.pendente, semana, diaUnidade));
+      blocos.push(secaoVeiculosDash('Pendentes', grupos.pendente, semana, diaUnidade, '', idsDesenho));
     }
     if (!chave) {
-      blocos.push(secaoVeiculosDash('Cadastro pendente', grupos.cadastro, semana, diaUnidade));
+      blocos.push(secaoVeiculosDash('Cadastro pendente', grupos.cadastro, semana, diaUnidade, '', idsDesenho));
     }
+    const medidosCards = grupos.medido
+      .filter((v) => idsDesenho.has(Number(v.id)))
+      .map((v) => cardDashboardVeiculo(v, semana, diaUnidade))
+      .join('');
+    const maisMedidos = !chave && dashMedidosAte > 0 && dashMedidosAte < grupos.medido.length
+      ? '<p class="hint"><button type="button" class="btn btn-ghost btn-sm" id="btn-mais-medidos">Mostrar mais medidos</button></p>'
+      : '';
     const medidosHtml = grupos.medido.length
-      ? `<details class="dash-medidos"${chave === 'medido' ? ' open' : ''}>
+      ? `<details class="dash-medidos"${chave === 'medido' || dashMedidosAte > 0 ? ' open' : ''}>
           <summary>Medidos nesta semana <span>${grupos.medido.length}</span></summary>
-          <div class="frota-grid-inner">${grupos.medido.map((v) => cardDashboardVeiculo(v, semana, diaUnidade)).join('')}</div>
+          <div class="frota-grid-inner">${medidosCards}</div>
+          ${maisMedidos}
         </details>`
+      : '';
+    const totalFila = chave === 'medido' ? grupos.medido.length : filaPrioridade.length;
+    const desenhados = Math.min(dashDesenhosAte, totalFila);
+    const maisPrioridade = desenhados < totalFila
+      ? `<p class="hint lista-paginacao">${desenhados} de ${totalFila} desenhos <button type="button" class="btn btn-ghost btn-sm" id="btn-mais-desenhos">Mostrar mais</button></p>`
       : '';
     const mostrarMedidos = !chave || chave === 'medido';
     const vazio = !blocos.join('') && !(mostrarMedidos && medidosHtml);
     lista.innerHTML = `
       ${tituloFiltro ? `<div class="dash-lista-head"><h3>${escapeHtml(tituloFiltro)}</h3><button type="button" class="btn btn-ghost btn-sm" id="btn-dash-limpar-filtro">Ver prioridade da semana</button></div>` : '<h3 class="dash-lista-titulo">Prioridade da semana</h3>'}
       ${blocos.join('')}
+      ${chave === 'medido' ? '' : maisPrioridade}
       ${mostrarMedidos ? medidosHtml : ''}
+      ${chave === 'medido' ? maisPrioridade : ''}
       ${vazio ? '<div class="empty-state"><h3>Nenhum veículo neste filtro</h3><p>A frota completa continua em Frota.</p></div>' : ''}
     `;
+    atualizarContadorDashboard(qBusca, fonteLista.length, veiculos.length);
     return;
   }
 
@@ -1406,28 +1554,45 @@ function pintarListaDashboard(resumo, veiculos) {
     lista.dataset.contagem = 'pneu';
     const status = filtro.slice(6);
     const rows = [];
-    for (const v of veiculos) {
-      if (ehCadastroPendente(v)) continue;
-      for (const p of v.pneus || []) {
+    const usarIndice = Boolean(resumo.pneus_omitidos) && Array.isArray(dashIndicePneus);
+    if (usarIndice) {
+      for (const p of dashIndicePneus) {
+        const v = porVeiculo.get(Number(p.veiculo_id));
+        if (!v || ehCadastroPendente(v) || !veiculoCombinaBuscaObjeto(v, qBusca)) continue;
         const st = p.status_sulco || 'sem_dado';
         const casa = st === 'monitorar' ? 'alerta' : st;
         if (casa !== status) continue;
-        rows.push({ v, p, casa });
+        rows.push({ v, p });
+      }
+    } else {
+      for (const v of fonteLista) {
+        if (ehCadastroPendente(v)) continue;
+        for (const p of v.pneus || []) {
+          const st = p.status_sulco || 'sem_dado';
+          const casa = st === 'monitorar' ? 'alerta' : st;
+          if (casa !== status) continue;
+          rows.push({ v, p });
+        }
       }
     }
+    const visiveis = rows.slice(0, dashLinhasAte);
+    const maisLinhas = rows.length > visiveis.length
+      ? `<p class="hint lista-paginacao">${visiveis.length} de ${rows.length} <button type="button" class="btn btn-ghost btn-sm" id="btn-mais-linhas">Mostrar mais</button></p>`
+      : '';
     lista.innerHTML = `
       <div class="dash-lista-head">
         <h3>${escapeHtml(tituloFiltro || 'Pneus')} <span>${rows.length}</span></h3>
         <button type="button" class="btn btn-ghost btn-sm" id="btn-dash-limpar-filtro">Ver prioridade da semana</button>
       </div>
-      ${rows.length ? `<div class="dash-registros">${rows.map(({ v, p }) => registroDashboard({
+      ${visiveis.length ? `<div class="dash-registros">${visiveis.map(({ v, p }) => registroDashboard({
         id: v.id,
         buscaVeiculo: attrsBuscaVeiculo(v),
         titulo: escapeHtml(v.apelido || v.placa || '—'),
-        detalhe: `${escapeHtml(v.placa || '')} · ${escapeHtml(meta.posicoes?.[p.posicao] || p.posicao || '—')}`,
+        detalhe: `${escapeHtml(v.placa || '')} · ${escapeHtml(meta.posicoes?.[p.posicao] || p.posicao || '—')}${p.numero_fogo ? ` · fogo ${escapeHtml(p.numero_fogo)}` : ''}`,
         extra: `${p.menor_sulco != null ? `<strong>${p.menor_sulco} mm</strong>` : ''}${badge(p.status_sulco)}`,
-      })).join('')}</div>` : '<div class="empty-state"><h3>Nenhum pneu neste status</h3><p>O número do cartão vem do resumo da unidade.</p></div>'}
+      })).join('')}</div>${maisLinhas}` : '<div class="empty-state"><h3>Nenhum pneu neste status</h3><p>O número do cartão vem do resumo da unidade.</p></div>'}
     `;
+    atualizarContadorDashboard(qBusca, fonteLista.length, veiculos.length);
     return;
   }
 
@@ -1484,11 +1649,32 @@ function ligarListaDashboard() {
   });
   lista.querySelector('#btn-dash-limpar-filtro')?.addEventListener('click', () => {
     dashFiltroAtivo = 'prioridade';
+    dashDesenhosAte = tamanhoLoteDesenho(larguraTela());
+    dashMedidosAte = 0;
+    dashLinhasAte = 40;
     if (dashResumoAtual) pintarDashboard(dashResumoAtual);
+  });
+  lista.querySelector('#btn-mais-desenhos')?.addEventListener('click', () => {
+    dashDesenhosAte += tamanhoLoteDesenho(larguraTela());
+    pintarDashboard(dashResumoAtual);
+  });
+  lista.querySelector('#btn-mais-medidos')?.addEventListener('click', () => {
+    dashMedidosAte += tamanhoLoteDesenho(larguraTela());
+    pintarDashboard(dashResumoAtual);
+  });
+  lista.querySelector('#btn-mais-linhas')?.addEventListener('click', () => {
+    dashLinhasAte += 40;
+    pintarDashboard(dashResumoAtual);
+  });
+  lista.querySelector('.dash-medidos')?.addEventListener('toggle', () => {
+    const detalhes = lista.querySelector('.dash-medidos');
+    if (!detalhes?.open || dashMedidosAte > 0) return;
+    dashMedidosAte = tamanhoLoteDesenho(larguraTela());
+    pintarDashboard(dashResumoAtual);
   });
 }
 
-function pintarDashboard(resumo) {
+async function pintarDashboard(resumo) {
   const veiculos = Array.isArray(resumo.veiculos) ? resumo.veiculos : [];
   const hint = document.getElementById('dashboard-limites-hint');
   if (hint) hint.textContent = hintLimites();
@@ -1510,7 +1696,7 @@ function pintarDashboard(resumo) {
       ? `Hoje é ${semana.diaHojeLabel}. Meta da frota: ${labelDiaSemana(diaUnidade)}.`
       : `Hoje é ${semana.diaHojeLabel}. Escolha o dia para conferir a semana.`;
   }
-  pintarListaDashboard(resumo, veiculos);
+  await pintarListaDashboard(resumo, veiculos);
   const logEl = document.getElementById('dashboard-log');
   if (logEl) logEl.innerHTML = renderLogMedicoes(resumo.logs_medicao || []);
   const decisaoEl = document.getElementById('dashboard-decisao');
@@ -1531,7 +1717,7 @@ function pintarDashboard(resumo) {
       if (row.dataset.veiculoId) openVeiculoDetalhe(row.dataset.veiculoId, 'dashboard');
     });
   });
-  aplicarBuscaFrotaSalva('dash-frota-busca');
+  cacheAbas.marcar(chaveAbaDashboard());
 }
 
 async function loadDashboard() {
@@ -1545,12 +1731,17 @@ async function loadDashboard() {
     veiculosCache = veiculos;
     registrarTiposAvulsos(veiculos);
     preencherSelectsTipo();
-    coletarTiposAvulsosDaFrota();
+    coletarTiposAvulsosDaFrota(veiculos);
     limitesAtuais = { ...limitesAtuais, ...resumo.limites };
     syncMarkersLimites();
     dashResumoAtual = resumo;
+    restaurarBuscaFrota('dash-frota-busca');
+    dashBuscaAplicada = document.getElementById('dash-frota-busca')?.value || '';
+    dashDesenhosAte = tamanhoLoteDesenho(larguraTela());
+    dashMedidosAte = 0;
+    dashLinhasAte = 40;
     if (!resumo.indicadores_parciais) setDashboardEstado('');
-    pintarDashboard(resumo);
+    await pintarDashboard(resumo);
   } catch (err) {
     setDashboardEstado('erro', err.message || 'Não foi possível carregar o dashboard.');
     const lista = document.getElementById('dashboard-lista');
@@ -1561,11 +1752,21 @@ async function loadDashboard() {
   }
 }
 
-document.getElementById('dashboard-kpis')?.addEventListener('click', (e) => {
+document.getElementById('dashboard-kpis')?.addEventListener('click', async (e) => {
   const btn = e.target.closest('[data-dash-filtro]');
   if (!btn || !dashResumoAtual) return;
   dashFiltroAtivo = dashFiltroAtivo === btn.dataset.dashFiltro ? 'prioridade' : btn.dataset.dashFiltro;
-  pintarDashboard(dashResumoAtual);
+  dashDesenhosAte = tamanhoLoteDesenho(larguraTela());
+  dashMedidosAte = 0;
+  dashLinhasAte = 40;
+  try {
+    if (String(dashFiltroAtivo).startsWith('sulco:') && dashResumoAtual.pneus_omitidos) {
+      await garantirIndicePneus();
+    }
+    await pintarDashboard(dashResumoAtual);
+  } catch (err) {
+    toast(err.message, 'error');
+  }
   document.getElementById('dashboard-lista')?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 });
 
@@ -1577,20 +1778,26 @@ document.addEventListener('change', (e) => {
 let frotaBuscaTimer;
 function onInputBuscaFrota(e) {
   clearTimeout(frotaBuscaTimer);
-  frotaBuscaTimer = setTimeout(() => filtrarListasFrota(e.target.id), 60);
+  frotaBuscaTimer = setTimeout(() => {
+    Promise.resolve(filtrarListasFrota(e.target.id)).catch((err) => toast(err.message, 'error'));
+  }, 60);
 }
 ['dash-frota-busca', 'veiculos-busca'].forEach((id) => {
   const el = document.getElementById(id);
   if (!el) return;
   el.addEventListener('input', onInputBuscaFrota);
   el.addEventListener('search', () => filtrarListasFrota(id));
-  el.addEventListener('keydown', (ev) => {
+  el.addEventListener('keydown', async (ev) => {
     if (ev.key !== 'Enter') return;
     ev.preventDefault();
-    filtrarListasFrota(id);
-    const listaId = id === 'veiculos-busca' ? 'veiculos-lista' : 'dashboard-lista';
-    const view = id === 'veiculos-busca' ? 'veiculos' : 'dashboard';
-    abrirUnicoVeiculoBusca(listaId, view);
+    if (id === 'veiculos-busca') {
+      gravarBuscaFrota(el.value);
+      await loadVeiculos();
+      if (veiculosListaTotal === 1) abrirUnicoVeiculoBusca('veiculos-lista', 'veiculos');
+      return;
+    }
+    await filtrarListasFrota(id);
+    abrirUnicoVeiculoBusca('dashboard-lista', 'dashboard');
   });
 });
 ligarCamposBusca(document);
@@ -1612,20 +1819,49 @@ document.getElementById('dash-dia-medicao')?.addEventListener('change', async (e
 
 // ── Veículos ───────────────────────────────────────────
 
-async function loadVeiculos() {
+async function loadVeiculos({ mais = false } = {}) {
+  const seq = ++veiculosListaSeq;
+  restaurarBuscaFrota('veiculos-busca');
+  const lista = document.getElementById('veiculos-lista');
+  const q = document.getElementById('veiculos-busca')?.value?.trim() || '';
+  const tipo = lerFiltroTipo();
+  const limite = tamanhoPaginaLista(larguraTela());
+  const pagina = mais ? veiculosListaPagina + 1 : 1;
   try {
-    const veiculos = await fetchJSON(`${API}/veiculos`);
-    veiculosCache = veiculos;
-    registrarTiposAvulsos(veiculos);
+    const params = new URLSearchParams({
+      limite: String(limite),
+      pagina: String(pagina),
+    });
+    if (q) params.set('q', q);
+    if (tipo) params.set('tipo', tipo);
+    const data = await fetchJSON(`${API}/veiculos?${params}`);
+    if (seq !== veiculosListaSeq || !lista) return;
+    const lote = Array.isArray(data) ? data : (data.itens || []);
+    const total = Array.isArray(data) ? data.length : Number(data.total || 0);
+    if (!mais) veiculosListaItens = [];
+    veiculosListaItens = veiculosListaItens.concat(lote);
+    veiculosListaPagina = pagina;
+    veiculosListaTotal = total;
+    if (Array.isArray(data?.tipos)) registrarTiposAvulsos(data.tipos.map((tipoItem) => ({ tipo: tipoItem })));
+    registrarTiposAvulsos(lote);
     preencherSelectsTipo();
-    const lista = document.getElementById('veiculos-lista');
-
-    if (!veiculos.length) {
+    const contador = document.getElementById('veiculos-busca-count');
+    if (contador) {
+      if (!veiculosListaTotal) contador.textContent = '';
+      else if (q || tipo) contador.textContent = veiculosListaTotal === 1
+        ? '1 encontrado — Enter abre o veículo'
+        : `${veiculosListaItens.length} de ${veiculosListaTotal}`;
+      else contador.textContent = veiculosListaTotal === 1 ? '1 veículo' : `${veiculosListaItens.length} de ${veiculosListaTotal} veículos`;
+    }
+    if (!veiculosListaItens.length) {
       lista.innerHTML = '<div class="empty-state"><h3>Nenhum veículo</h3><p>Clique em "+ Novo Veículo" para começar</p></div>';
+      cacheAbas.marcar(chaveAbaVeiculos());
       return;
     }
-
-    lista.innerHTML = veiculos.map((v) => `
+    const maisHtml = veiculosListaItens.length < veiculosListaTotal
+      ? `<p class="hint lista-paginacao">${veiculosListaItens.length} de ${veiculosListaTotal} <button type="button" class="btn btn-ghost btn-sm" id="btn-mais-veiculos">Mostrar mais</button></p>`
+      : '';
+    lista.innerHTML = veiculosListaItens.map((v) => `
       <div class="veiculo-card" data-id="${v.id}" data-cadastro-pendente="${ehCadastroPendente(v) ? '1' : '0'}" ${attrsBuscaVeiculo(v)}>
         <div class="veiculo-info">
           <h4>${escapeHtml(v.apelido || v.placa)}</h4>
@@ -1638,7 +1874,7 @@ async function loadVeiculos() {
             : `<button class="btn btn-sm btn-primary btn-medir" data-id="${v.id}">Medir</button>`}
         </div>
       </div>
-    `).join('');
+    `).join('') + maisHtml;
 
     lista.querySelectorAll('.veiculo-card').forEach((card) => {
       card.addEventListener('click', (e) => {
@@ -1656,15 +1892,16 @@ async function loadVeiculos() {
         abrirConcluirCadastro(btn.dataset.id, 'veiculos');
       });
     });
-
     lista.querySelectorAll('.btn-medir').forEach((btn) => {
       btn.addEventListener('click', (e) => {
         e.stopPropagation();
         openVeiculoDetalhe(btn.dataset.id, 'veiculos');
       });
     });
-    aplicarBuscaFrotaSalva('veiculos-busca');
+    lista.querySelector('#btn-mais-veiculos')?.addEventListener('click', () => loadVeiculos({ mais: true }));
+    cacheAbas.marcar(chaveAbaVeiculos());
   } catch (err) {
+    if (seq !== veiculosListaSeq) return;
     toast(err.message, 'error');
   }
 }
@@ -2426,16 +2663,31 @@ function filtrarListasFrota(origemId) {
   gravarBuscaFrota(q);
   if (origem) atualizarBotaoLimpar(origem);
   sincronizarBuscasFrota(origem?.id, q);
-  aplicarBuscaListaVeiculos(
-    document.getElementById('dashboard-lista'),
-    q,
-    document.getElementById('dash-frota-busca-count'),
-  );
-  aplicarBuscaListaVeiculos(
-    document.getElementById('veiculos-lista'),
-    q,
-    document.getElementById('veiculos-busca-count'),
-  );
+  if (!origemId || origemId === 'veiculos-busca') {
+    if (document.getElementById('view-veiculos')?.classList.contains('active')) loadVeiculos();
+  }
+  if (!origemId || origemId === 'dash-frota-busca' || origemId === 'veiculos-busca') {
+    const atual = document.getElementById('dash-frota-busca')?.value || '';
+    if (atual !== dashBuscaAplicada) {
+      dashBuscaAplicada = atual;
+      dashDesenhosAte = tamanhoLoteDesenho(larguraTela());
+      dashMedidosAte = 0;
+    }
+    if (dashResumoAtual) return pintarDashboard(dashResumoAtual);
+  }
+  return null;
+}
+
+function atualizarContadorDashboard(q, encontrados, total) {
+  const el = document.getElementById('dash-frota-busca-count');
+  if (!el) return;
+  if (!String(q || '').trim()) {
+    el.textContent = total ? `${total} veículo${total === 1 ? '' : 's'}` : '';
+    return;
+  }
+  el.textContent = encontrados === 1
+    ? '1 encontrado — Enter abre o veículo'
+    : `${encontrados} de ${total}`;
 }
 
 function atualizarBotaoLimpar(input) {
@@ -3290,7 +3542,7 @@ document.getElementById('form-mover-frota')?.addEventListener('submit', (e) => {
 // ── Aba Pneus (estoque) ─────────────────────────────────
 
 let pneusListaSeq = 0;
-async function loadPneus() {
+async function loadPneus({ mais = false } = {}) {
   const seq = ++pneusListaSeq;
   const status = document.getElementById('pneus-filtro-status')?.value || 'estoque';
   const q = document.getElementById('pneus-busca')?.value?.trim() || '';
@@ -3298,11 +3550,20 @@ async function loadPneus() {
   try {
     const params = new URLSearchParams({ status });
     if (q) params.set('q', q);
-    const pneus = await fetchJSON(`${API}/pneus?${params}`);
+    params.set('limite', String(tamanhoPaginaLista(larguraTela())));
+    params.set('pagina', String(mais ? pneusPagina + 1 : 1));
+    const data = await fetchJSON(`${API}/pneus?${params}`);
     if (seq !== pneusListaSeq) return;
     const statusAtual = document.getElementById('pneus-filtro-status')?.value || 'estoque';
     const qAtual = document.getElementById('pneus-busca')?.value?.trim() || '';
     if (statusAtual !== status || qAtual !== q || !lista) return;
+    const lote = Array.isArray(data) ? data : (data.itens || []);
+    const total = Array.isArray(data) ? data.length : Number(data.total || 0);
+    if (!mais) pneusAcumulados = [];
+    pneusAcumulados = pneusAcumulados.concat(lote);
+    pneusPagina = mais ? pneusPagina + 1 : 1;
+    pneusTotal = total;
+    const pneus = pneusAcumulados;
     if (!pneus.length) {
       const vazioDescarte = status === 'descarte';
       const vazioRecap = status === 'recapagem';
@@ -3315,8 +3576,12 @@ async function loadPneus() {
               ? 'Nenhum pneu em processo de recapagem no momento.'
               : 'Cadastre pneus no estoque e depois monte no caminhão para medir.'}</p>
         </div>`;
+      cacheAbas.marcar(chaveAbaPneus());
       return;
     }
+    const maisPneus = pneus.length < pneusTotal
+      ? `<p class="hint lista-paginacao">${pneus.length} de ${pneusTotal} <button type="button" class="btn btn-ghost btn-sm" id="btn-mais-pneus">Mostrar mais</button></p>`
+      : '';
     lista.innerHTML = pneus.map((p) => {
       const onde = p.status_pneu === 'montado'
         ? `${p.veiculo_placa || 'Veículo'}${p.posicao ? ` · ${p.posicao}` : ''}`
@@ -3377,7 +3642,7 @@ async function loadPneus() {
             <button type="button" class="btn btn-ghost btn-sm" data-hist-pneu="${p.id}">Histórico</button>
           </div>
         </article>`;
-    }).join('');
+    }).join('') + maisPneus;
 
     lista.querySelectorAll('[data-montar-pneu]').forEach((btn) => {
       btn.addEventListener('click', () => {
@@ -3432,6 +3697,8 @@ async function loadPneus() {
     lista.querySelectorAll('[data-hist-pneu]').forEach((btn) => {
       btn.addEventListener('click', () => abrirHistoricoPneu(parseInt(btn.dataset.histPneu, 10)));
     });
+    lista.querySelector('#btn-mais-pneus')?.addEventListener('click', () => loadPneus({ mais: true }));
+    cacheAbas.marcar(chaveAbaPneus());
   } catch (err) {
     if (seq !== pneusListaSeq || !lista) return;
     lista.innerHTML = `<p class="hint erro">${err.message}</p>`;
